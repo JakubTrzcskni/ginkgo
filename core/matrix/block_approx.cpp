@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -60,7 +60,7 @@ GKO_REGISTER_OPERATION(compute_block_ptrs, block_approx::compute_block_ptrs);
 
 
 template <typename MatrixType>
-void BlockApprox<MatrixType>::generate(const MatrixType *matrix)
+void BlockApprox<MatrixType>::generate(const MatrixType* matrix)
 {
     auto num_blocks = block_sizes_.get_num_elems();
     auto block_mtxs = matrix->get_block_approx(block_sizes_, block_overlaps_);
@@ -84,7 +84,7 @@ void BlockApprox<MatrixType>::generate(const MatrixType *matrix)
 
 
 template <typename MatrixType>
-void BlockApprox<MatrixType>::apply_impl(const LinOp *b, LinOp *x) const
+void BlockApprox<MatrixType>::apply_impl(const LinOp* b, LinOp* x) const
 {
     using value_type = typename MatrixType::value_type;
     using index_type = typename MatrixType::index_type;
@@ -117,8 +117,8 @@ void BlockApprox<MatrixType>::apply_impl(const LinOp *b, LinOp *x) const
 
 
 template <typename MatrixType>
-void BlockApprox<MatrixType>::apply_impl(const LinOp *alpha, const LinOp *b,
-                                         const LinOp *beta, LinOp *x) const
+void BlockApprox<MatrixType>::apply_impl(const LinOp* alpha, const LinOp* b,
+                                         const LinOp* beta, LinOp* x) const
 {
     using value_type = typename MatrixType::value_type;
     using index_type = typename MatrixType::index_type;
@@ -160,7 +160,7 @@ void BlockApprox<MatrixType>::apply_impl(const LinOp *alpha, const LinOp *b,
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_GENERATE(ValueType, IndexType) \
     void BlockApprox<Csr<ValueType, IndexType>>::generate(          \
-        const Csr<ValueType, IndexType> *x)
+        const Csr<ValueType, IndexType>* x)
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_GENERATE);
@@ -168,29 +168,29 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_RAPPLY(ValueType, IndexType) \
     void BlockApprox<Csr<ValueType, IndexType>>::apply_impl(      \
-        const LinOp *b, LinOp *x, const OverlapMask &write_mask) const
+        const LinOp* b, LinOp* x, const OverlapMask& write_mask) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_RAPPLY);
 
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_RAPPLY2(ValueType, IndexType)       \
     void BlockApprox<Csr<ValueType, IndexType>>::apply_impl(             \
-        const LinOp *alpha, const LinOp *b, const LinOp *beta, LinOp *x, \
-        const OverlapMask &write_mask) const
+        const LinOp* alpha, const LinOp* b, const LinOp* beta, LinOp* x, \
+        const OverlapMask& write_mask) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_RAPPLY2);
 
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_APPLY(ValueType, IndexType)            \
-    void BlockApprox<Csr<ValueType, IndexType>>::apply_impl(const LinOp *b, \
-                                                            LinOp *x) const
+    void BlockApprox<Csr<ValueType, IndexType>>::apply_impl(const LinOp* b, \
+                                                            LinOp* x) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_APPLY);
 
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_APPLY2(ValueType, IndexType) \
     void BlockApprox<Csr<ValueType, IndexType>>::apply_impl(      \
-        const LinOp *alpha, const LinOp *b, const LinOp *beta, LinOp *x) const
+        const LinOp* alpha, const LinOp* b, const LinOp* beta, LinOp* x) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_APPLY2);
 

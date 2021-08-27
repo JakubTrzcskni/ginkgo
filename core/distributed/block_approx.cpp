@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -49,9 +49,9 @@ namespace distributed {
 
 template <typename ValueType, typename LocalIndexType>
 void BlockApprox<ValueType, LocalIndexType>::generate(
-    const Array<size_type> &block_sizes,
-    const Overlap<size_type> &block_overlaps,
-    const Matrix<ValueType, LocalIndexType> *matrix)
+    const Array<size_type>& block_sizes,
+    const Overlap<size_type>& block_overlaps,
+    const Matrix<ValueType, LocalIndexType>* matrix)
 {
     auto num_blocks = block_sizes.get_num_elems();
     auto block_mtxs = matrix->get_block_approx(block_overlaps, block_sizes);
@@ -66,8 +66,8 @@ void BlockApprox<ValueType, LocalIndexType>::generate(
 
 
 template <typename ValueType, typename LocalIndexType>
-void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp *b,
-                                                        LinOp *x) const
+void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp* b,
+                                                        LinOp* x) const
 {
     using value_type = typename MatrixType::value_type;
     using Dense = matrix::Dense<value_type>;
@@ -83,10 +83,10 @@ void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp *b,
 
 
 template <typename ValueType, typename LocalIndexType>
-void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp *alpha,
-                                                        const LinOp *b,
-                                                        const LinOp *beta,
-                                                        LinOp *x) const
+void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp* alpha,
+                                                        const LinOp* b,
+                                                        const LinOp* beta,
+                                                        LinOp* x) const
 {
     using value_type = typename MatrixType::value_type;
     using Dense = matrix::Dense<value_type>;
@@ -102,23 +102,23 @@ void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp *alpha,
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_GENERATE(ValueType, LocalIndexType) \
     void BlockApprox<ValueType, LocalIndexType>::generate(               \
-        const Array<size_type> &, const Overlap<size_type> &,            \
-        const Matrix<ValueType, LocalIndexType> *x)
+        const Array<size_type>&, const Overlap<size_type>&,              \
+        const Matrix<ValueType, LocalIndexType>* x)
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_GENERATE);
 
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_APPLY(ValueType, LocalIndexType)       \
-    void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp *b, \
-                                                            LinOp *x) const
+    void BlockApprox<ValueType, LocalIndexType>::apply_impl(const LinOp* b, \
+                                                            LinOp* x) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_APPLY);
 
 
 #define GKO_DECLARE_BLOCK_APPROX_CSR_APPLY2(ValueType, LocalIndexType) \
     void BlockApprox<ValueType, LocalIndexType>::apply_impl(           \
-        const LinOp *alpha, const LinOp *b, const LinOp *beta, LinOp *x) const
+        const LinOp* alpha, const LinOp* b, const LinOp* beta, LinOp* x) const
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_BLOCK_APPROX_CSR_APPLY2);
 

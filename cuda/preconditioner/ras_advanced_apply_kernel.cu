@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -70,12 +70,12 @@ template <int warps_per_block, int max_block_size, typename ValueType,
           typename IndexType>
 void advanced_apply(
     syn::value_list<int, max_block_size>, size_type num_blocks,
-    const precision_reduction *block_precisions,
-    const IndexType *block_pointers, const ValueType *blocks,
-    const preconditioner::block_interleaved_storage_scheme<IndexType>
-        &storage_scheme,
-    const ValueType *alpha, const ValueType *b, size_type b_stride,
-    ValueType *x, size_type x_stride) GKO_NOT_IMPLEMENTED;
+    const precision_reduction* block_precisions,
+    const IndexType* block_pointers, const ValueType* blocks,
+    const preconditioner::block_interleaved_storage_scheme<IndexType>&
+        storage_scheme,
+    const ValueType* alpha, const ValueType* b, size_type b_stride,
+    ValueType* x, size_type x_stride) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -111,15 +111,15 @@ GKO_ENABLE_IMPLEMENTATION_SELECTION(select_advanced_apply, advanced_apply);
 template <typename ValueType, typename IndexType>
 void apply(std::shared_ptr<const CudaExecutor> exec, size_type num_blocks,
            uint32 max_block_size,
-           const preconditioner::block_interleaved_storage_scheme<IndexType>
-               &storage_scheme,
-           const Array<precision_reduction> &block_precisions,
-           const Array<IndexType> &block_pointers,
-           const Array<ValueType> &blocks,
-           const matrix::Dense<ValueType> *alpha,
-           const matrix::Dense<ValueType> *b,
-           const matrix::Dense<ValueType> *beta,
-           matrix::Dense<ValueType> *x) GKO_NOT_IMPLEMENTED;
+           const preconditioner::block_interleaved_storage_scheme<IndexType>&
+               storage_scheme,
+           const Array<precision_reduction>& block_precisions,
+           const Array<IndexType>& block_pointers,
+           const Array<ValueType>& blocks,
+           const matrix::Dense<ValueType>* alpha,
+           const matrix::Dense<ValueType>* b,
+           const matrix::Dense<ValueType>* beta,
+           matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed

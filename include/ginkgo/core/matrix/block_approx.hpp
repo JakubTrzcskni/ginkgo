@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -80,12 +80,12 @@ public:
 
     Array<index_type> get_block_ptrs_array() const { return block_ptrs_; }
 
-    const index_type *get_block_ptrs() const
+    const index_type* get_block_ptrs() const
     {
         return block_ptrs_.get_const_data();
     }
 
-    const Overlap<size_type> &get_overlaps() const { return block_overlaps_; }
+    const Overlap<size_type>& get_overlaps() const { return block_overlaps_; }
 
     std::vector<std::shared_ptr<SubMatrix<MatrixType>>> get_block_mtxs() const
     {
@@ -94,8 +94,8 @@ public:
 
 protected:
     BlockApprox(std::shared_ptr<const Executor> exec,
-                const Array<size_type> &block_sizes = {},
-                const Overlap<size_type> &block_overlaps = {})
+                const Array<size_type>& block_sizes = {},
+                const Overlap<size_type>& block_overlaps = {})
         : EnableLinOp<BlockApprox<MatrixType>>{exec, dim<2>{}},
           block_sizes_{Array<size_type>(exec->get_master())},
           block_overlaps_{Overlap<size_type>(exec->get_master())},
@@ -111,9 +111,9 @@ protected:
 
     // FIXME: Move the auxiliary Arrays to device once the device kernels are
     // implemented.
-    BlockApprox(std::shared_ptr<const Executor> exec, const MatrixType *matrix,
-                const Array<size_type> &block_sizes = {},
-                const Overlap<size_type> &block_overlaps = {})
+    BlockApprox(std::shared_ptr<const Executor> exec, const MatrixType* matrix,
+                const Array<size_type>& block_sizes = {},
+                const Overlap<size_type>& block_overlaps = {})
         : EnableLinOp<BlockApprox<MatrixType>>{exec, matrix->get_size()},
           block_sizes_{Array<size_type>(exec->get_master())},
           block_overlaps_{Overlap<size_type>(exec->get_master())},
@@ -131,24 +131,24 @@ protected:
         this->generate(matrix);
     }
 
-    void apply_impl(const LinOp *b, LinOp *x,
-                    const OverlapMask &write_mask) const override
+    void apply_impl(const LinOp* b, LinOp* x,
+                    const OverlapMask& write_mask) const override
     {
         GKO_NOT_IMPLEMENTED;
     }
 
-    void apply_impl(const LinOp *alpha, const LinOp *b, const LinOp *beta,
-                    LinOp *x, const OverlapMask &write_mask) const override
+    void apply_impl(const LinOp* alpha, const LinOp* b, const LinOp* beta,
+                    LinOp* x, const OverlapMask& write_mask) const override
     {
         GKO_NOT_IMPLEMENTED;
     }
 
-    void apply_impl(const LinOp *b, LinOp *x) const override;
+    void apply_impl(const LinOp* b, LinOp* x) const override;
 
-    void apply_impl(const LinOp *alpha, const LinOp *b, const LinOp *beta,
-                    LinOp *x) const override;
+    void apply_impl(const LinOp* alpha, const LinOp* b, const LinOp* beta,
+                    LinOp* x) const override;
 
-    void generate(const MatrixType *matrix);
+    void generate(const MatrixType* matrix);
 
 private:
     Overlap<size_type> block_overlaps_;

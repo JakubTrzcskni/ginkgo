@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -68,7 +68,7 @@ namespace distributed {
  */
 template <typename ValueType = default_precision, typename IndexType = int32>
 class CoarseGen : public EnableLinOp<CoarseGen<ValueType, IndexType>>,
-                  public EnableMultigridLevel<ValueType> {
+                  public multigrid::EnableMultigridLevel<ValueType> {
     friend class EnableLinOp<CoarseGen>;
     friend class EnablePolymorphicObject<CoarseGen, LinOp>;
 
@@ -176,7 +176,7 @@ protected:
                        std::shared_ptr<const LinOp> system_matrix)
         : EnableLinOp<CoarseGen>(factory->get_executor(),
                                  system_matrix->get_size()),
-          EnableMultigridLevel<ValueType>(system_matrix),
+          multigrid::EnableMultigridLevel<ValueType>(system_matrix),
           parameters_{factory->get_parameters()},
           system_matrix_{system_matrix},
           agg_(factory->get_executor(),

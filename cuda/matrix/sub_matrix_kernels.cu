@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,9 +65,9 @@ namespace sub_matrix {
 
 template <typename ValueType, typename IndexType>
 void spmv(std::shared_ptr<const DefaultExecutor> exec,
-          const matrix::SubMatrix<matrix::Csr<ValueType, IndexType>> *a,
-          const matrix::Dense<ValueType> *b, matrix::Dense<ValueType> *c,
-          const OverlapMask &write_mask)
+          const matrix::SubMatrix<matrix::Csr<ValueType, IndexType>>* a,
+          const matrix::Dense<ValueType>* b, matrix::Dense<ValueType>* c,
+          const OverlapMask& write_mask)
 {
     // auto a = sub_mat->get_sub_matrix();
     // auto overlaps = sub_mat->get_overlap_mtxs();
@@ -92,10 +92,10 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 template <typename ValueType, typename IndexType>
 void advanced_spmv(
     std::shared_ptr<const DefaultExecutor> exec,
-    const matrix::Dense<ValueType> *alpha,
-    const matrix::SubMatrix<matrix::Csr<ValueType, IndexType>> *a,
-    const matrix::Dense<ValueType> *b, const matrix::Dense<ValueType> *beta,
-    matrix::Dense<ValueType> *c, const OverlapMask &write_mask)
+    const matrix::Dense<ValueType>* alpha,
+    const matrix::SubMatrix<matrix::Csr<ValueType, IndexType>>* a,
+    const matrix::Dense<ValueType>* b, const matrix::Dense<ValueType>* beta,
+    matrix::Dense<ValueType>* c, const OverlapMask& write_mask)
 {}
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -69,8 +69,8 @@ constexpr int default_grid_size = 32 * 32 * 128;
 template <typename ValueType, typename IndexType>
 size_type find_natural_blocks(
     std::shared_ptr<const CudaExecutor> exec,
-    const matrix::Csr<ValueType, IndexType> *mtx, int32 max_block_size,
-    IndexType *__restrict__ block_ptrs) GKO_NOT_IMPLEMENTED;
+    const matrix::Csr<ValueType, IndexType>* mtx, int32 max_block_size,
+    IndexType* __restrict__ block_ptrs) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -95,7 +95,7 @@ size_type find_natural_blocks(
 template <typename IndexType>
 inline size_type agglomerate_supervariables(
     std::shared_ptr<const CudaExecutor> exec, int32 max_block_size,
-    size_type num_natural_blocks, IndexType *block_ptrs) GKO_NOT_IMPLEMENTED;
+    size_type num_natural_blocks, IndexType* block_ptrs) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -113,8 +113,8 @@ inline size_type agglomerate_supervariables(
 
 
 void initialize_precisions(std::shared_ptr<const CudaExecutor> exec,
-                           const Array<precision_reduction> &source,
-                           Array<precision_reduction> &precisions)
+                           const Array<precision_reduction>& source,
+                           Array<precision_reduction>& precisions)
     GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
@@ -131,9 +131,9 @@ void initialize_precisions(std::shared_ptr<const CudaExecutor> exec,
 
 template <typename ValueType, typename IndexType>
 void find_blocks(std::shared_ptr<const CudaExecutor> exec,
-                 const matrix::Csr<ValueType, IndexType> *system_matrix,
-                 uint32 max_block_size, size_type &num_blocks,
-                 Array<IndexType> &block_pointers) GKO_NOT_IMPLEMENTED;
+                 const matrix::Csr<ValueType, IndexType>* system_matrix,
+                 uint32 max_block_size, size_type& num_blocks,
+                 Array<IndexType>& block_pointers) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -154,11 +154,11 @@ template <bool conjugate, int warps_per_block, int max_block_size,
           typename ValueType, typename IndexType>
 void transpose_ras(
     syn::value_list<int, max_block_size>, size_type num_blocks,
-    const precision_reduction *block_precisions,
-    const IndexType *block_pointers, const ValueType *blocks,
-    const preconditioner::block_interleaved_storage_scheme<IndexType>
-        &storage_scheme,
-    ValueType *out_blocks) GKO_NOT_IMPLEMENTED;
+    const precision_reduction* block_precisions,
+    const IndexType* block_pointers, const ValueType* blocks,
+    const preconditioner::block_interleaved_storage_scheme<IndexType>&
+        storage_scheme,
+    ValueType* out_blocks) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -192,11 +192,11 @@ GKO_ENABLE_IMPLEMENTATION_SELECTION(select_transpose_ras, transpose_ras);
 template <typename ValueType, typename IndexType>
 void transpose_ras(
     std::shared_ptr<const DefaultExecutor> exec, size_type num_blocks,
-    uint32 max_block_size, const Array<precision_reduction> &block_precisions,
-    const Array<IndexType> &block_pointers, const Array<ValueType> &blocks,
-    const preconditioner::block_interleaved_storage_scheme<IndexType>
-        &storage_scheme,
-    Array<ValueType> &out_blocks) GKO_NOT_IMPLEMENTED;
+    uint32 max_block_size, const Array<precision_reduction>& block_precisions,
+    const Array<IndexType>& block_pointers, const Array<ValueType>& blocks,
+    const preconditioner::block_interleaved_storage_scheme<IndexType>&
+        storage_scheme,
+    Array<ValueType>& out_blocks) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -217,11 +217,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(GKO_DECLARE_RAS_TRANSPOSE_KERNEL);
 template <typename ValueType, typename IndexType>
 void conj_transpose_ras(
     std::shared_ptr<const DefaultExecutor> exec, size_type num_blocks,
-    uint32 max_block_size, const Array<precision_reduction> &block_precisions,
-    const Array<IndexType> &block_pointers, const Array<ValueType> &blocks,
-    const preconditioner::block_interleaved_storage_scheme<IndexType>
-        &storage_scheme,
-    Array<ValueType> &out_blocks) GKO_NOT_IMPLEMENTED;
+    uint32 max_block_size, const Array<precision_reduction>& block_precisions,
+    const Array<IndexType>& block_pointers, const Array<ValueType>& blocks,
+    const preconditioner::block_interleaved_storage_scheme<IndexType>&
+        storage_scheme,
+    Array<ValueType>& out_blocks) GKO_NOT_IMPLEMENTED;
 //{
 // TODO (script:ras): change the code imported from preconditioner/jacobi if
 // needed
@@ -243,11 +243,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 template <typename ValueType, typename IndexType>
 void convert_to_dense(
     std::shared_ptr<const CudaExecutor> exec, size_type num_blocks,
-    const Array<precision_reduction> &block_precisions,
-    const Array<IndexType> &block_pointers, const Array<ValueType> &blocks,
-    const preconditioner::block_interleaved_storage_scheme<IndexType>
-        &storage_scheme,
-    ValueType *result_values, size_type result_stride) GKO_NOT_IMPLEMENTED;
+    const Array<precision_reduction>& block_precisions,
+    const Array<IndexType>& block_pointers, const Array<ValueType>& blocks,
+    const preconditioner::block_interleaved_storage_scheme<IndexType>&
+        storage_scheme,
+    ValueType* result_values, size_type result_stride) GKO_NOT_IMPLEMENTED;
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_RAS_CONVERT_TO_DENSE_KERNEL);

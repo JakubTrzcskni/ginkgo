@@ -1,5 +1,5 @@
 /*******************************<GINKGO LICENSE>******************************
-Copyright (c) 2017-2021, the Ginkgo authors
+Copyright (c) 2017-2022, the Ginkgo authors
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -56,13 +56,13 @@ template <typename ValueType>
 struct DenseCache {
     DenseCache() = default;
     ~DenseCache() = default;
-    DenseCache(const DenseCache &) {}
-    DenseCache(DenseCache &&) {}
-    DenseCache &operator=(const DenseCache &) { return *this; }
-    DenseCache &operator=(DenseCache &&) { return *this; }
+    DenseCache(const DenseCache&) {}
+    DenseCache(DenseCache&&) {}
+    DenseCache& operator=(const DenseCache&) { return *this; }
+    DenseCache& operator=(DenseCache&&) { return *this; }
     std::unique_ptr<matrix::Dense<ValueType>> vec{};
 
-    void init_from(const matrix::Dense<ValueType> *template_vec)
+    void init_from(const matrix::Dense<ValueType>* template_vec)
     {
         if (!vec || vec->get_size() != template_vec->get_size()) {
             vec = matrix::Dense<ValueType>::create_with_config_of(template_vec);
@@ -77,11 +77,11 @@ struct DenseCache {
         }
     }
 
-    matrix::Dense<ValueType> &operator*() { return *vec; }
+    matrix::Dense<ValueType>& operator*() { return *vec; }
 
-    matrix::Dense<ValueType> *operator->() { return vec.get(); }
+    matrix::Dense<ValueType>* operator->() { return vec.get(); }
 
-    matrix::Dense<ValueType> *get() { return vec.get(); }
+    matrix::Dense<ValueType>* get() { return vec.get(); }
 };
 
 
