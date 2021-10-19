@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/components/fill_array_kernels.hpp"
 #include "core/solver/ir_kernels.hpp"
 #include "core/solver/multigrid_kernels.hpp"
-
+#include "nvToolsExt.h"
 
 namespace gko {
 namespace solver {
@@ -579,6 +579,7 @@ void Multigrid::generate()
 
 void Multigrid::apply_impl(const LinOp* b, LinOp* x) const
 {
+    nvtxRangePushA("Multigrid apply");
     auto lambda = [this](auto mg_level, auto b, auto x) {
         using value_type = typename std::decay_t<
             detail::pointee<decltype(mg_level)>>::value_type;
@@ -643,6 +644,7 @@ void Multigrid::apply_impl(const LinOp* b, LinOp* x) const
     run<gko::multigrid::EnableMultigridLevel, float, double,
         std::complex<float>, std::complex<double>>(first_mg_level, lambda, b,
                                                    x);
+    nvtxRangePop();
 }
 
 
