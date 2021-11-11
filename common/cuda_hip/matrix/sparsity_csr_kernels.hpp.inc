@@ -48,7 +48,7 @@ __device__ void device_classical_spmv(const size_type num_rows,
         group::tiled_partition<subwarp_size>(group::this_thread_block());
     const auto subrow = thread::get_subwarp_num_flat<subwarp_size>();
     const auto subid = subwarp_tile.thread_rank();
-    const auto column_id = blockIdx.y;
+    const IndexType column_id = blockIdx.y;
     const OutputValueType value = val[0];
     auto row = thread::get_subwarp_id_flat<subwarp_size>();
     for (; row < num_rows; row += subrow) {
