@@ -44,8 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/synthesizer/implementation_selection.hpp"
 #include "dpcpp/base/config.hpp"
 #include "dpcpp/base/dim3.dp.hpp"
-#include "dpcpp/base/dpct.hpp"
-#include "dpcpp/base/helper.hpp"
 #include "dpcpp/components/cooperative_groups.dp.hpp"
 #include "dpcpp/components/reduction.dp.hpp"
 #include "dpcpp/components/thread_ids.dp.hpp"
@@ -63,11 +61,11 @@ namespace dpcpp {
 namespace sparsity_csr {
 
 
-using classical_kernels = syn::value_list<int, 1>;
-
-
-constexpr int spmv_block_size = 128;
 constexpr int classical_overweight = 32;
+constexpr int spmv_block_size = 128;
+
+
+using classical_kernels = syn::value_list<int, 1>;
 
 
 namespace kernel {
@@ -89,7 +87,7 @@ void device_classical_spmv(const size_type num_rows,
         group::this_thread_block(item_ct1));
     const auto subrow = thread::get_subwarp_num_flat<subgroup_size>(item_ct1);
     const auto subid = subgroup_tile.thread_rank();
-    const auto column_id = item_ct1.get_group(1);
+    const IndexType column_id = item_ct1.get_group(1);
     const OutputValueType value = val[0];
     auto row = thread::get_subwarp_id_flat<subgroup_size>(item_ct1);
     for (; row < num_rows; row += subrow) {
@@ -97,7 +95,7 @@ void device_classical_spmv(const size_type num_rows,
         OutputValueType temp_val = zero<OutputValueType>();
         for (auto ind = row_ptrs[row] + subid; ind < ind_end;
              ind += subgroup_size) {
-            temp_val += value * b[col_idxs[ind] * b_stride + column_id];
+            temp_val += value * b(col_idxs[ind], column_id);
         }
         auto subgroup_result = ::gko::kernels::dpcpp::reduce(
             subgroup_tile, temp_val,
@@ -126,7 +124,7 @@ void abstract_classical_spmv(const size_type num_rows,
                              sycl::nd_item<3> item_ct1)
 {
     device_classical_spmv<subgroup_size>(
-        num_rows, val, col_idxs, row_ptrs, b, b_stride, c, c_stride,
+        num_rows, val, col_idxs, row_ptrs, b, c, c_stride,
         [](const OutputValueType& x, const OutputValueType& y) { return x; },
         item_ct1);
 }
@@ -139,14 +137,11 @@ void abstract_classical_spmv(
     const IndexType* col_idxs, const IndexType* row_ptrs,
     acc::range<input_accessor> b, OutputValueType* c, const size_type c_stride)
 {
-    queue->submit([&](sycl::handler& cgh) {
-        cgh.parallel_for(
-            sycl_nd_range(grid, block), [=](sycl::nd_item<3> item_ct1) {
-                abstract_classical_spmv<subgroup_size>(num_rows, val, col_idxs,
-                                                       row_ptrs, b, c, c_stride,
-                                                       item_ct1);
-            });
-    });
+    queue->parallel_for(
+        sycl_nd_range(grid, block), [=](sycl::nd_item<3> item_ct1) {
+            abstract_classical_spmv<subgroup_size>(
+                num_rows, val, col_idxs, row_ptrs, b, c, c_stride, item_ct1);
+        });
 }
 
 
@@ -156,14 +151,14 @@ void abstract_classical_spmv(
     const size_type num_rows, const MatrixValueType* __restrict__ alpha,
     const MatrixValueType* __restrict__ val,
     const IndexType* __restrict__ col_idxs,
-    const IndexType* __restrict__ row_ptrs, acc::range<b_accessor> b,
+    const IndexType* __restrict__ row_ptrs, acc::range<input_accessor> b,
     const OutputValueType* __restrict__ beta, OutputValueType* __restrict__ c,
     const size_type c_stride, sycl::nd_item<3> item_ct1)
 {
     const OutputValueType alpha_val = alpha[0];
     const auto beta_val = beta[0];
     device_classical_spmv<subgroup_size>(
-        num_rows, val, col_idxs, row_ptrs, b, b_stride, c, c_stride,
+        num_rows, val, col_idxs, row_ptrs, b, c, c_stride,
         [&alpha_val, &beta_val](const OutputValueType& x,
                                 const OutputValueType& y) {
             return alpha_val * x + beta_val * y;
@@ -180,14 +175,12 @@ void abstract_classical_spmv(
     const IndexType* row_ptrs, acc::range<input_accessor> b,
     const OutputValueType* beta, OutputValueType* c, const size_type c_stride)
 {
-    queue->submit([&](sycl::handler& cgh) {
-        cgh.parallel_for(sycl_nd_range(grid, block),
-                         [=](sycl::nd_item<3> item_ct1) {
-                             abstract_classical_spmv<subgroup_size>(
-                                 num_rows, alpha, val, col_idxs, row_ptrs, b,
-                                 beta, c, c_stride, item_ct1);
-                         });
-    });
+    queue->parallel_for(
+        sycl_nd_range(grid, block), [=](sycl::nd_item<3> item_ct1) {
+            abstract_classical_spmv<subgroup_size>(num_rows, alpha, val,
+                                                   col_idxs, row_ptrs, b, beta,
+                                                   c, c_stride, item_ct1);
+        });
 }
 
 
@@ -227,12 +220,13 @@ void classical_spmv(syn::value_list<int, subgroup_size>,
         kernel::abstract_classical_spmv<subgroup_size>(
             grid, block, 0, exec->get_queue(), a->get_size()[0],
             a->get_const_value(), a->get_const_col_idxs(),
-            a->get_const_row_ptrs(), b, c->get_values(), c->get_stride());
+            a->get_const_row_ptrs(), b_vals, c->get_values(), c->get_stride());
+
     } else if (alpha != nullptr && beta != nullptr) {
         kernel::abstract_classical_spmv<subgroup_size>(
             grid, block, 0, exec->get_queue(), a->get_size()[0],
             alpha->get_const_values(), a->get_const_value(),
-            a->get_const_col_idxs(), a->get_const_row_ptrs(), b,
+            a->get_const_col_idxs(), a->get_const_row_ptrs(), b_vals,
             beta->get_const_values(), c->get_values(), c->get_stride());
     } else {
         GKO_KERNEL_NOT_FOUND;
@@ -251,7 +245,6 @@ void spmv(std::shared_ptr<const DpcppExecutor> exec,
           const matrix::SparsityCsr<MatrixValueType, IndexType>* a,
           const matrix::Dense<InputValueType>* b,
           matrix::Dense<OutputValueType>* c)
-
 {
     host_kernel::select_classical_spmv(
         classical_kernels(), [](int compiled_info) { return true; },
