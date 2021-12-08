@@ -88,7 +88,7 @@ void device_classical_spmv(const size_type num_rows,
     const auto subrow = thread::get_subwarp_num_flat<subgroup_size>(item_ct1);
     const auto subid = subgroup_tile.thread_rank();
     const IndexType column_id = item_ct1.get_group(1);
-    const OutputValueType value = val[0];
+    const OutputValueType value = static_cast<OutputValueType>(val[0]);
     auto row = thread::get_subwarp_id_flat<subgroup_size>(item_ct1);
     for (; row < num_rows; row += subrow) {
         const auto ind_end = row_ptrs[row + 1];
@@ -155,7 +155,7 @@ void abstract_classical_spmv(
     const OutputValueType* __restrict__ beta, OutputValueType* __restrict__ c,
     const size_type c_stride, sycl::nd_item<3> item_ct1)
 {
-    const OutputValueType alpha_val = alpha[0];
+    const OutputValueType alpha_val = static_cast<OutputValueType>(alpha[0]);
     const auto beta_val = beta[0];
     device_classical_spmv<subgroup_size>(
         num_rows, val, col_idxs, row_ptrs, b, c, c_stride,
