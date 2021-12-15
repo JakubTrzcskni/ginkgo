@@ -110,59 +110,38 @@ int main(int argc, char* argv[])
     auto l = lu->get_l_factor();
     auto u = lu->get_u_factor();
 
-    std::ofstream l_out{"L.mtx"};
-    gko::write(l_out, l.get(), gko::layout_type::coordinate);
-    std::ofstream u_out{"U.mtx"};
-    gko::write(u_out, u.get(), gko::layout_type::coordinate);
     // Apply diagonal scaling and row permutation according to preprocessing
     // done in GLU
     auto row_scal = lu->get_row_scaling();
     auto rp = lu->get_permutation();
     auto piv = lu->get_pivot();
     if (lu->get_mc64_scale()) {
-        std::cout << "SCALE" << std::endl;
-        for (auto i = 0; i < n; i++) {
-            auto p = piv->get_const_data()[i];
-            z->at(i, 0) = b->at(rp->get_const_data()[p], 0) *
-                          row_scal->get_const_values()[p];
-        }
+        b->row_permute(rp.get(), z.get());
+        row_scal->apply(z.get(), y.get());
+        y->row_permute(piv.get(), z.get());
     } else {
-        for (auto i = 0; i < n; n++) {
-            auto p = piv->get_const_data()[i];
-            z->at(i, 0) = b->at(rp->get_const_data()[p]);
-        }
+        b->row_permute(rp.get(), z.get());
     }
-
-    std::ofstream out1{"x1.mtx"};
-    gko::write(out1, z.get());
 
     // Solve the triangular systems
     auto lower = lower_trs::build().on(exec)->generate(l);
     auto upper = upper_trs::build().on(exec)->generate(u);
     lower->apply(gko::lend(z), gko::lend(y));
-    std::ofstream out2{"x2.mtx"};
-    gko::write(out2, y.get());
     upper->apply(gko::lend(y), gko::lend(z));
 
-    std::ofstream out3{"x3.mtx"};
-    gko::write(out3, z.get());
     // Apply final scaling and permutation on solution vector
     auto col_scal = lu->get_col_scaling();
     auto cp = lu->get_inv_permutation();
     if (lu->get_mc64_scale()) {
-        for (auto i = 0; i < n; i++) {
-            x->at(i, 0) = z->at(cp->get_const_data()[i]) *
-                          col_scal->get_const_values()[i];
-        }
+        z->row_permute(cp.get(), y.get());
+        col_scal->apply(y.get(), x.get());
     } else {
-        for (auto i = 0; i < n; i++) {
-            x->at(i, 0) = z->at(cp->get_const_data()[i]);
-        }
+        z->row_permute(cp.get(), x.get());
     }
 
     // Print solution
-    std::ofstream x_out{"x.mtx"};
-    write(x_out, gko::lend(x));
+    // std::ofstream x_out{"x.mtx"};
+    // write(x_out, gko::lend(x));
 
     // Calculate residual
     auto one = gko::initialize<vec>({1.0}, exec);
