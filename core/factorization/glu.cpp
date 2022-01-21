@@ -83,7 +83,6 @@ std::unique_ptr<Composition<double>> Glu<double, int>::generate_l_u(
     const std::shared_ptr<const LinOp>& system_matrix, bool skip_sorting)
 {
     GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix);
-
     const auto exec = this->get_executor();
 
     // Converts the system matrix to CSR.
@@ -95,6 +94,7 @@ std::unique_ptr<Composition<double>> Glu<double, int>::generate_l_u(
     if (!skip_sorting) {
         local_system_matrix->sort_by_column_index();
     }
+
 
     auto v = local_system_matrix->get_values();
     auto r = local_system_matrix->get_row_ptrs();
@@ -112,8 +112,8 @@ std::unique_ptr<Composition<double>> Glu<double, int>::generate_l_u(
 
     // Convert index arrays to unsigned int as this is what GLU uses for
     // indices.
-    unsigned int u_col_ptrs[num_rows + 1];
-    unsigned int u_row_idxs[nnz];
+    unsigned int* u_col_ptrs = new unsigned int[num_rows + 1];
+    unsigned int* u_row_idxs = new unsigned int[nnz];
     for (auto i = 0; i < nnz; i++) {
         u_row_idxs[i] = (unsigned int)(row_idxs[i]);
         if (i <= num_rows) {
@@ -169,7 +169,7 @@ std::unique_ptr<Composition<double>> Glu<double, int>::generate_l_u(
     A_sym.leveling();
 
     // Numeric factorization on the GPU
-    LUonDevice(A_sym, cout, cerr, false);
+    LUonDevice(A_sym, cout, cerr, true);
     // Convert unsigned indices back to int
     const auto res_nnz = A_sym.nnz;
     Array<int> res_row_ptrs{exec->get_master(), num_rows + 1};
