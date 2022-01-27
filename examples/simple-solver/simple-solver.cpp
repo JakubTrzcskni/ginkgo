@@ -45,6 +45,65 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 
+template <typename ValueType>
+using vec = gko::matrix::Dense<ValueType>;
+
+
+template <typename ValueType>
+using real_vec = gko::matrix::Dense<gko::remove_complex<ValueType>>;
+
+
+namespace utils {
+
+
+// creates a zero vector
+template <typename ValueType>
+std::unique_ptr<vec<ValueType>> create_vector(
+    std::shared_ptr<const gko::Executor> exec, gko::size_type size,
+    ValueType value)
+{
+    auto res = vec<ValueType>::create(exec);
+    res->read(gko::matrix_data<ValueType>(gko::dim<2>{size, 1}, value));
+    return res;
+}
+
+
+// utilities for computing norms and residuals
+template <typename ValueType>
+ValueType get_first_element(const vec<ValueType>* norm)
+{
+    return norm->get_executor()->copy_val_to_host(norm->get_const_values());
+}
+
+
+template <typename ValueType>
+gko::remove_complex<ValueType> compute_norm(const vec<ValueType>* b)
+{
+    auto exec = b->get_executor();
+    auto b_norm = gko::initialize<real_vec<ValueType>>({0.0}, exec);
+    b->compute_norm2(gko::lend(b_norm));
+    return get_first_element(gko::lend(b_norm));
+}
+
+
+template <typename ValueType>
+gko::remove_complex<ValueType> compute_residual_norm(
+    const gko::LinOp* system_matrix, const vec<ValueType>* b,
+    const vec<ValueType>* x)
+{
+    auto exec = system_matrix->get_executor();
+    auto one = gko::initialize<vec<ValueType>>({1.0}, exec);
+    auto neg_one = gko::initialize<vec<ValueType>>({-1.0}, exec);
+    auto res = gko::clone(b);
+    system_matrix->apply(gko::lend(one), gko::lend(x), gko::lend(neg_one),
+                         gko::lend(res));
+    return compute_norm(gko::lend(res));
+}
+
+
+}  // namespace utils
+
+
 int main(int argc, char* argv[])
 {
     // Use some shortcuts. In Ginkgo, vectors are seen as a gko::matrix::Dense
@@ -83,6 +142,10 @@ int main(int argc, char* argv[])
     // executor and all the other functions/ routines within Ginkgo should
     // automatically work and run on the executor with any other changes.
     const auto executor_string = argc >= 2 ? argv[1] : "reference";
+    const auto grid_dim =
+        static_cast<gko::size_type>(argc >= 3 ? std::atoi(argv[2]) : 20);
+    const auto max_iters =
+        static_cast<gko::size_type>(argc >= 4 ? std::atoi(argv[3]) : 1000);
     std::map<std::string, std::function<std::shared_ptr<gko::Executor>()>>
         exec_map{
             {"omp", [] { return gko::OmpExecutor::create(); }},
@@ -105,69 +168,64 @@ int main(int argc, char* argv[])
 
     // executor where Ginkgo will perform the computation
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
+    const auto num_rows = grid_dim * grid_dim * grid_dim;
 
-    // @sect3{Reading your data and transfer to the proper device.}
-    // Read the matrix, right hand side and the initial solution using the @ref
-    // read function.
-    // @note Ginkgo uses C++ smart pointers to automatically manage memory. To
-    // this end, we use our own object ownership transfer functions that under
-    // the hood call the required smart pointer functions to manage object
-    // ownership. The gko::share , gko::give and gko::lend are the functions
-    // that you would need to use.
-    auto A = share(gko::read<mtx>(std::ifstream("data/A.mtx"), exec));
-    auto b = gko::read<vec>(std::ifstream("data/b.mtx"), exec);
-    auto x = gko::read<vec>(std::ifstream("data/x0.mtx"), exec);
+    gko::matrix_data<ValueType, IndexType> A_data;
+    A_data.size = {num_rows, num_rows};
+    for (int i = 0; i < grid_dim; i++) {
+        for (int j = 0; j < grid_dim; j++) {
+            for (int k = 0; k < grid_dim; k++) {
+                auto idx = i * grid_dim * grid_dim + j * grid_dim + k;
+                if (i > 0)
+                    A_data.nonzeros.emplace_back(idx, idx - grid_dim * grid_dim,
+                                                 -1);
+                if (j > 0)
+                    A_data.nonzeros.emplace_back(idx, idx - grid_dim, -1);
+                if (k > 0) A_data.nonzeros.emplace_back(idx, idx - 1, -1);
+                A_data.nonzeros.emplace_back(idx, idx, 8);
+                if (k < grid_dim - 1)
+                    A_data.nonzeros.emplace_back(idx, idx + 1, -1);
+                if (j < grid_dim - 1)
+                    A_data.nonzeros.emplace_back(idx, idx + grid_dim, -1);
+                if (i < grid_dim - 1)
+                    A_data.nonzeros.emplace_back(idx, idx + grid_dim * grid_dim,
+                                                 -1);
+            }
+        }
+    }
+    // Generate b and x vectors
+    auto A = gko::share(mtx::create(exec, A_data.size));
+    auto b = utils::create_vector<ValueType>(exec, A->get_size()[0], 1.0);
+    auto x = utils::create_vector<ValueType>(exec, A->get_size()[0], 0.0);
+    A->read(A_data);
 
-    // @sect3{Creating the solver}
-    // Generate the gko::solver factory. Ginkgo uses the concept of Factories to
-    // build solvers with certain
-    // properties. Observe the Fluent interface used here. Here a cg solver is
-    // generated with a stopping criteria of maximum iterations of 20 and a
-    // residual norm reduction of 1e-7. You also observe that the stopping
-    // criteria(gko::stop) are also generated from factories using their build
-    // methods. You need to specify the executors which each of the object needs
-    // to be built on.
     const RealValueType reduction_factor{1e-7};
     auto solver_gen =
         cg::build()
             .with_criteria(
-                gko::stop::Iteration::build().with_max_iters(20u).on(exec),
+                gko::stop::Iteration::build().with_max_iters(max_iters).on(
+                    exec),
                 gko::stop::ResidualNorm<ValueType>::build()
                     .with_reduction_factor(reduction_factor)
                     .on(exec))
             .on(exec);
-    // Generate the solver from the matrix. The solver factory built in the
-    // previous step takes a "matrix"(a gko::LinOp to be more general) as an
-    // input. In this case we provide it with a full matrix that we previously
-    // read, but as the solver only effectively uses the apply() method within
-    // the provided "matrix" object, you can effectively create a gko::LinOp
-    // class with your own apply implementation to accomplish more tasks. We
-    // will see an example of how this can be done in the custom-matrix-format
-    // example
     auto solver = solver_gen->generate(A);
 
-    // Finally, solve the system. The solver, being a gko::LinOp, can be applied
-    // to a right hand side, b to
-    // obtain the solution, x.
-    solver->apply(lend(b), lend(x));
+    auto x_clone = gko::clone(x);
+    {
+        solver->apply(lend(b), lend(x));
+    }
 
-    // Print the solution to the command line.
-    std::cout << "Solution (x):\n";
-    write(std::cout, lend(x));
-
-    // To measure if your solution has actually converged, you can measure the
-    // error of the solution.
-    // one, neg_one are objects that represent the numbers which allow for a
-    // uniform interface when computing on any device. To compute the residual,
-    // all you need to do is call the apply method, which in this case is an
-    // spmv and equivalent to the LAPACK z_spmv routine. Finally, you compute
-    // the euclidean 2-norm with the compute_norm2 function.
+    {
+        solver->apply(lend(b), lend(x_clone));
+    }
     auto one = gko::initialize<vec>({1.0}, exec);
     auto neg_one = gko::initialize<vec>({-1.0}, exec);
     auto res = gko::initialize<real_vec>({0.0}, exec);
     A->apply(lend(one), lend(x), lend(neg_one), lend(b));
     b->compute_norm2(lend(res));
 
-    std::cout << "Residual norm sqrt(r^T r):\n";
+    std::cout << "Matrix size: " << A->get_size()
+              << "\nResidual norm sqrt(r^T r):\n";
     write(std::cout, lend(res));
 }

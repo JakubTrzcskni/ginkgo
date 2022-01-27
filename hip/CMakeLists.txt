@@ -197,6 +197,7 @@ set(GINKGO_HIP_SOURCES
     solver/upper_trs_kernels.hip.cpp
     stop/criterion_kernels.hip.cpp
     stop/residual_norm_kernels.hip.cpp
+    ../common/unified/matrix/dense_reductions.cpp
     ${GKO_UNIFIED_COMMON_SOURCES}
     )
 

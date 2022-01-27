@@ -50,6 +50,7 @@ target_sources(ginkgo_dpcpp
     solver/upper_trs_kernels.dp.cpp
     stop/criterion_kernels.dp.cpp
     stop/residual_norm_kernels.dp.cpp
+    ../common/unified/matrix/dense_reductions.cpp
     ${GKO_UNIFIED_COMMON_SOURCES}
     )
 

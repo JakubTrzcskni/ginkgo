@@ -464,6 +464,30 @@ void conj_transpose(std::shared_ptr<const HipExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(GKO_DECLARE_DENSE_CONJ_TRANSPOSE_KERNEL);
 
 
+template <typename ValueType>
+void compute_conj_dot(std::shared_ptr<const DefaultExecutor> exec,
+                      const matrix::Dense<ValueType>* x,
+                      const matrix::Dense<ValueType>* y,
+                      matrix::Dense<ValueType>* result)
+{
+    if (hipblas::is_supported<ValueType>::value) {
+        auto handle = exec->get_hipblas_handle();
+        if (x->get_size()[1] == 1 && y->get_size()[1] == 1) {
+            hipblas::pointer_mode_guard pm_guard(handle);
+            hipblas::conj_dot(handle, x->get_size()[0], x->get_const_values(),
+                              x->get_size()[1], y->get_const_values(),
+                              y->get_size()[1], result->get_values());
+        } else {
+            GKO_NOT_IMPLEMENTED;
+        }
+    } else {
+        GKO_NOT_IMPLEMENTED;
+    }
+}
+
+GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(GKO_DECLARE_DENSE_COMPUTE_CONJ_DOT_KERNEL);
+
+
 }  // namespace dense
 }  // namespace hip
 }  // namespace kernels

@@ -113,6 +113,7 @@ target_sources(ginkgo_cuda
     solver/upper_trs_kernels.cu
     stop/criterion_kernels.cu
     stop/residual_norm_kernels.cu
+    ../common/unified/matrix/dense_reductions.cpp
     ${GKO_UNIFIED_COMMON_SOURCES}
     )
 # override the default language mapping for the common files, set them to CUDA

@@ -242,6 +242,33 @@ GKO_BIND_HIPBLAS_CONJ_DOT(ValueType, detail::not_implemented);
 #undef GKO_BIND_HIPBLAS_CONJ_DOT
 
 
+#define GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(ValueType, HipblasName)             \
+    inline void strided_conj_dot(hipblasHandle_t handle, int n,               \
+                                 const ValueType* x, int incx, int stridex,   \
+                                 const ValueType* y, int incy, int stridey,   \
+                                 int num_vecs, ValueType* result)             \
+    {                                                                         \
+        GKO_ASSERT_NO_HIPBLAS_ERRORS(HipblasName(                             \
+            handle, n, as_hipblas_type(x), incx, stridex, as_hipblas_type(y), \
+            incy, stridey, num_vecs, as_hipblas_type(result)));               \
+    }                                                                         \
+    static_assert(true,                                                       \
+                  "This assert is used to counter the false positive extra "  \
+                  "semi-colon warnings")
+
+GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(float, hipblasSdotStridedBatched);
+GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(double, hipblasDdotStridedBatched);
+GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(std::complex<float>,
+                                  hipblasCdotcStridedBatched);
+GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(std::complex<double>,
+                                  hipblasZdotcStridedBatched);
+
+template <typename ValueType>
+GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT(ValueType, detail::not_implemented);
+
+#undef GKO_BIND_HIPBLAS_STRIDED_CONJ_DOT
+
+
 #define GKO_BIND_HIPBLAS_NORM2(ValueType, HipblasName)                       \
     inline void norm2(hipblasHandle_t handle, int n, const ValueType* x,     \
                       int incx, remove_complex<ValueType>* result)           \
