@@ -56,11 +56,12 @@ void initialize(
     const matrix::Dense<ValueType>* r, matrix::Dense<ValueType>* z,
     matrix::Dense<ValueType>* p, matrix::Dense<ValueType>* p_prev,
     matrix::Dense<ValueType>* q, matrix::Dense<ValueType>* q_prev,
-    matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* gamma,
-    matrix::Dense<ValueType>* delta, matrix::Dense<ValueType>* cos_prev,
-    matrix::Dense<ValueType>* cos, matrix::Dense<ValueType>* sin_prev,
-    matrix::Dense<ValueType>* sin, matrix::Dense<ValueType>* eta_next,
-    matrix::Dense<ValueType>* eta, Array<stopping_status>* stop_status)
+    matrix::Dense<ValueType>* q_tilde, matrix::Dense<ValueType>* beta,
+    matrix::Dense<ValueType>* gamma, matrix::Dense<ValueType>* delta,
+    matrix::Dense<ValueType>* cos_prev, matrix::Dense<ValueType>* cos,
+    matrix::Dense<ValueType>* sin_prev, matrix::Dense<ValueType>* sin,
+    matrix::Dense<ValueType>* eta_next, matrix::Dense<ValueType>* eta,
+    Array<stopping_status>* stop_status)
 {
     for (size_type j = 0; j < r->get_size()[1]; ++j) {
         delta->at(j) = gamma->at(j) = cos_prev->at(j) = sin_prev->at(j) =
@@ -74,7 +75,7 @@ void initialize(
             q->at(i, j) = safe_divide(r->at(i, j), beta->at(j));
             z->at(i, j) = safe_divide(z->at(i, j), beta->at(j));
             p->at(i, j) = p_prev->at(i, j) = q_prev->at(i, j) =
-                zero<ValueType>();
+                q_tilde->at(i, j) = zero<ValueType>();
         }
     }
 }
@@ -114,19 +115,21 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
             matrix::Dense<ValueType>* p_prev, matrix::Dense<ValueType>* z,
             const matrix::Dense<ValueType>* z_tilde,
             matrix::Dense<ValueType>* q, matrix::Dense<ValueType>* q_prev,
-            const matrix::Dense<ValueType>* q_tilde,
-            matrix::Dense<ValueType>* alpha, matrix::Dense<ValueType>* beta,
-            matrix::Dense<ValueType>* gamma, matrix::Dense<ValueType>* delta,
-            matrix::Dense<ValueType>* cos_prev, matrix::Dense<ValueType>* cos,
-            matrix::Dense<ValueType>* sin_prev, matrix::Dense<ValueType>* sin,
-            matrix::Dense<ValueType>* eta, matrix::Dense<ValueType>* eta_next,
-            matrix::Dense<ValueType>* tau,
+            matrix::Dense<ValueType>* q_tilde, matrix::Dense<ValueType>* alpha,
+            matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* gamma,
+            matrix::Dense<ValueType>* delta, matrix::Dense<ValueType>* cos_prev,
+            matrix::Dense<ValueType>* cos, matrix::Dense<ValueType>* sin_prev,
+            matrix::Dense<ValueType>* sin, matrix::Dense<ValueType>* eta,
+            matrix::Dense<ValueType>* eta_next,
+            typename matrix::Dense<ValueType>::absolute_type* tau,
             const Array<stopping_status>* stop_status)
 {
     /**
      * beta = sqrt(beta)
-     * q_-1 = q
+     * q_-1 = q_tilde
+     * q_tmp = q
      * q = q_tilde / beta
+     * q_tilde = q_tmp * beta
      */
     for (size_type j = 0; j < x->get_size()[1]; ++j) {
         if (stop_status->get_const_data()[j].has_stopped()) {
@@ -139,8 +142,10 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
             if (stop_status->get_const_data()[j].has_stopped()) {
                 continue;
             }
-            q_prev->at(i, j) = q->at(i, j);
+            q_prev->at(i, j) = q_tilde->at(i, j);
+            const auto tmp = q->at(i, j);
             q->at(i, j) = safe_divide(q_tilde->at(i, j), beta->at(j));
+            q_tilde->at(i, j) = tmp * beta->at(j);
         }
     }
 
@@ -181,7 +186,6 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
      * eta = eta_+1
      * eta_+1 = -conj(s) * eta
      * alpha = c * alpha + s * beta
-     * beta = -conj(s) * alpha + c * beta = 0
      */
     for (size_type j = 0; j < x->get_size()[1]; ++j) {
         if (stop_status->get_const_data()[j].has_stopped()) {
@@ -203,7 +207,6 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
      *
      * prepare next iteration with
      * gamma = beta
-     * beta = -beta
      */
     std::swap(*p, *p_prev);
     for (size_type i = 0; i < x->get_size()[0]; ++i) {

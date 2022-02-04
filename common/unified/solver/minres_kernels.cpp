@@ -55,11 +55,12 @@ void initialize(
     const matrix::Dense<ValueType>* r, matrix::Dense<ValueType>* z,
     matrix::Dense<ValueType>* p, matrix::Dense<ValueType>* p_prev,
     matrix::Dense<ValueType>* q, matrix::Dense<ValueType>* q_prev,
-    matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* gamma,
-    matrix::Dense<ValueType>* delta, matrix::Dense<ValueType>* cos_prev,
-    matrix::Dense<ValueType>* cos, matrix::Dense<ValueType>* sin_prev,
-    matrix::Dense<ValueType>* sin, matrix::Dense<ValueType>* eta_next,
-    matrix::Dense<ValueType>* eta, Array<stopping_status>* stop_status)
+    matrix::Dense<ValueType>* q_tilde, matrix::Dense<ValueType>* beta,
+    matrix::Dense<ValueType>* gamma, matrix::Dense<ValueType>* delta,
+    matrix::Dense<ValueType>* cos_prev, matrix::Dense<ValueType>* cos,
+    matrix::Dense<ValueType>* sin_prev, matrix::Dense<ValueType>* sin,
+    matrix::Dense<ValueType>* eta_next, matrix::Dense<ValueType>* eta,
+    Array<stopping_status>* stop_status)
 {
     run_kernel(
         exec,
@@ -80,15 +81,16 @@ void initialize(
     run_kernel_solver(
         exec,
         [] GKO_KERNEL(auto row, auto col, auto r, auto z, auto p, auto p_prev,
-                      auto q, auto q_prev, auto beta, auto stop) {
+                      auto q, auto q_prev, auto q_tilde, auto beta, auto stop) {
             q(row, col) = safe_divide(r(row, col), beta[col]);
             z(row, col) = safe_divide(z(row, col), beta[col]);
             p(row, col) = p_prev(row, col) = q_prev(row, col) =
-                zero(p(row, col));
+                q_tilde(row, col) = zero(p(row, col));
         },
         r->get_size(), r->get_stride(), default_stride(r), default_stride(z),
         default_stride(p), default_stride(p_prev), default_stride(q),
-        default_stride(q_prev), row_vector(beta), *stop_status);
+        default_stride(q_prev), default_stride(q_tilde), row_vector(beta),
+        *stop_status);
 }
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(GKO_DECLARE_MINRES_INITIALIZE_KERNEL);
@@ -100,13 +102,13 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
             matrix::Dense<ValueType>* p_prev, matrix::Dense<ValueType>* z,
             const matrix::Dense<ValueType>* z_tilde,
             matrix::Dense<ValueType>* q, matrix::Dense<ValueType>* q_prev,
-            const matrix::Dense<ValueType>* q_tilde,
-            matrix::Dense<ValueType>* alpha, matrix::Dense<ValueType>* beta,
-            matrix::Dense<ValueType>* gamma, matrix::Dense<ValueType>* delta,
-            matrix::Dense<ValueType>* cos_prev, matrix::Dense<ValueType>* cos,
-            matrix::Dense<ValueType>* sin_prev, matrix::Dense<ValueType>* sin,
-            matrix::Dense<ValueType>* eta, matrix::Dense<ValueType>* eta_next,
-            matrix::Dense<ValueType>* tau,
+            matrix::Dense<ValueType>* q_tilde, matrix::Dense<ValueType>* alpha,
+            matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* gamma,
+            matrix::Dense<ValueType>* delta, matrix::Dense<ValueType>* cos_prev,
+            matrix::Dense<ValueType>* cos, matrix::Dense<ValueType>* sin_prev,
+            matrix::Dense<ValueType>* sin, matrix::Dense<ValueType>* eta,
+            matrix::Dense<ValueType>* eta_next,
+            typename matrix::Dense<ValueType>::absolute_type* tau,
             const Array<stopping_status>* stop_status)
 {
     run_kernel(
@@ -123,8 +125,10 @@ void step_1(std::shared_ptr<const DefaultExecutor> exec,
         [] GKO_KERNEL(auto row, auto col, auto q, auto q_prev, auto q_tilde,
                       auto beta, auto stop) {
             if (!stop[col].has_stopped()) {
-                q_prev(row, col) = q(row, col);
+                q_prev(row, col) = q_tilde(row, col);
+                const auto tmp = q(row, col);
                 q(row, col) = safe_divide(q_tilde(row, col), beta[col]);
+                q_tilde(row, col) = tmp * beta[col];
             }
         },
         q->get_size(), q->get_stride(), default_stride(q),

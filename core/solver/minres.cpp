@@ -127,8 +127,9 @@ void Minres<ValueType>::apply_dense_impl(
     auto delta = Vector::create_with_config_of(alpha.get());
     auto eta_next = Vector::create_with_config_of(alpha.get());
     auto eta = Vector::create_with_config_of(alpha.get());
-    auto tau = Vector::create_with_config_of(
-        alpha.get());  // using ||z||, could also be beta or ||r||?
+    auto tau = Vector::absolute_type::create(
+        exec, dim<2>{1, dense_b->get_size()[1]});  // using ||z||, could also be
+                                                   // beta or ||r||?
 
     auto cos_prev = Vector::create_with_config_of(alpha.get());
     auto cos = Vector::create_with_config_of(alpha.get());
@@ -155,8 +156,9 @@ void Minres<ValueType>::apply_dense_impl(
 
     exec->run(minres::make_initialize(
         r.get(), z.get(), p.get(), p_prev.get(), q.get(), q_prev.get(),
-        beta.get(), gamma.get(), delta.get(), cos_prev.get(), cos.get(),
-        sin_prev.get(), sin.get(), eta_next.get(), eta.get(), &stop_status));
+        q_tilde.get(), beta.get(), gamma.get(), delta.get(), cos_prev.get(),
+        cos.get(), sin_prev.get(), sin.get(), eta_next.get(), eta.get(),
+        &stop_status));
 
     int iter = -1;
     /* Memory movement summary:
@@ -192,8 +194,6 @@ void Minres<ValueType>::apply_dense_impl(
          *
          * p and z get updated in step_1
          */
-        swap(q_tilde, q_prev);
-        q_tilde->scale(beta.get());
         system_matrix_->apply(one_op.get(), z.get(), neg_one_op.get(),
                               q_tilde.get());
         q_tilde->compute_conj_dot(z.get(), alpha.get());
@@ -205,8 +205,10 @@ void Minres<ValueType>::apply_dense_impl(
          * step 2:
          * finish lanzcos pt1
          * beta = sqrt(beta)
-         * q_-1 = q
+         * q_-1 = q_tilde
+         * q_tmp = q
          * q = q_tilde / beta
+         * q_tilde = q_tmp * beta
          *
          * apply two previous givens rot to new column
          * delta = s_-1 * gamma  // 0 if iter = 0, 1

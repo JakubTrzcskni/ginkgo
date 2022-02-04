@@ -47,7 +47,7 @@ protected:
           delta(gko::clone(zero_scalar)),
           eta_next(gko::clone(zero_scalar)),
           eta(gko::clone(zero_scalar)),
-          tau(gko::clone(zero_scalar)),
+          tau(zero_scalar->compute_absolute()),
           cos_prev(gko::clone(zero_scalar)),
           cos(gko::clone(zero_scalar)),
           sin_prev(gko::clone(zero_scalar)),
@@ -93,7 +93,7 @@ protected:
     std::unique_ptr<Mtx> delta;
     std::unique_ptr<Mtx> eta_next;
     std::unique_ptr<Mtx> eta;
-    std::unique_ptr<Mtx> tau;
+    std::unique_ptr<typename Mtx::absolute_type> tau;
     std::unique_ptr<Mtx> cos_prev;
     std::unique_ptr<Mtx> cos;
     std::unique_ptr<Mtx> sin_prev;
@@ -121,6 +121,7 @@ TYPED_TEST(Minres, KernelInitialize)
     this->small_q->fill(0);
     this->small_p_prev->fill(1);
     this->small_q_prev->fill(1);
+    this->small_q_tilde->fill(1);
     this->gamma->fill(1);
     this->delta->fill(1);
     this->cos_prev->fill(1);
@@ -135,10 +136,10 @@ TYPED_TEST(Minres, KernelInitialize)
     gko::kernels::reference::minres::initialize(
         this->exec, this->small_r.get(), this->small_z.get(),
         this->small_p.get(), this->small_p_prev.get(), this->small_q.get(),
-        this->small_q_prev.get(), this->beta.get(), this->gamma.get(),
-        this->delta.get(), this->cos_prev.get(), this->cos.get(),
-        this->sin_prev.get(), this->sin.get(), this->eta_next.get(),
-        this->eta.get(), &this->small_stop);
+        this->small_q_prev.get(), this->small_q_tilde.get(), this->beta.get(),
+        this->gamma.get(), this->delta.get(), this->cos_prev.get(),
+        this->cos.get(), this->sin_prev.get(), this->sin.get(),
+        this->eta_next.get(), this->eta.get(), &this->small_stop);
 
     GKO_ASSERT_MTX_NEAR(this->small_q, l({{1. / 2, 2. / 5}, {3. / 2, 4. / 5}}),
                         r<vt>::value);
@@ -147,6 +148,7 @@ TYPED_TEST(Minres, KernelInitialize)
     GKO_ASSERT_MTX_NEAR(this->small_p, this->zero, 0);
     GKO_ASSERT_MTX_NEAR(this->small_p_prev, this->zero, 0);
     GKO_ASSERT_MTX_NEAR(this->small_q_prev, this->zero, 0);
+    GKO_ASSERT_MTX_NEAR(this->small_q_tilde, this->zero, 0);
     GKO_ASSERT_MTX_NEAR(this->beta, l({{2., 5.}}), 0);
     GKO_ASSERT_MTX_NEAR(this->delta, this->zero_scalar, 0);
     GKO_ASSERT_MTX_NEAR(this->gamma, this->zero_scalar, 0);
@@ -179,7 +181,8 @@ TYPED_TEST(Minres, KernelStep1)
     this->sin = gko::initialize<Mtx>(I<I<vt>>{{8, 3}}, this->exec);
     this->eta_next = gko::initialize<Mtx>(I<I<vt>>{{6, 4}}, this->exec);
     this->eta->fill(0.);
-    this->tau = gko::initialize<Mtx>(I<I<vt>>{{4, 3}}, this->exec);
+    this->tau = gko::initialize<typename Mtx::absolute_type>(
+        I<I<gko::remove_complex<vt>>>{{4, 3}}, this->exec);
     this->small_p = gko::initialize<Mtx>(I<I<vt>>{{3, 4}, {-5, 2}}, this->exec);
     this->small_p_prev->fill(1.);
     this->small_z = gko::initialize<Mtx>(I<I<vt>>{{6, 1}, {7, 3}}, this->exec);
@@ -187,10 +190,14 @@ TYPED_TEST(Minres, KernelStep1)
         gko::initialize<Mtx>(I<I<vt>>{{4, 1}, {2, 5}}, this->exec);
     this->small_x = gko::initialize<Mtx>(I<I<vt>>{{5, 6}, {9, 3}}, this->exec);
     auto old_small_q = gko::clone(this->small_q);
+    auto old_small_q_tilde = gko::clone(this->small_q_tilde);
     auto old_cos = gko::clone(this->cos);
     auto old_sin = gko::clone(this->sin);
     auto old_eta_next = gko::clone(this->eta_next);
     auto old_p = gko::clone(this->small_p);
+    auto old_small_q_scaled = gko::clone(this->small_q);
+    auto result_beta = gko::initialize<Mtx>(I<I<vt>>{{2., 3.}}, this->exec);
+    old_small_q_scaled->scale(result_beta.get());
 
     gko::kernels::reference::minres::step_1(
         this->exec, this->small_x.get(), this->small_p.get(),
@@ -202,14 +209,13 @@ TYPED_TEST(Minres, KernelStep1)
         this->sin.get(), this->eta.get(), this->eta_next.get(), this->tau.get(),
         &this->small_stop);
 
-    GKO_ASSERT_MTX_NEAR(this->beta, l({{2., 3.}}), r<vt>::value);
-    GKO_ASSERT_MTX_NEAR(this->small_q_prev, old_small_q, 0.);
+    GKO_ASSERT_MTX_NEAR(this->beta, result_beta, r<vt>::value);
+    GKO_ASSERT_MTX_NEAR(this->small_q_prev, old_small_q_tilde, 0.);
+    GKO_ASSERT_MTX_NEAR(this->small_q_tilde, old_small_q_scaled, 0.);
     GKO_ASSERT_MTX_NEAR(this->small_q, l({{1 / 2., 3 / 3.}, {4 / 2., 5 / 3.}}),
                         r<vt>::value);
     GKO_ASSERT_MTX_NEAR(this->delta, l({{3 * 3., 7 * 6.}}), r<vt>::value);
-    GKO_ASSERT_MTX_NEAR(this->gamma,
-                        l({{4. * 0.1 * 3 + 8 * 1, 1 * 0.2 * 6 + 3 * 2}}),
-                        r<vt>::value);
+    GKO_ASSERT_MTX_NEAR(this->gamma, result_beta, r<vt>::value);
     GKO_ASSERT_MTX_NEAR(this->alpha, l({{2.561249694973139, 3.4}}),
                         r<vt>::value);
     GKO_ASSERT_MTX_NEAR(this->cos_prev, old_cos, 0.);
@@ -246,15 +252,14 @@ TYPED_TEST(Minres, SolvesSystem)
     auto neg_one_op = gko::initialize<Mtx>({-gko::one<vt>()}, this->exec);
     auto solver = this->minres_factory->template generate(this->mtx);
     auto x = gko::initialize<Mtx>({-1., 2., 3., 4.}, this->exec);
+    auto sol = gko::clone(this->exec, x);
     auto b = Mtx::create(this->exec, x->get_size());
     this->mtx->apply(x.get(), b.get());
-    auto solution = gko::clone(x);
     x->fill(0.);
 
     solver->apply(b.get(), x.get());
-    this->mtx->apply(one_op.get(), x.get(), neg_one_op.get(), b.get());
 
-    GKO_ASSERT_MTX_NEAR(b, l({0., 0., 0., 0.}), r<vt>::value);
+    GKO_ASSERT_MTX_NEAR(x, sol, r<vt>::value * 10);
 }
 
 
