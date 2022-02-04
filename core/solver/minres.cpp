@@ -39,10 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/name_demangling.hpp>
 #include <ginkgo/core/base/precision_dispatch.hpp>
-#include <ginkgo/core/base/utils.hpp>
 
 
-#include "core/distributed/helpers.hpp"
 #include "core/solver/minres_kernels.hpp"
 
 
@@ -89,7 +87,7 @@ std::unique_ptr<LinOp> Minres<ValueType>::conj_transpose() const
 template <typename ValueType>
 void Minres<ValueType>::apply_impl(const LinOp* b, LinOp* x) const
 {
-    precision_dispatch_real_complex_distributed<ValueType>(
+    precision_dispatch_real_complex<ValueType>(
         [this](auto dense_b, auto dense_x) {
             this->apply_dense_impl(dense_b, dense_x);
         },
@@ -98,44 +96,44 @@ void Minres<ValueType>::apply_impl(const LinOp* b, LinOp* x) const
 
 
 template <typename ValueType>
-template <typename VectorType>
-void Minres<ValueType>::apply_dense_impl(const VectorType* dense_b,
-                                         VectorType* dense_x) const
+void Minres<ValueType>::apply_dense_impl(
+    const matrix::Dense<ValueType>* dense_b,
+    matrix::Dense<ValueType>* dense_x) const
 {
     using std::swap;
-    using LocalVector = matrix::Dense<ValueType>;
+    using Vector = matrix::Dense<ValueType>;
 
     constexpr uint8 RelativeStoppingId{1};
 
     auto exec = this->get_executor();
 
-    auto one_op = initialize<LocalVector>({one<ValueType>()}, exec);
-    auto neg_one_op = initialize<LocalVector>({-one<ValueType>()}, exec);
+    auto one_op = initialize<Vector>({one<ValueType>()}, exec);
+    auto neg_one_op = initialize<Vector>({-one<ValueType>()}, exec);
 
-    auto r = distributed::detail::create_with_same_size(dense_b);
-    auto z = distributed::detail::create_with_same_size(dense_b);
-    auto p = distributed::detail::create_with_same_size(dense_b);
-    auto q = distributed::detail::create_with_same_size(dense_b);
+    auto r = Vector::create_with_config_of(dense_b);
+    auto z = Vector::create_with_config_of(dense_b);
+    auto p = Vector::create_with_config_of(dense_b);
+    auto q = Vector::create_with_config_of(dense_b);
 
-    auto z_tilde = distributed::detail::create_with_same_size(dense_b);
-    auto q_tilde = distributed::detail::create_with_same_size(dense_b);
+    auto z_tilde = Vector::create_with_config_of(dense_b);
+    auto q_tilde = Vector::create_with_config_of(dense_b);
 
-    auto p_prev = distributed::detail::create_with_same_size(p.get());
-    auto q_prev = distributed::detail::create_with_same_size(q.get());
+    auto p_prev = Vector::create_with_config_of(p.get());
+    auto q_prev = Vector::create_with_config_of(q.get());
 
-    auto alpha = LocalVector::create(exec, dim<2>{1, dense_b->get_size()[1]});
-    auto beta = LocalVector::create_with_config_of(alpha.get());
-    auto gamma = LocalVector::create_with_config_of(alpha.get());
-    auto delta = LocalVector::create_with_config_of(alpha.get());
-    auto eta_next = LocalVector::create_with_config_of(alpha.get());
-    auto eta = LocalVector::create_with_config_of(alpha.get());
-    auto tau = LocalVector::create_with_config_of(
-        alpha.get());  // using ||z||, could also be beta?
+    auto alpha = Vector::create(exec, dim<2>{1, dense_b->get_size()[1]});
+    auto beta = Vector::create_with_config_of(alpha.get());
+    auto gamma = Vector::create_with_config_of(alpha.get());
+    auto delta = Vector::create_with_config_of(alpha.get());
+    auto eta_next = Vector::create_with_config_of(alpha.get());
+    auto eta = Vector::create_with_config_of(alpha.get());
+    auto tau = Vector::create_with_config_of(
+        alpha.get());  // using ||z||, could also be beta or ||r||?
 
-    auto cos_prev = LocalVector::create_with_config_of(alpha.get());
-    auto cos = LocalVector::create_with_config_of(alpha.get());
-    auto sin_prev = LocalVector::create_with_config_of(alpha.get());
-    auto sin = LocalVector::create_with_config_of(alpha.get());
+    auto cos_prev = Vector::create_with_config_of(alpha.get());
+    auto cos = Vector::create_with_config_of(alpha.get());
+    auto sin_prev = Vector::create_with_config_of(alpha.get());
+    auto sin = Vector::create_with_config_of(alpha.get());
 
     bool one_changed{};
     Array<stopping_status> stop_status(alpha->get_executor(),
@@ -156,14 +154,9 @@ void Minres<ValueType>::apply_dense_impl(const VectorType* dense_b,
     z->compute_norm2(tau.get());
 
     exec->run(minres::make_initialize(
-        distributed::detail::get_local(r.get()),
-        distributed::detail::get_local(z.get()),
-        distributed::detail::get_local(p.get()),
-        distributed::detail::get_local(p_prev.get()),
-        distributed::detail::get_local(q.get()),
-        distributed::detail::get_local(q_prev.get()), beta.get(), gamma.get(),
-        delta.get(), cos_prev.get(), cos.get(), sin_prev.get(), sin.get(),
-        eta_next.get(), eta.get(), &stop_status));
+        r.get(), z.get(), p.get(), p_prev.get(), q.get(), q_prev.get(),
+        beta.get(), gamma.get(), delta.get(), cos_prev.get(), cos.get(),
+        sin_prev.get(), sin.get(), eta_next.get(), eta.get(), &stop_status));
 
     int iter = -1;
     /* Memory movement summary:
@@ -200,16 +193,13 @@ void Minres<ValueType>::apply_dense_impl(const VectorType* dense_b,
          * p and z get updated in step_1
          */
         swap(q_tilde, q_prev);
-        // gamma = clone(beta);
-        // beta->scale(neg_one_op.get());
         q_tilde->scale(beta.get());
         system_matrix_->apply(one_op.get(), z.get(), neg_one_op.get(),
                               q_tilde.get());
-        q_tilde->compute_dot(z.get(), alpha.get());
-        distributed::detail::get_local(q_tilde.get())
-            ->sub_scaled(alpha.get(), distributed::detail::get_local(q.get()));
+        q_tilde->compute_conj_dot(z.get(), alpha.get());
+        q_tilde->sub_scaled(alpha.get(), q.get());
         get_preconditioner()->apply(q_tilde.get(), z_tilde.get());
-        q_tilde->compute_dot(z_tilde.get(), beta.get());
+        q_tilde->compute_conj_dot(z_tilde.get(), beta.get());
 
         /**
          * step 2:
@@ -245,17 +235,10 @@ void Minres<ValueType>::apply_dense_impl(const VectorType* dense_b,
          * z = z_tilde / beta  // lanzcos continuation
          */
         exec->run(minres::make_step_1(
-            distributed::detail::get_local(dense_x),
-            distributed::detail::get_local(p.get()),
-            distributed::detail::get_local(p_prev.get()),
-            distributed::detail::get_local(z.get()),
-            distributed::detail::get_local(z_tilde.get()),
-            distributed::detail::get_local(q.get()),
-            distributed::detail::get_local(q_prev.get()),
-            distributed::detail::get_local(q_tilde.get()), alpha.get(),
-            beta.get(), gamma.get(), delta.get(), cos_prev.get(), cos.get(),
-            sin_prev.get(), sin.get(), eta.get(), eta_next.get(), tau.get(),
-            &stop_status));
+            dense_x, p.get(), p_prev.get(), z.get(), z_tilde.get(), q.get(),
+            q_prev.get(), q_tilde.get(), alpha.get(), beta.get(), gamma.get(),
+            delta.get(), cos_prev.get(), cos.get(), sin_prev.get(), sin.get(),
+            eta.get(), eta_next.get(), tau.get(), &stop_status));
     }
 }
 
@@ -264,7 +247,7 @@ template <typename ValueType>
 void Minres<ValueType>::apply_impl(const LinOp* alpha, const LinOp* b,
                                    const LinOp* beta, LinOp* x) const
 {
-    precision_dispatch_real_complex_distributed<ValueType>(
+    precision_dispatch_real_complex<ValueType>(
         [this](auto dense_alpha, auto dense_b, auto dense_beta, auto dense_x) {
             auto x_clone = dense_x->clone();
             this->apply_dense_impl(dense_b, x_clone.get());
