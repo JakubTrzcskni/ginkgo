@@ -56,10 +56,10 @@ struct Generic<typename gko::preconditioner::Ilu<
                                         IndexType>> {
     using type = std::shared_ptr<typename gko::preconditioner::Ilu<
         LSolverType, USolverType, ReverseApply, IndexType>::Factory>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
         auto ptr = [&]() {
             BUILD_FACTORY(
@@ -74,7 +74,6 @@ struct Generic<typename gko::preconditioner::Ilu<
             SET_EXECUTOR;
         }();
 
-        std::cout << "123" << std::endl;
         return ptr;
     }
 };
@@ -98,10 +97,9 @@ constexpr auto ilu_list =
 template <>
 std::shared_ptr<gko::LinOpFactory> create_from_config<
     RM_LinOpFactory, RM_LinOpFactory::IluFactory, gko::LinOpFactory>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "ilu_factory" << std::endl;
     // go though the type
     using namespace std::literals::string_literals;
     auto it = get_value_with_default(item, "IndexType", default_indextype);
@@ -120,10 +118,9 @@ std::shared_ptr<gko::LinOpFactory> create_from_config<
 template <>
 std::shared_ptr<gko::LinOp>
 create_from_config<RM_LinOp, RM_LinOp::Ilu, gko::LinOp>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "build_ilu" << std::endl;
     // go though the type
     using namespace std::literals::string_literals;
     auto it = get_value_with_default(item, "IndexType", default_indextype);

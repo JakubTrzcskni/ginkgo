@@ -50,20 +50,16 @@ namespace resource_manager {
 template <>
 struct Generic<gko::stop::Iteration::Factory, gko::stop::Iteration> {
     using type = std::shared_ptr<gko::stop::Iteration::Factory>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Iteration exec:" << exec.get() << std::endl;
         auto ptr = [&]() {
             BUILD_FACTORY(gko::stop::Iteration, manager, item, exec, linop);
-            std::cout << "Iter 1:" << std::endl;
             SET_VALUE(size_type, max_iters);
-            std::cout << "Iter 2:" << std::endl;
             SET_EXECUTOR;
         }();
-        std::cout << "Iter 3:" << std::endl;
         return ptr;
     }
 };

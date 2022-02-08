@@ -83,7 +83,7 @@ public:
     template <typename T>
     std::shared_ptr<T> search_data(std::string key)
     {
-        auto &val = this->get_map<T>().at(key);
+        auto& val = this->get_map<T>().at(key);
         return std::dynamic_pointer_cast<T>(val);
     }
 
@@ -92,7 +92,7 @@ public:
      *
      * @param item  the RapidJson::Value
      */
-    void build_item(rapidjson::Value &item);
+    void build_item(rapidjson::Value& item);
 
     /**
      * build_item is to build one object. If the object contains a name, add it
@@ -109,11 +109,10 @@ public:
      */
     template <typename T>
     std::shared_ptr<T> build_item(
-        rapidjson::Value &item, std::string base,
+        rapidjson::Value& item, std::string base,
         std::shared_ptr<const Executor> exec = nullptr,
         std::shared_ptr<const LinOp> linop = nullptr)
     {
-        std::cout << "create_from_config" << std::endl;
         auto ptr = create_from_config<T>(item, base, exec, linop, this);
         // if need to store the data, how to do that
         if (item.HasMember("name")) {
@@ -136,10 +135,9 @@ public:
      */
     template <typename T>
     std::shared_ptr<T> build_item(
-        rapidjson::Value &item, std::shared_ptr<const Executor> exec = nullptr,
+        rapidjson::Value& item, std::shared_ptr<const Executor> exec = nullptr,
         std::shared_ptr<const LinOp> linop = nullptr)
     {
-        std::cout << "create_from_config" << std::endl;
         auto ptr = GenericHelper<T>::build(item, exec, linop, this);
         // if need to store the data, how to do that
         if (item.HasMember("name")) {
@@ -154,10 +152,10 @@ public:
      *
      * @param item  the RapidJson::Value
      */
-    void read(rapidjson::Value &dom)
+    void read(rapidjson::Value& dom)
     {
         if (dom.IsArray()) {
-            for (auto &item : dom.GetArray()) {
+            for (auto& item : dom.GetArray()) {
                 this->build_item(item);
             }
         } else if (dom.IsObject()) {
@@ -184,7 +182,7 @@ public:
     template <typename T>
     void output_map_info()
     {
-        for (auto const &x : this->get_map_impl<T>()) {
+        for (auto const& x : this->get_map_impl<T>()) {
             std::cout << x.first << ": " << x.second.get() << std::endl;
         }
     }
@@ -198,7 +196,7 @@ protected:
      * @return the map
      */
     template <typename T>
-    typename map_type<T>::type &get_map()
+    typename map_type<T>::type& get_map()
     {
         return this->get_map_impl<typename map_type<T>::type>();
     }
@@ -211,7 +209,7 @@ protected:
      * @return the map
      */
     template <typename T>
-    T &get_map_impl();
+    T& get_map_impl();
 
 private:
     std::unordered_map<std::string, std::shared_ptr<Executor>> executor_map_;
@@ -224,31 +222,31 @@ private:
 
 
 template <>
-ExecutorMap &ResourceManager::get_map_impl<ExecutorMap>()
+ExecutorMap& ResourceManager::get_map_impl<ExecutorMap>()
 {
     return executor_map_;
 }
 
 template <>
-LinOpMap &ResourceManager::get_map_impl<LinOpMap>()
+LinOpMap& ResourceManager::get_map_impl<LinOpMap>()
 {
     return linop_map_;
 }
 
 template <>
-LinOpFactoryMap &ResourceManager::get_map_impl<LinOpFactoryMap>()
+LinOpFactoryMap& ResourceManager::get_map_impl<LinOpFactoryMap>()
 {
     return linopfactory_map_;
 }
 
 template <>
-CriterionFactoryMap &ResourceManager::get_map_impl<CriterionFactoryMap>()
+CriterionFactoryMap& ResourceManager::get_map_impl<CriterionFactoryMap>()
 {
     return criterionfactory_map_;
 }
 
 
-void ResourceManager::build_item(rapidjson::Value &item)
+void ResourceManager::build_item(rapidjson::Value& item)
 {
     assert(item.HasMember("name"));
     assert(item.HasMember("base"));
@@ -260,13 +258,10 @@ void ResourceManager::build_item(rapidjson::Value &item)
     if (ptr == nullptr) {
         auto ptr =
             create_from_config<LinOp>(item, base, nullptr, nullptr, this);
-        std::cout << "123" << std::endl;
         if (ptr == nullptr) {
-            std::cout << "LinOpFactory" << std::endl;
             auto ptr = create_from_config<LinOpFactory>(item, base, nullptr,
                                                         nullptr, this);
             if (ptr == nullptr) {
-                std::cout << "StopFactory" << std::endl;
                 auto ptr = create_from_config<CriterionFactory>(
                     item, base, nullptr, nullptr, this);
             }

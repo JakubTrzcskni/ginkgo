@@ -50,12 +50,11 @@ namespace resource_manager {
 template <>
 struct Generic<gko::CudaExecutor> {
     using type = std::shared_ptr<gko::CudaExecutor>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Cuda" << std::endl;
         auto device_id = get_value_with_default(item, "device_id", 0);
         return CudaExecutor::create(device_id, ReferenceExecutor::create());
     }
@@ -68,12 +67,11 @@ IMPLEMENT_BRIDGE(RM_Executor, CudaExecutor, CudaExecutor);
 template <>
 struct Generic<gko::HipExecutor> {
     using type = std::shared_ptr<gko::HipExecutor>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Hip" << std::endl;
         auto device_id = get_value_with_default(item, "device_id", 0);
         return HipExecutor::create(device_id, ReferenceExecutor::create());
     }
@@ -86,12 +84,11 @@ IMPLEMENT_BRIDGE(RM_Executor, HipExecutor, HipExecutor);
 template <>
 struct Generic<gko::DpcppExecutor> {
     using type = std::shared_ptr<gko::DpcppExecutor>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Dpcpp" << std::endl;
         auto device_id = get_value_with_default(item, "device_id", 0);
         auto device_type =
             get_value_with_default(item, "device_type", std::string("all"));
@@ -107,12 +104,11 @@ IMPLEMENT_BRIDGE(RM_Executor, DpcppExecutor, DpcppExecutor);
 template <>
 struct Generic<gko::ReferenceExecutor> {
     using type = std::shared_ptr<gko::ReferenceExecutor>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Reference" << std::endl;
         return ReferenceExecutor::create();
     }
 };
@@ -124,12 +120,11 @@ IMPLEMENT_BRIDGE(RM_Executor, ReferenceExecutor, ReferenceExecutor);
 template <>
 struct Generic<gko::OmpExecutor> {
     using type = std::shared_ptr<gko::OmpExecutor>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "Omp" << std::endl;
         return OmpExecutor::create();
     }
 };

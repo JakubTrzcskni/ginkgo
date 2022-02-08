@@ -51,15 +51,11 @@ namespace resource_manager {
 template <typename T>
 struct Generic<gko::matrix::Dense<T>> {
     using type = std::shared_ptr<gko::matrix::Dense<T>>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "is_double?" << std::is_same<T, double>::value
-                  << std::endl;
-        std::cout << "is_float?" << std::is_same<T, float>::value << std::endl;
-
         // std::shared_ptr<Executor> exec_ptr;
         auto exec_ptr =
             get_pointer_check<Executor>(item, "exec", exec, linop, manager);
@@ -71,8 +67,6 @@ struct Generic<gko::matrix::Dense<T>> {
             auto data = gko::read_raw<T>(mtx_fd);
             ptr->read(data);
         }
-        std::cout << ptr->get_size()[0] << " " << ptr->get_size()[1] << " "
-                  << ptr->get_stride() << std::endl;
         return std::move(ptr);
     }
 };
@@ -85,10 +79,9 @@ constexpr auto dense_list = tt_list<double, float>();
 template <>
 std::shared_ptr<gko::LinOp>
 create_from_config<RM_LinOp, RM_LinOp::Dense, gko::LinOp>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "build_dense" << std::endl;
     // go though the type
     auto vt = get_value_with_default(item, "ValueType", default_valuetype);
     auto type_string = vt;

@@ -51,10 +51,10 @@ namespace resource_manager {
 template <typename V, typename I>
 struct Generic<gko::matrix::Csr<V, I>> {
     using type = std::shared_ptr<gko::matrix::Csr<V, I>>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
         using Csr = gko::matrix::Csr<V, I>;
         using strategy_type = typename Csr::strategy_type;
@@ -124,10 +124,9 @@ constexpr auto csr_list =
 template <>
 std::shared_ptr<gko::LinOp>
 create_from_config<RM_LinOp, RM_LinOp::Csr, gko::LinOp>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "build_csr" << std::endl;
     // go though the type
     auto vt = get_value_with_default(item, "ValueType", default_valuetype);
     auto it = get_value_with_default(item, "ValueType", default_indextype);

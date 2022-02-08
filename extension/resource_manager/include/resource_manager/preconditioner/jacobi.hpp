@@ -54,10 +54,10 @@ struct Generic<
     gko::preconditioner::Jacobi<ValueType, IndexType>> {
     using type = std::shared_ptr<
         typename gko::preconditioner::Jacobi<ValueType, IndexType>::Factory>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
         auto ptr = [&]() {
             BUILD_FACTORY(
@@ -69,7 +69,6 @@ struct Generic<
             SET_EXECUTOR;
         }();
 
-        std::cout << "123" << std::endl;
         return ptr;
     }
 };
@@ -92,10 +91,9 @@ constexpr auto jacobi_list =
 template <>
 std::shared_ptr<gko::LinOpFactory> create_from_config<
     RM_LinOpFactory, RM_LinOpFactory::JacobiFactory, gko::LinOpFactory>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "jacobi_factory" << std::endl;
     // go though the type
     auto vt = get_value_with_default(item, "ValueType", default_valuetype);
     auto it = get_value_with_default(item, "IndexType", default_indextype);
@@ -110,10 +108,9 @@ std::shared_ptr<gko::LinOpFactory> create_from_config<
 template <>
 std::shared_ptr<gko::LinOp>
 create_from_config<RM_LinOp, RM_LinOp::Jacobi, gko::LinOp>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "build_jacobi" << std::endl;
     // go though the type
     auto vt = get_value_with_default(item, "ValueType", default_valuetype);
     auto it = get_value_with_default(item, "IndexType", default_indextype);

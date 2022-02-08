@@ -51,22 +51,18 @@ template <typename T>
 struct Generic<typename gko::stop::ResidualNorm<T>::Factory,
                gko::stop::ResidualNorm<T>> {
     using type = std::shared_ptr<typename gko::stop::ResidualNorm<T>::Factory>;
-    static type build(rapidjson::Value &item,
+    static type build(rapidjson::Value& item,
                       std::shared_ptr<const Executor> exec,
                       std::shared_ptr<const LinOp> linop,
-                      ResourceManager *manager)
+                      ResourceManager* manager)
     {
-        std::cout << "ResidualNorm exec:" << exec.get() << std::endl;
         auto ptr = [&]() {
             BUILD_FACTORY(gko::stop::ResidualNorm<T>, manager, item, exec,
                           linop);
-            std::cout << "Iter 1:" << std::endl;
             SET_VALUE(T, reduction_factor);
-            std::cout << "Iter 2:" << std::endl;
             SET_VALUE(gko::stop::mode, baseline);
             SET_EXECUTOR;
         }();
-        std::cout << "Iter 3:" << std::endl;
         return ptr;
     }
 };
@@ -82,10 +78,9 @@ template <>
 std::shared_ptr<gko::stop::CriterionFactory>
 create_from_config<RM_CriterionFactory, RM_CriterionFactory::ResidualNorm,
                    gko::stop::CriterionFactory>(
-    rapidjson::Value &item, std::shared_ptr<const Executor> exec,
-    std::shared_ptr<const LinOp> linop, ResourceManager *manager)
+    rapidjson::Value& item, std::shared_ptr<const Executor> exec,
+    std::shared_ptr<const LinOp> linop, ResourceManager* manager)
 {
-    std::cout << "build_residual_norm" << std::endl;
     // go though the type
     auto vt = get_value_with_default(item, "ValueType", default_valuetype);
     auto type_string = vt;
