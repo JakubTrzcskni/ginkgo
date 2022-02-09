@@ -48,12 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <gtest/gtest.h>
 
 
+#include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 
 
 #include "core/base/extended_float.hpp"
-#include "ginkgo/core/base/executor.hpp"
 
 
 namespace gko {

@@ -91,7 +91,7 @@ public:
 
     /**
      * Returns the representative of the set containing element x.
-     * Also performs path-compresson on the corresponding path.
+     * Also performs path-compression on the corresponding path.
      *
      * @param x  the element
      * @return the element representing the set containing x
