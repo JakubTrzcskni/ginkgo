@@ -110,8 +110,8 @@ Partition<LocalIndexType, GlobalIndexType>::build_from_local_range(
     std::shared_ptr<const Executor> exec, LocalIndexType local_start,
     LocalIndexType local_end, std::shared_ptr<const mpi::communicator> comm)
 {
-    LocalIndexType range[2] = {static_cast<LocalIndexType>(local_start),
-                               static_cast<LocalIndexType>(local_end)};
+    GlobalIndexType range[2] = {static_cast<GlobalIndexType>(local_start),
+                                static_cast<GlobalIndexType>(local_end)};
 
     // make all range_ends available on each rank
     Array<GlobalIndexType> ranges_start_end(exec->get_master(),
