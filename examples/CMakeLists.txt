@@ -6,6 +6,7 @@ set(EXAMPLES_EXEC_LIST
     cb-gmres
     custom-logger
     ginkgo-ranges
+    hpcg-benchmark
     ilu-preconditioned-solver
     ir-ilu-preconditioned-solver
     inverse-iteration

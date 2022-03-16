@@ -30,24 +30,14 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************<GINKGO LICENSE>*******************************/
 
+#include <chrono>
 #include <ginkgo/ginkgo.hpp>
 #include <iostream>
 #include <map>
 #include <string>
 
-struct problem_geometry {
-    unsigned int nx;
-    unsigned int ny;
-    unsigned int nz;
-};
-typedef struct problem_geometry geo;
+#include "include/geometric-multigrid.hpp"
 
-void generate_geometry(unsigned int discretization_points_1D, geo* geometry)
-{
-    geometry->nx = discretization_points_1D;
-    geometry->ny = discretization_points_1D;
-    geometry->nz = discretization_points_1D;
-}
 
 // Creates a stencil matrix in CSR format, rhs, x, and the corresponding exact
 // solution
@@ -55,7 +45,8 @@ template <typename ValueType, typename IndexType>
 void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
                       gko::matrix::Dense<ValueType>* rhs,
                       gko::matrix::Dense<ValueType>* x,
-                      gko::matrix::Dense<ValueType>* x_exact, geo& geometry)
+                      gko::matrix::Dense<ValueType>* x_exact,
+                      gko::multigrid::problem_geometry& geometry)
 {
     auto nnz = 0;
     const auto nx = geometry.nx;
@@ -69,7 +60,7 @@ void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
 
     gko::matrix_data<ValueType, IndexType> data{
         gko::dim<2>{discretization_points, discretization_points}, {}};
-    auto pos = 0;
+
 
     for (auto iz = 0; iz < nz; iz++) {
         for (auto iy = 0; iy < ny; iy++) {
@@ -110,16 +101,30 @@ void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
     assert(matrix->get_num_stored_elements() == nnz);
 }
 
+// Restriction operator
+// Computes the coarse residual vector
+// Injection
+template <typename ValueType, typename IndexType>
+void computeRestriction()
+{}
+
 // Prints the solution `u`.
 template <typename ValueType>
 void print_solution(ValueType u0, ValueType u1,
                     const gko::matrix::Dense<ValueType>* u)
 {
-    std::cout << u0 << '\n';
+    // std::cout << u0 << '\n';
     for (int i = 0; i < u->get_size()[0]; ++i) {
         std::cout << u->get_const_values()[i] << '\n';
     }
-    std::cout << u1 << std::endl;
+    // std::cout << u1 << std::endl;
+}
+template <typename ValueType>
+void print_matrix(const gko::matrix::Dense<ValueType>* u)
+{
+    for (int i = 0; i < u->get_size()[0]; ++i) {
+        std::cout << u->get_const_values()[i] << '\n';
+    }
 }
 
 // Computes the 1-norm of the error given the computed `u` and the correct
@@ -150,6 +155,10 @@ int main(int argc, char* argv[])
     using mtx = gko::matrix::Csr<ValueType, IndexType>;
     using cg = gko::solver::Cg<ValueType>;
     using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
+    using geo = gko::multigrid::problem_geometry;
+    using ir = gko::solver::Ir<ValueType>;
+    using mg = gko::solver::Multigrid;
+    using gmg = gko::multigrid::Gmg<ValueType, IndexType>;
 
     // Print version information
     std::cout << gko::version_info::get() << std::endl;
@@ -180,6 +189,7 @@ int main(int argc, char* argv[])
         geometry = geo{dp_x, dp_y, dp_z};
     } else {
         geometry = geo{32, 32, 32};
+        // geometry = geo{8, 8, 8};
     }
 
 
@@ -211,33 +221,180 @@ int main(int argc, char* argv[])
     // executor used by the application
     const auto app_exec = exec->get_master();
 
-    // initialize matrix and vectors
-    auto matrix = mtx::create(app_exec, gko::dim<2>(dp_3D));
-    auto rhs = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
-    auto x = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
-    auto x_exact = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
-    std::cout << "matrices and vectors initialized" << std::endl;
-
-    // generate matrix, rhs and solution
-    generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact), geometry);
-    std::cout << "problem generated" << std::endl;
 
     // Reference CG solve
-    const gko::remove_complex<ValueType> reduction_factor = 1e-7;
-    // Generate solver and solve the system
-    cg::build()
-        .with_criteria(
-            gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec),
-            gko::stop::ResidualNorm<ValueType>::build()
-                .with_reduction_factor(reduction_factor)
-                .on(exec))
-        .with_preconditioner(bj::build().on(exec))
-        .on(exec)
-        ->generate(clone(exec, matrix))  // copy the matrix to the executor
-        ->apply(lend(rhs), lend(x));
+    {
+        // initialize matrix and vectors
+        auto matrix = share(mtx::create(app_exec, gko::dim<2>(dp_3D)));
+        auto rhs = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        auto x = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        auto x_exact = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        std::cout << "\nmatrices and vectors initialized" << std::endl;
 
-    std::cout << "Solve complete.\nThe average relative error is "
-              << calculate_error(dp_3D, lend(x), lend(x_exact)) /
-                     static_cast<gko::remove_complex<ValueType>>(dp_3D)
-              << std::endl;
+        // generate matrix, rhs and solution
+        generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact),
+                         geometry);
+        std::cout << "problem generated" << std::endl;
+
+        const gko::remove_complex<ValueType> reduction_factor = 1e-7;
+        // Generate solver and solve the system
+        std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
+            gko::log::Convergence<ValueType>::create(exec);
+        auto iter_stop =
+            gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+        auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
+                            .with_reduction_factor(reduction_factor)
+                            .on(exec);
+        iter_stop->add_logger(logger);
+        tol_stop->add_logger(logger);
+        auto cg_factory =
+            cg::build()
+                .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
+                .on(exec);
+
+        auto solver = cg_factory->generate(
+            clone(exec, matrix));  // copy the matrix to the executor
+        std::cout << "Reference CG - no preconditioner" << std::endl;
+
+        auto tic = std::chrono::steady_clock::now();
+
+        solver->apply(lend(rhs), lend(x));
+        exec->synchronize();
+
+        auto tac = std::chrono::steady_clock::now();
+
+        auto time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+
+        std::cout << "Running " << logger->get_num_iterations()
+                  << " iterations of the CG solver took a total of "
+                  << static_cast<double>(time.count()) /
+                         static_cast<double>(std::nano::den)
+                  << " seconds." << std::endl;
+
+        std::cout << "Solve complete.\nThe average relative error is "
+                  << calculate_error(dp_3D, lend(x), lend(x_exact)) /
+                         static_cast<gko::remove_complex<ValueType>>(dp_3D)
+                  << std::endl;
+    }
+
+    // MG preconditioned CG
+
+    {
+        // initialize matrix and vectors
+        auto matrix = share(mtx::create(app_exec, gko::dim<2>(dp_3D)));
+        auto rhs = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        auto x = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        auto x_exact = vec::create(app_exec, gko::dim<2>(dp_3D, 1));
+        std::cout << "\nmatrices and vectors initialized" << std::endl;
+
+        auto one = gko::initialize<vec>({1.0}, exec);
+        auto neg_one = gko::initialize<vec>({-1.0}, exec);
+        auto initres = gko::initialize<vec>({0.0}, exec);
+        auto res = gko::initialize<vec>({0.0}, exec);
+
+        // generate matrix, rhs and solution
+        generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact),
+                         geometry);
+        std::cout << "problem generated" << std::endl;
+
+        const gko::remove_complex<ValueType> reduction_factor = 1e-7;
+        auto iter_stop =
+            gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+        auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
+                            .with_reduction_factor(reduction_factor)
+                            .on(exec);
+
+        std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
+            gko::log::Convergence<ValueType>::create(exec);
+        iter_stop->add_logger(logger);
+        tol_stop->add_logger(logger);
+
+        auto inner_solver_gen =
+            gko::share(bj::build().with_max_block_size(1u).on(exec));
+
+        auto smoother_gen = gko::share(
+            ir::build()
+                .with_solver(inner_solver_gen)
+                .with_relaxation_factor(0.9)
+                .with_criteria(
+                    gko::stop::Iteration::build().with_max_iters(2u).on(exec))
+                .on(exec));
+
+        auto mg_level_gen = gmg::build().with_fine_geo(geometry).on(exec);
+
+        auto coarsest_gen = gko::share(
+            ir::build()
+                .with_solver(inner_solver_gen)
+                .with_relaxation_factor(0.9)
+                .with_criteria(
+                    gko::stop::Iteration::build().with_max_iters(4u).on(exec))
+                .on(exec));
+
+        auto multigrid_gen =
+            mg::build()
+                .with_max_levels(4u)
+                .with_min_coarse_rows(2u)
+                .with_pre_smoother(smoother_gen)
+                .with_post_uses_pre(true)
+                .with_mg_level(gko::share(mg_level_gen))
+                .with_coarsest_solver(coarsest_gen)
+                .with_zero_guess(true)
+                .with_criteria(
+                    gko::stop::Iteration::build().with_max_iters(1u).on(exec))
+                .on(exec);
+
+        auto solver_gen =
+            cg::build()
+                .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
+                .with_preconditioner(gko::share(multigrid_gen))
+                .on(exec);
+
+        std::cout << "CG with MG preconditioner" << std::endl;
+
+        std::chrono::nanoseconds gen_time(0);
+        auto gen_tic = std::chrono::steady_clock::now();
+        auto solver = solver_gen->generate(
+            share(matrix));  // probably give(matrix) or share()
+        exec->synchronize();
+        auto gen_toc = std::chrono::steady_clock::now();
+        gen_time += std::chrono::duration_cast<std::chrono::nanoseconds>(
+            gen_toc - gen_tic);
+
+        exec->synchronize();
+        std::chrono::nanoseconds time(0);
+        auto tic = std::chrono::steady_clock::now();
+        solver->apply(lend(rhs), lend(x));
+        exec->synchronize();
+        auto toc = std::chrono::steady_clock::now();
+        time += std::chrono::duration_cast<std::chrono::nanoseconds>(toc - tic);
+
+
+        // // this throws errors (segfault)
+        // matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
+        // rhs->compute_norm2(lend(res));
+
+        // std::cout << "Initial residual norm sqrt(r^T r): \n";
+        // write(std::cout, lend(initres));
+        // std::cout << "Final residual norm sqrt(r^T r): \n";
+        // write(std::cout, lend(res));
+
+        std::cout << "Solve complete.\nThe average relative error is "
+                  << calculate_error(dp_3D, lend(x), lend(x_exact)) /
+                         static_cast<gko::remove_complex<ValueType>>(dp_3D)
+                  << std::endl;
+
+        // Print solver statistics
+        std::cout << "CG iteration count:     " << logger->get_num_iterations()
+                  << std::endl;
+        std::cout << "CG generation time [ms]: "
+                  << static_cast<double>(gen_time.count()) / 1000000.0
+                  << std::endl;
+        std::cout << "CG execution time [ms]: "
+                  << static_cast<double>(time.count()) / 1000000.0 << std::endl;
+        std::cout << "CG execution time per iteraion[ms]: "
+                  << static_cast<double>(time.count()) / 1000000.0 /
+                         logger->get_num_iterations()
+                  << std::endl;
+    }
 }
