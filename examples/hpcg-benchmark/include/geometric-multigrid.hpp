@@ -89,12 +89,12 @@ void generate_problem_matrix(problem_geometry& geo,
     const auto discretization_points = mat->get_size()[0];
     GKO_ASSERT((nx + 1) * (ny + 1) * (nz + 1) == discretization_points);
     gko::matrix_data<ValueType, IndexType> data{
-        gko::dim<2>{discretization_points, discretization_points}, {}};
+        gko::dim<2>(discretization_points), {}};
 
     for (auto iz = 0; iz <= nz; iz++) {
         for (auto iy = 0; iy <= ny; iy++) {
             for (auto ix = 0; ix <= nx; ix++) {
-                auto current_row = iz * nx * ny + iy * nx + ix;
+                auto current_row = grid2index(ix, iy, iz, nx, ny);
                 auto nnz_in_row = 0;
                 for (auto ofs_z : {-1, 0, 1}) {
                     if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
@@ -102,9 +102,9 @@ void generate_problem_matrix(problem_geometry& geo,
                             if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
                                 for (auto ofs_x : {-1, 0, 1}) {
                                     if (ix + ofs_x > -1 && ix + ofs_x <= nx) {
-                                        auto current_col = current_row +
-                                                           ofs_z * ny * nx +
-                                                           ofs_y * nx + ofs_x;
+                                        auto current_col =
+                                            grid2index(ofs_x, ofs_y, ofs_z, nx,
+                                                       ny, current_row);
                                         if (current_col == current_row) {
                                             data.nonzeros.emplace_back(
                                                 current_row, current_col, 26.0);
@@ -447,7 +447,6 @@ protected:
         auto coarse_mat = share(matrix::Csr<ValueType, IndexType>::create(
             exec, gko::dim<2>(discretization_points)));
         auto fine_dim = this->system_matrix_->get_size()[0];
-        gko::dim<2>::dimension_type coarse_dim = coarse_mat->get_size()[0];
         generate_problem_matrix(coarse_geo, lend(coarse_mat.get()));
 
         this->set_multigrid_level(

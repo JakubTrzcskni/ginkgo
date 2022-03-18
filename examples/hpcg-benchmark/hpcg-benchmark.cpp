@@ -67,7 +67,8 @@ void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
     for (auto iz = 0; iz <= nz; iz++) {
         for (auto iy = 0; iy <= ny; iy++) {
             for (auto ix = 0; ix <= nx; ix++) {
-                auto current_row = iz * nx * ny + iy * nx + ix;
+                auto current_row =
+                    gko::multigrid::grid2index(ix, iy, iz, nx, ny);
                 auto nnz_in_row = 0;
                 for (auto ofs_z : {-1, 0, 1}) {
                     if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
@@ -153,8 +154,13 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     auto res = gko::initialize<vec>({0.0}, exec);
 
     // generate matrix, rhs and solution
+    // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
     generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact), geometry);
     std::cout << "problem generated" << std::endl;
+    // write(std::cout, lend(matrix));
+    // write(std::cout, lend(x));
+    // write(std::cout, lend(x_exact));
+    // write(std::cout, lend(rhs));
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
     // Generate solver and solve the system
@@ -416,9 +422,10 @@ int main(int argc, char* argv[])
     } else {
         // geometry = geo{64, 64, 64};
         // geometry = geo{32, 32, 32};
-        geometry = geo{8, 8, 8};
+        // geometry = geo{8, 8, 8};
         // geometry = geo{4, 4, 4};
-        // geometry = geo{16, 16, 16};
+        // geometry = geo{2, 2, 2};
+        geometry = geo{16, 16, 16};
     }
 
     // Figure out where to run the code
@@ -448,16 +455,16 @@ int main(int argc, char* argv[])
 
     // Reference CG solve
     {
-        cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
+        // cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
     }
 
     // Prolongation test
     {
-        prolong_restrict_test(exec, geometry, ValueType{}, IndexType{});
+        // prolong_restrict_test(exec, geometry, ValueType{}, IndexType{});
     }
 
     // MG preconditioned CG
     {
-        // cg_with_mg(exec, geometry, ValueType{}, IndexType{});
+        cg_with_mg(exec, geometry, ValueType{}, IndexType{});
     }
 }
