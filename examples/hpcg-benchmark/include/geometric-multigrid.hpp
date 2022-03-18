@@ -66,7 +66,7 @@ struct problem_geometry {
 size_t grid2index(size_t x, size_t y, size_t z, size_t nx, size_t ny,
                   size_t offset = 0)
 {
-    return offset + z * ny * nx + y * nx + x;
+    return offset + z * (ny + 1) * (nx + 1) + y * (nx + 1) + x;
 };
 int integerPower(int base, int exponent)
 {
@@ -79,6 +79,56 @@ int integerPower(int base, int exponent)
 
     return result;
 };
+template <typename ValueType, typename IndexType>
+void generate_problem_matrix(problem_geometry& geo,
+                             matrix::Csr<ValueType, IndexType>* mat)
+{
+    auto nx = geo.nx;
+    auto ny = geo.ny;
+    auto nz = geo.nz;
+    const auto discretization_points = mat->get_size()[0];
+    GKO_ASSERT((nx + 1) * (ny + 1) * (nz + 1) == discretization_points);
+    gko::matrix_data<ValueType, IndexType> data{
+        gko::dim<2>{discretization_points, discretization_points}, {}};
+
+    for (auto iz = 0; iz <= nz; iz++) {
+        for (auto iy = 0; iy <= ny; iy++) {
+            for (auto ix = 0; ix <= nx; ix++) {
+                auto current_row = iz * nx * ny + iy * nx + ix;
+                auto nnz_in_row = 0;
+                for (auto ofs_z : {-1, 0, 1}) {
+                    if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
+                        for (auto ofs_y : {-1, 0, 1}) {
+                            if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
+                                for (auto ofs_x : {-1, 0, 1}) {
+                                    if (ix + ofs_x > -1 && ix + ofs_x <= nx) {
+                                        auto current_col = current_row +
+                                                           ofs_z * ny * nx +
+                                                           ofs_y * nx + ofs_x;
+                                        if (current_col == current_row) {
+                                            data.nonzeros.emplace_back(
+                                                current_row, current_col, 26.0);
+                                        } else {
+                                            data.nonzeros.emplace_back(
+                                                current_row, current_col, -1.0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    mat->read(data);
+}
+
+template <typename ValueType>
+void prolongation_kernel(ValueType* x);
+template <typename ValueType>
+void restriction_kernel(ValueType* x);
+
 
 template <typename ValueType = default_precision, typename IndexType = int32>
 class gmg_restriction
@@ -87,12 +137,12 @@ class gmg_restriction
 public:
     // uses a 3D stencil (27-Point) to restrict the rhs vector. It halves the
     // number of discretization points n respect to every axis
-    //  -> rhs vector length is increased 8-folg
+    //  -> rhs vector length is increased 8-fold
     //  the stencil is generated symmetrically
-    // passed geometry has to be the fine problem geometry
+    // passed geometry has to be the coarse problem geometry
     gmg_restriction(std::shared_ptr<const gko::Executor> exec,
-                    gko::size_type dp_x = 32, gko::size_type dp_y = 32,
-                    gko::size_type dp_z = 32, gko::size_type coarse_size = 4096,
+                    gko::size_type dp_x = 16, gko::size_type dp_y = 16,
+                    gko::size_type dp_z = 16, gko::size_type coarse_size = 4096,
                     gko::size_type fine_size = 32768, ValueType left = 0.25,
                     ValueType center = 0.5, ValueType right = 0.25)
         : gko::EnableLinOp<gmg_restriction>(
@@ -110,7 +160,6 @@ protected:
     {
         auto dense_b = gko::as<vec>(b);
         auto dense_x = gko::as<vec>(x);
-        GKO_ASSERT(b->get_size()[0] == x->get_size()[0] * 8);
 
         struct restriction_operation : gko::Operation {
             restriction_operation(const coef_type& coefficients, const vec* b,
@@ -120,8 +169,7 @@ protected:
                   coarse_rhs{x},
                   coarse_geo{geo}
             {}
-            void run(
-                std::shared_ptr<const gko::ReferenceExecutor>) const override
+            void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
                 auto c_values = coarse_rhs->get_values();
 
@@ -132,25 +180,26 @@ protected:
                 auto c_nx = coarse_geo.nx;
 
                 auto coeffs = coefficients.get_const_data();
-
-                for (auto c_z = 0; c_z < c_nz; c_z++) {
+#pragma omp parallel for
+                for (auto c_z = 0; c_z <= c_nz; c_z++) {
                     auto f_z = 2 * c_z;
-                    for (auto c_y = 0; c_y < c_ny; c_y++) {
+                    for (auto c_y = 0; c_y <= c_ny; c_y++) {
                         auto f_y = 2 * c_y;
-                        for (auto c_x = 0; c_x < c_nx; c_x++) {
+                        for (auto c_x = 0; c_x <= c_nx; c_x++) {
                             auto f_x = 2 * c_x;
                             auto c_row = grid2index(c_x, c_y, c_z, c_nx, c_ny);
                             auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
                             c_values[c_row] = 0;
                             for (auto ofs_z : {-1, 0, 1}) {
-                                if (c_z + ofs_z > -1 && c_z + ofs_z < c_nz) {
+                                if (f_z + ofs_z > -1 &&
+                                    f_z + ofs_z <= 2 * c_nz) {
                                     for (auto ofs_y : {-1, 0, 1}) {
-                                        if (c_y + ofs_y > -1 &&
-                                            c_y + ofs_y < c_ny) {
+                                        if (f_y + ofs_y > -1 &&
+                                            f_y + ofs_y <= 2 * c_ny) {
                                             for (auto ofs_x : {-1, 0, 1}) {
-                                                if (c_x + ofs_x > -1 &&
-                                                    c_x + ofs_x < c_nx) {
+                                                if (f_x + ofs_x > -1 &&
+                                                    f_x + ofs_x <= 2 * c_nx) {
                                                     auto f_id = grid2index(
                                                         ofs_x, ofs_y, ofs_z,
                                                         2 * c_nx, 2 * c_ny,
@@ -171,6 +220,11 @@ protected:
                     }
                 }
             }
+            // // cuda impl
+            // void run(std::shared_ptr<const gko::CudaExecutor>) const override
+            // {
+            //     restriction_kernel(coarse_rhs->get_values());
+            // }
             const coef_type& coefficients;
             const vec* fine_rhs;
             vec* coarse_rhs;
@@ -208,8 +262,8 @@ public:
     // the stencil is generated symmetrically
     // passed geometry is the coarse problem geometry
     gmg_prolongation(std::shared_ptr<const gko::Executor> exec,
-                     gko::size_type dp_x = 32, gko::size_type dp_y = 32,
-                     gko::size_type dp_z = 32,
+                     gko::size_type dp_x = 16, gko::size_type dp_y = 16,
+                     gko::size_type dp_z = 16,
                      gko::size_type coarse_size = 4096,
                      gko::size_type fine_size = 32768, ValueType left = 0.5,
                      ValueType center = 1.0, ValueType right = 0.5)
@@ -227,7 +281,6 @@ protected:
     {
         auto dense_b = gko::as<vec>(b);
         auto dense_x = gko::as<vec>(x);
-        GKO_ASSERT(b->get_size()[0] * 8 == x->get_size()[0]);
 
         struct prolongation_operation : gko::Operation {
             prolongation_operation(const coef_type& coefficients, const vec* b,
@@ -237,8 +290,7 @@ protected:
                   fine_rhs{x},
                   coarse_geo{geo}
             {}
-            void run(
-                std::shared_ptr<const gko::ReferenceExecutor>) const override
+            void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
                 const auto c_values = coarse_rhs->get_const_values();
 
@@ -249,26 +301,25 @@ protected:
                 auto c_nx = coarse_geo.nx;
 
                 auto coeffs = coefficients.get_const_data();
-
-                for (auto c_z = 0; c_z < c_nz; c_z++) {
+#pragma omp parallel for
+                for (auto c_z = 0; c_z <= c_nz; c_z++) {
                     auto f_z = 2 * c_z;
-                    for (auto c_y = 0; c_y < c_ny; c_y++) {
+                    for (auto c_y = 0; c_y <= c_ny; c_y++) {
                         auto f_y = 2 * c_y;
-                        for (auto c_x = 0; c_x < c_nx; c_x++) {
+                        for (auto c_x = 0; c_x <= c_nx; c_x++) {
                             auto f_x = 2 * c_x;
                             auto c_row = grid2index(c_x, c_y, c_z, c_nx, c_ny);
                             auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
-
-
                             for (auto ofs_z : {-1, 0, 1}) {
-                                if (c_z + ofs_z > -1 && c_z + ofs_z < c_nz) {
+                                if (f_z + ofs_z > -1 &&
+                                    f_z + ofs_z <= 2 * c_nz) {
                                     for (auto ofs_y : {-1, 0, 1}) {
-                                        if (c_y + ofs_y > -1 &&
-                                            c_y + ofs_y < c_ny) {
+                                        if (f_y + ofs_y > -1 &&
+                                            f_y + ofs_y <= 2 * c_ny) {
                                             for (auto ofs_x : {-1, 0, 1}) {
-                                                if (c_x + ofs_x > -1 &&
-                                                    c_x + ofs_x < c_nx) {
+                                                if (f_x + ofs_x > -1 &&
+                                                    f_x + ofs_x <= 2 * c_nx) {
                                                     auto f_id = grid2index(
                                                         ofs_x, ofs_y, ofs_z,
                                                         2 * c_nx, 2 * c_ny,
@@ -289,6 +340,11 @@ protected:
                     }
                 }
             }
+            // cuda impl
+            // void run(std::shared_ptr<const gko::CudaExecutor>) const override
+            // {
+            //     prolongation_kernel(fine_rhs->get_values());
+            // }
             const coef_type& coefficients;
             const vec* coarse_rhs;
             vec* fine_rhs;
@@ -361,7 +417,6 @@ protected:
           system_matrix_{system_matrix}
     {
         if (system_matrix_->get_size()[0] != 0) {
-            // generate on the existed matrix
             this->geo = parameters_.fine_geo;
             this->generate();
         }
@@ -374,29 +429,26 @@ protected:
         using real_type = remove_complex<ValueType>;
         auto exec = this->get_executor();
         const auto num_rows = this->system_matrix_->get_size()[0];
-        std::shared_ptr<const csr_type>
-            gmg_op_shared_ptr{};  // this->system_matrix_;
+        std::shared_ptr<const csr_type> gmg_op_shared_ptr{};
         const csr_type* gmg_op =
             dynamic_cast<const csr_type*>(system_matrix_.get());
         if (!gmg_op) {
-            // as<ConvertibleTo<csr_type>>(system_matrix_)
-            //     ->convert_to<csr_type>(gmg_op_shared_ptr.get());
-            gmg_op_shared_ptr = copy_and_convert_to<csr_type>(
-                exec, system_matrix_);  // copy and convert to?
+            gmg_op_shared_ptr =
+                copy_and_convert_to<csr_type>(exec, system_matrix_);
             gmg_op = gmg_op_shared_ptr.get();
             this->set_fine_op(gmg_op_shared_ptr);
         }
 
         // TODO redundancy!!!
-        auto fine_dim = this->system_matrix_->get_size()[0];
-        gko::dim<2>::dimension_type coarse_dim = fine_dim / 8;
         problem_geometry coarse_geo;
         generate_coarse_geo(this->geo, coarse_geo);
         auto discretization_points =
-            coarse_geo.nx * coarse_geo.ny * coarse_geo.nz;
+            (coarse_geo.nx + 1) * (coarse_geo.ny + 1) * (coarse_geo.nz + 1);
         auto coarse_mat = share(matrix::Csr<ValueType, IndexType>::create(
             exec, gko::dim<2>(discretization_points)));
-        generate_coarse_problem(coarse_geo, lend(coarse_mat.get()));
+        auto fine_dim = this->system_matrix_->get_size()[0];
+        gko::dim<2>::dimension_type coarse_dim = coarse_mat->get_size()[0];
+        generate_problem_matrix(coarse_geo, lend(coarse_mat.get()));
 
         this->set_multigrid_level(
             gmg_prolongation<ValueType, IndexType>::create(
@@ -418,52 +470,6 @@ private:
         coarse_geo.nx = fine_geo.nx / 2;
         coarse_geo.ny = fine_geo.ny / 2;
         coarse_geo.nz = fine_geo.nz / 2;
-    }
-
-    void generate_coarse_problem(problem_geometry& coarse_geo,
-                                 matrix::Csr<ValueType, IndexType>* coarse_mat)
-    {
-        auto nx = coarse_geo.nx;
-        auto ny = coarse_geo.ny;
-        auto nz = coarse_geo.nz;
-        const auto discretization_points = nx * ny * nz;
-        gko::matrix_data<ValueType, IndexType> data{
-            gko::dim<2>{discretization_points, discretization_points}, {}};
-
-        for (auto iz = 0; iz < nz; iz++) {
-            for (auto iy = 0; iy < ny; iy++) {
-                for (auto ix = 0; ix < nx; ix++) {
-                    auto current_row = iz * nx * ny + iy * nx + ix;
-                    auto nnz_in_row = 0;
-                    for (auto ofs_z : {-1, 0, 1}) {
-                        if (iz + ofs_z > -1 && iz + ofs_z < nz) {
-                            for (auto ofs_y : {-1, 0, 1}) {
-                                if (iy + ofs_y > -1 && iy + ofs_y < ny) {
-                                    for (auto ofs_x : {-1, 0, 1}) {
-                                        if (ix + ofs_x > -1 &&
-                                            ix + ofs_x < nx) {
-                                            auto current_col =
-                                                current_row + ofs_z * ny * nx +
-                                                ofs_y * nx + ofs_x;
-                                            if (current_col == current_row) {
-                                                data.nonzeros.emplace_back(
-                                                    current_row, current_col,
-                                                    26.0);
-                                            } else {
-                                                data.nonzeros.emplace_back(
-                                                    current_row, current_col,
-                                                    -1.0);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        coarse_mat->read(data);
     }
 };
 
