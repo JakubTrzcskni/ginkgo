@@ -6,7 +6,6 @@ set(EXAMPLES_EXEC_LIST
     cb-gmres
     custom-logger
     ginkgo-ranges
-    hpcg-benchmark
     ilu-preconditioned-solver
     ir-ilu-preconditioned-solver
     inverse-iteration
@@ -34,6 +33,7 @@ set(EXAMPLES_LIST
 
 if(GINKGO_BUILD_CUDA AND GINKGO_BUILD_OMP)
     list(APPEND EXAMPLES_LIST custom-matrix-format)
+    list(APPEND EXAMPLES_LIST hpcg-benchmark)
 endif()
 
 if(GINKGO_BUILD_EXTLIB_EXAMPLE)
