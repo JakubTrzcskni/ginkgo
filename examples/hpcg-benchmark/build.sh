@@ -20,5 +20,6 @@ ${CXX} -std=c++14 -o ${THIS_DIR}/hpcg-benchmark \
     ${THIS_DIR}/hpcg-benchmark.cpp \
     ${THIS_DIR}/prolongation_kernel.cu \
     ${THIS_DIR}/restriction_kernel.cu \
+    ${THIS_DIR}/matrix_generation_kernel.cu \
     -I${THIS_DIR}/../../include -I${BUILD_DIR}/include \
     -L${THIS_DIR} ${LINK_FLAGS}

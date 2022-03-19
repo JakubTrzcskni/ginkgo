@@ -53,6 +53,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/components/fill_array_kernels.hpp"
 #include "core/matrix/csr_builder.hpp"
 
+template <typename ValueType>
+void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
+                         const ValueType* rhs, const int rhs_size, ValueType* x,
+                         const int x_size);
+template <typename ValueType>
+void restriction_kernel(ValueType* x);
+template <typename ValueType, typename IndexType>
+void matrix_generation_kernel();
 
 namespace gko {
 namespace multigrid {
@@ -83,6 +91,11 @@ template <typename ValueType, typename IndexType>
 void generate_problem_matrix(problem_geometry& geo,
                              matrix::Csr<ValueType, IndexType>* mat)
 {
+    struct matrix_generation : gko::Operation {
+        matrix_generation() {}
+        void run(std::shared_ptr<const gko::CudaExecutor>) const override {}
+    };
+
     auto nx = geo.nx;
     auto ny = geo.ny;
     auto nz = geo.nz;
@@ -90,6 +103,7 @@ void generate_problem_matrix(problem_geometry& geo,
     GKO_ASSERT((nx + 1) * (ny + 1) * (nz + 1) == discretization_points);
     gko::matrix_data<ValueType, IndexType> data{
         gko::dim<2>(discretization_points), {}};
+
 
     for (auto iz = 0; iz <= nz; iz++) {
         for (auto iy = 0; iy <= ny; iy++) {
@@ -123,11 +137,6 @@ void generate_problem_matrix(problem_geometry& geo,
     }
     mat->read(data);
 }
-
-template <typename ValueType>
-void prolongation_kernel(ValueType* x);
-template <typename ValueType>
-void restriction_kernel(ValueType* x);
 
 
 template <typename ValueType = default_precision, typename IndexType = int32>
@@ -220,11 +229,11 @@ protected:
                     }
                 }
             }
-            // // cuda impl
-            // void run(std::shared_ptr<const gko::CudaExecutor>) const override
-            // {
-            //     restriction_kernel(coarse_rhs->get_values());
-            // }
+            // cuda impl
+            void run(std::shared_ptr<const gko::CudaExecutor>) const override
+            {
+                restriction_kernel(coarse_rhs->get_values());
+            }
             const coef_type& coefficients;
             const vec* fine_rhs;
             vec* coarse_rhs;
@@ -341,10 +350,14 @@ protected:
                 }
             }
             // cuda impl
-            // void run(std::shared_ptr<const gko::CudaExecutor>) const override
-            // {
-            //     prolongation_kernel(fine_rhs->get_values());
-            // }
+            void run(std::shared_ptr<const gko::CudaExecutor>) const override
+            {
+                prolongation_kernel(
+                    coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
+                    coefficients.get_const_data(),
+                    coarse_rhs->get_const_values(), coarse_rhs->get_size()[0],
+                    fine_rhs->get_values(), fine_rhs->get_size()[0]);
+            }
             const coef_type& coefficients;
             const vec* coarse_rhs;
             vec* fine_rhs;
@@ -439,13 +452,15 @@ protected:
             this->set_fine_op(gmg_op_shared_ptr);
         }
 
-        // TODO redundancy!!!
         problem_geometry coarse_geo;
         generate_coarse_geo(this->geo, coarse_geo);
         auto discretization_points =
             (coarse_geo.nx + 1) * (coarse_geo.ny + 1) * (coarse_geo.nz + 1);
+
+        // which executor ?
         auto coarse_mat = share(matrix::Csr<ValueType, IndexType>::create(
-            exec, gko::dim<2>(discretization_points)));
+            exec->get_master(), gko::dim<2>(discretization_points)));
+
         auto fine_dim = this->system_matrix_->get_size()[0];
         generate_problem_matrix(coarse_geo, lend(coarse_mat.get()));
 
