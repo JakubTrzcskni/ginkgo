@@ -380,8 +380,10 @@ void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
     auto restriction = mgR::create(exec, c_nx, c_ny, c_nz, coarse_dp_3D, dp_3D,
                                    0.25, 0.5, 0.25);
     prolongation->apply(lend(rhs_coarse), lend(x_fine));
+    write(std::cout, lend(x_fine));
     GKO_ASSERT_EQUAL_COLS(x_fine, rhs_fine);
     restriction->apply(lend(rhs_fine), lend(x_coarse));
+    write(std::cout, lend(x_coarse));
 }
 
 int main(int argc, char* argv[])
@@ -423,9 +425,9 @@ int main(int argc, char* argv[])
         // geometry = geo{64, 64, 64};
         // geometry = geo{32, 32, 32};
         // geometry = geo{8, 8, 8};
-        // geometry = geo{4, 4, 4};
+        geometry = geo{4, 4, 4};
         // geometry = geo{2, 2, 2};
-        geometry = geo{16, 16, 16};
+        // geometry = geo{16, 16, 16};
     }
 
     // Figure out where to run the code
