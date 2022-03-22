@@ -45,10 +45,12 @@ int get_dp_3D(gko::multigrid::problem_geometry& geometry)
     return (geometry.nx + 1) * (geometry.ny + 1) * (geometry.nz + 1);
 }
 
+
 // Creates a stencil matrix in CSR format, rhs, x, and the corresponding exact
 // solution
 template <typename ValueType, typename IndexType>
-void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
+void generate_problem(std::shared_ptr<const gko::Executor> exec,
+                      gko::matrix::Csr<ValueType, IndexType>* matrix,
                       gko::matrix::Dense<ValueType>* rhs,
                       gko::matrix::Dense<ValueType>* x,
                       gko::matrix::Dense<ValueType>* x_exact,
@@ -62,7 +64,7 @@ void generate_problem(gko::matrix::Csr<ValueType, IndexType>* matrix,
     auto x_values = x->get_values();
     auto x_exact_values = x_exact->get_values();
 
-    gko::multigrid::generate_problem_matrix(geometry, matrix);
+    gko::multigrid::generate_problem_matrix(exec, geometry, matrix);
 
     for (auto iz = 0; iz <= nz; iz++) {
         for (auto iy = 0; iy <= ny; iy++) {
@@ -142,7 +144,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     const unsigned int dp_3D = get_dp_3D(geometry);
 
     // initialize matrix and vectors
-    auto matrix = share(mtx::create(exec->get_master(), gko::dim<2>(dp_3D)));
+    auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
     auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
@@ -155,7 +157,8 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     // generate matrix, rhs and solution
     // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
-    generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact), geometry);
+    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
+                     geometry);
     std::cout << "problem generated" << std::endl;
     // write(std::cout, lend(matrix));
     // write(std::cout, lend(x));
@@ -229,7 +232,7 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
 
 
     // initialize matrix and vectors
-    auto matrix = share(mtx::create(exec->get_master(), gko::dim<2>(dp_3D)));
+    auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
     auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
@@ -241,8 +244,12 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto res = gko::initialize<vec>({0.0}, exec);
 
     // generate matrix, rhs and solution
-    generate_problem(lend(matrix), lend(rhs), lend(x), lend(x_exact), geometry);
+    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
+                     geometry);
     std::cout << "problem generated" << std::endl;
+    // std::cout << "gen nnz = " << matrix->get_num_stored_elements() << "\n";
+    // std::cout << "calculated nnz = "
+    //           << calc_nnz(geometry.nx, geometry.ny, geometry.nz);
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
     auto iter_stop =
@@ -286,8 +293,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
             .with_mg_level(gko::share(mg_level_gen))
             .with_coarsest_solver(coarsest_gen)
             .with_zero_guess(true)
-            .with_criteria(
-                gko::stop::Iteration::build().with_max_iters(1u).on(exec))
+            .with_criteria(gko::stop::Iteration::build().with_max_iters(1u).on(
+                exec))  // what does max_iters influence here?
             .on(exec);
 
     auto solver_gen =
@@ -364,8 +371,10 @@ void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
         vec::create(exec->get_master(), gko::dim<2>(coarse_dp_3D, 1));
     auto x_coarse =
         vec::create(exec->get_master(), gko::dim<2>(coarse_dp_3D, 1));
+    auto x_coarse_exec = vec::create(exec, gko::dim<2>(coarse_dp_3D, 1));
     auto rhs_fine = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x_fine = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    auto x_fine_exec = vec::create(exec, gko::dim<2>(dp_3D, 1));
     for (auto i = 0; i < dp_3D; i++) {
         x_fine->at(i, 0) = 0.0;
         rhs_fine->at(i, 0) = 1.0;
@@ -377,13 +386,28 @@ void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
 
     auto prolongation =
         mgP::create(exec, c_nx, c_ny, c_nz, coarse_dp_3D, dp_3D, 0.5, 1.0, 0.5);
+
+    auto prolongation_cpu = mgP::create(exec->get_master(), c_nx, c_ny, c_nz,
+                                        coarse_dp_3D, dp_3D, 0.5, 1.0, 0.5);
     auto restriction = mgR::create(exec, c_nx, c_ny, c_nz, coarse_dp_3D, dp_3D,
                                    0.25, 0.5, 0.25);
-    prolongation->apply(lend(rhs_coarse), lend(x_fine));
-    write(std::cout, lend(x_fine));
-    GKO_ASSERT_EQUAL_COLS(x_fine, rhs_fine);
-    restriction->apply(lend(rhs_fine), lend(x_coarse));
-    write(std::cout, lend(x_coarse));
+    auto restriction_cpu = mgR::create(exec->get_master(), c_nx, c_ny, c_nz,
+                                       coarse_dp_3D, dp_3D, 0.25, 0.5, 0.25);
+    prolongation->apply(lend(rhs_coarse), lend(x_fine_exec));
+    prolongation_cpu->apply(lend(rhs_coarse), lend(x_fine));
+    // write(std::cout, lend(x_fine));
+    restriction->apply(lend(rhs_fine), lend(x_coarse_exec));
+    restriction_cpu->apply(lend(rhs_fine), lend(x_coarse));
+    // write(std::cout, lend(x_coarse_exec));
+
+    std::cout << "\n error on prolong cpu-gpu\n"
+              << calculate_error(dp_3D, lend(x_fine), lend(x_fine_exec))
+              << std::endl;
+
+    std::cout << "\n error on restrict cpu-gpu\n"
+              << calculate_error(coarse_dp_3D, lend(x_coarse),
+                                 lend(x_coarse_exec))
+              << std::endl;
 }
 
 int main(int argc, char* argv[])
@@ -425,9 +449,9 @@ int main(int argc, char* argv[])
         // geometry = geo{64, 64, 64};
         // geometry = geo{32, 32, 32};
         // geometry = geo{8, 8, 8};
-        geometry = geo{4, 4, 4};
+        // geometry = geo{4, 4, 4};
         // geometry = geo{2, 2, 2};
-        // geometry = geo{16, 16, 16};
+        geometry = geo{16, 16, 16};
     }
 
     // Figure out where to run the code

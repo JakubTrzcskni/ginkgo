@@ -58,9 +58,13 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
                          const int x_size);
 template <typename ValueType>
-void restriction_kernel(ValueType* x);
+void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
+                        const ValueType* rhs, const int rhs_size, ValueType* x,
+                        const int x_size);
 template <typename ValueType, typename IndexType>
-void matrix_generation_kernel();
+void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, int nx,
+                              int ny, int nz,
+                              gko::matrix::Csr<ValueType, IndexType>* mat);
 
 namespace gko {
 namespace multigrid {
@@ -88,43 +92,56 @@ int integerPower(int base, int exponent)
     return result;
 };
 template <typename ValueType, typename IndexType>
-void generate_problem_matrix(problem_geometry& geo,
+void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
+                             problem_geometry& geo,
                              matrix::Csr<ValueType, IndexType>* mat)
 {
     struct matrix_generation : gko::Operation {
-        matrix_generation() {}
-        void run(std::shared_ptr<const gko::CudaExecutor>) const override {}
-    };
+        matrix_generation(std::shared_ptr<const gko::Executor> exec,
+                          problem_geometry geo,
+                          matrix::Csr<ValueType, IndexType>* mat)
+            : exec{exec}, geo{geo}, mat{mat}
+        {}
+        void run(std::shared_ptr<const gko::CudaExecutor>) const override
+        {
+            matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
+        }
+        void run(std::shared_ptr<const gko::OmpExecutor>) const override
+        {
+            auto nx = geo.nx;
+            auto ny = geo.ny;
+            auto nz = geo.nz;
+            const auto discretization_points = mat->get_size()[0];
+            GKO_ASSERT((nx + 1) * (ny + 1) * (nz + 1) == discretization_points);
+            gko::matrix_data<ValueType, IndexType> data{
+                gko::dim<2>(discretization_points), {}};
 
-    auto nx = geo.nx;
-    auto ny = geo.ny;
-    auto nz = geo.nz;
-    const auto discretization_points = mat->get_size()[0];
-    GKO_ASSERT((nx + 1) * (ny + 1) * (nz + 1) == discretization_points);
-    gko::matrix_data<ValueType, IndexType> data{
-        gko::dim<2>(discretization_points), {}};
 
-
-    for (auto iz = 0; iz <= nz; iz++) {
-        for (auto iy = 0; iy <= ny; iy++) {
-            for (auto ix = 0; ix <= nx; ix++) {
-                auto current_row = grid2index(ix, iy, iz, nx, ny);
-                auto nnz_in_row = 0;
-                for (auto ofs_z : {-1, 0, 1}) {
-                    if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
-                        for (auto ofs_y : {-1, 0, 1}) {
-                            if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
-                                for (auto ofs_x : {-1, 0, 1}) {
-                                    if (ix + ofs_x > -1 && ix + ofs_x <= nx) {
-                                        auto current_col =
-                                            grid2index(ofs_x, ofs_y, ofs_z, nx,
-                                                       ny, current_row);
-                                        if (current_col == current_row) {
-                                            data.nonzeros.emplace_back(
-                                                current_row, current_col, 26.0);
-                                        } else {
-                                            data.nonzeros.emplace_back(
-                                                current_row, current_col, -1.0);
+            for (auto iz = 0; iz <= nz; iz++) {
+                for (auto iy = 0; iy <= ny; iy++) {
+                    for (auto ix = 0; ix <= nx; ix++) {
+                        auto current_row = grid2index(ix, iy, iz, nx, ny);
+                        for (auto ofs_z : {-1, 0, 1}) {
+                            if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
+                                for (auto ofs_y : {-1, 0, 1}) {
+                                    if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
+                                        for (auto ofs_x : {-1, 0, 1}) {
+                                            if (ix + ofs_x > -1 &&
+                                                ix + ofs_x <= nx) {
+                                                auto current_col = grid2index(
+                                                    ofs_x, ofs_y, ofs_z, nx, ny,
+                                                    current_row);
+                                                if (current_col ==
+                                                    current_row) {
+                                                    data.nonzeros.emplace_back(
+                                                        current_row,
+                                                        current_col, 26.0);
+                                                } else {
+                                                    data.nonzeros.emplace_back(
+                                                        current_row,
+                                                        current_col, -1.0);
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -133,9 +150,13 @@ void generate_problem_matrix(problem_geometry& geo,
                     }
                 }
             }
+            mat->read(data);
         }
-    }
-    mat->read(data);
+        std::shared_ptr<const gko::Executor> exec;
+        problem_geometry geo;
+        matrix::Csr<ValueType, IndexType>* mat;
+    };
+    exec->run(matrix_generation(exec, geo, mat));
 }
 
 
@@ -175,12 +196,12 @@ protected:
                                   vec* x, problem_geometry geo)
                 : coefficients{coefficients},
                   fine_rhs{b},
-                  coarse_rhs{x},
+                  coarse_x{x},
                   coarse_geo{geo}
             {}
             void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
-                auto c_values = coarse_rhs->get_values();
+                auto c_values = coarse_x->get_values();
 
                 const auto f_values = fine_rhs->get_const_values();
 
@@ -232,11 +253,15 @@ protected:
             // cuda impl
             void run(std::shared_ptr<const gko::CudaExecutor>) const override
             {
-                restriction_kernel(coarse_rhs->get_values());
+                restriction_kernel(
+                    coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
+                    coefficients.get_const_data(), fine_rhs->get_const_values(),
+                    fine_rhs->get_size()[0], coarse_x->get_values(),
+                    coarse_x->get_size()[0]);
             }
             const coef_type& coefficients;
             const vec* fine_rhs;
-            vec* coarse_rhs;
+            vec* coarse_x;
             problem_geometry coarse_geo;
         };
         this->get_executor()->run(
@@ -296,14 +321,14 @@ protected:
                                    vec* x, problem_geometry geo)
                 : coefficients{coefficients},
                   coarse_rhs{b},
-                  fine_rhs{x},
+                  fine_x{x},
                   coarse_geo{geo}
             {}
             void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
                 const auto c_values = coarse_rhs->get_const_values();
 
-                auto f_values = fine_rhs->get_values();
+                auto f_values = fine_x->get_values();
 
                 auto c_nz = coarse_geo.nz;
                 auto c_ny = coarse_geo.ny;
@@ -356,11 +381,11 @@ protected:
                     coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
                     coefficients.get_const_data(),
                     coarse_rhs->get_const_values(), coarse_rhs->get_size()[0],
-                    fine_rhs->get_values(), fine_rhs->get_size()[0]);
+                    fine_x->get_values(), fine_x->get_size()[0]);
             }
             const coef_type& coefficients;
             const vec* coarse_rhs;
-            vec* fine_rhs;
+            vec* fine_x;
             problem_geometry coarse_geo;
         };
         this->get_executor()->run(
@@ -462,7 +487,7 @@ protected:
             exec->get_master(), gko::dim<2>(discretization_points)));
 
         auto fine_dim = this->system_matrix_->get_size()[0];
-        generate_problem_matrix(coarse_geo, lend(coarse_mat.get()));
+        generate_problem_matrix(exec, coarse_geo, lend(coarse_mat.get()));
 
         this->set_multigrid_level(
             gmg_prolongation<ValueType, IndexType>::create(

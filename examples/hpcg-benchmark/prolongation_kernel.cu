@@ -41,29 +41,25 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
         if (!f_z_on_coarse) {
             if (!f_y_on_coarse) {
                 if (!f_x_on_coarse) {
-                    // const auto c_id = (f_z / 2) * (nx + 1) * (ny + 1) +
-                    //                   (f_y / 2) * (nx + 1) + (f_x / 2);
                     fine_x[f_id] =
                         coeffs[1] * coeffs[1] * coeffs[1] * coarse_rhs[c_id];
                 } else {
-                    // const auto c_id = (f_z / 2) * (nx + 1) * (ny + 1) +
-                    //                   (f_y / 2) * (nx + 1) + ((f_x - 1) /
-                    // 2);
                     fine_x[f_id] = coeffs[1] * coeffs[1] * coeffs[0] *
                                    (coarse_rhs[c_id] + coarse_rhs[c_id + 1]);
                 }
+
+                // alternative:
+                // fine_x[f_id] = (1 - f_x_on_coarse) * coeffs[1] * coeffs[1] *
+                //                    coeffs[1] * coarse_rhs[c_id] +
+                //                f_x_on_coarse * coeffs[1] * coeffs[1] *
+                //                    coeffs[0] *
+                //                    (coarse_rhs[c_id] + coarse_rhs[c_id + 1]);
             } else {
                 if (!f_x_on_coarse) {
-                    // const auto c_id = (f_z / 2) * (nx + 1) * (ny + 1) +
-                    //                   ((f_y - 1) / 2) * (nx + 1) + (f_x /
-                    // 2);
                     fine_x[f_id] =
                         coeffs[1] * coeffs[1] * coeffs[0] *
                         (coarse_rhs[c_id] + coarse_rhs[c_id + nx + 1]);
                 } else {
-                    // const auto c_id = (f_z / 2) * (nx + 1) * (ny + 1) +
-                    //                   ((f_y - 1) / 2) * (nx + 1) +
-                    //                   ((f_x - 1) / 2);
                     fine_x[f_id] =
                         coeffs[1] * coeffs[0] * coeffs[0] *
                         (coarse_rhs[c_id] + coarse_rhs[c_id + nx + 1] +
@@ -73,17 +69,10 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
         } else {
             if (!f_y_on_coarse) {
                 if (!f_x_on_coarse) {
-                    // const auto c_id = ((f_z - 1) / 2) * (nx + 1) * (ny +
-                    // 1) +
-                    //                   (f_y / 2) * (nx + 1) + (f_x / 2);
                     fine_x[f_id] = coeffs[1] * coeffs[1] * coeffs[0] *
                                    (coarse_rhs[c_id] +
                                     coarse_rhs[c_id + (nx + 1) * (ny + 1)]);
                 } else {
-                    // const auto c_id = ((f_z - 1) / 2) * (nx + 1) * (ny +
-                    // 1) +
-                    //                   (f_y / 2) * (nx + 1) + ((f_x - 1) /
-                    // 2);
                     fine_x[f_id] = coeffs[1] * coeffs[0] * coeffs[0] *
                                    (coarse_rhs[c_id] +
                                     coarse_rhs[c_id + (nx + 1) * (ny + 1)] +
@@ -92,10 +81,6 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
                 }
             } else {
                 if (!f_x_on_coarse) {
-                    // const auto c_id = ((f_z - 1) / 2) * (nx + 1) * (ny +
-                    // 1) +
-                    //                   ((f_y - 1) / 2) * (nx + 1) + (f_x /
-                    // 2);
                     fine_x[f_id] =
                         coeffs[1] * coeffs[0] * coeffs[0] *
                         (coarse_rhs[c_id] +
@@ -103,10 +88,6 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
                          coarse_rhs[c_id + (nx + 1)] +
                          coarse_rhs[c_id + (nx + 1) * (ny + 1) + (nx + 1)]);
                 } else {
-                    // const auto c_id = ((f_z - 1) / 2) * (nx + 1) * (ny +
-                    // 1) +
-                    //                   ((f_y - 1) / 2) * (nx + 1) +
-                    //                   ((f_x - 1) / 2);
                     fine_x[f_id] =
                         coeffs[0] * coeffs[0] * coeffs[0] *
                         (coarse_rhs[c_id] + coarse_rhs[c_id + 1] +
@@ -119,28 +100,6 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
                 }
             }
         }
-
-
-        // for (auto ofs_z = -1; ofs_z < 2; ofs_z++) {
-        //     if (f_z + ofs_z >= 0 && f_z + ofs_z <= 2 * nz) {
-        //         for (auto ofs_y = -1; ofs_y < 2; ofs_y++) {
-        //             if (f_y + ofs_y >= 0 && f_y + ofs_y <= 2 * ny) {
-        //                 for (auto ofs_x = -1; ofs_x < 2; ofs_x++) {
-        //                     if (f_x + ofs_x >= 0 && f_x + ofs_x <= 2 * nx) {
-        //                         auto f_offset =
-        //                             ofs_z * (2 * nx + 1) * (2 * ny + 1) +
-        //                             ofs_y * (2 * nx + 1) + ofs_x;
-        //                         fine_x[f_id + f_offset] +=
-        //                             coeffs[ofs_z + 1] * coeffs[ofs_y + 1] *
-        //                             coeffs[ofs_x + 1] * coarse_rhs[c_id];
-
-        //                         // __syncthreads();
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
     }
 }
 }  // namespace
@@ -152,7 +111,8 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
 {
     constexpr int block_size = 32;
     const auto grid_size =
-        dim3((2 * nx + block_size - 1) / block_size, 2 * ny + 1, 2 * nz + 1);
+        dim3((2 * nx + 1 + block_size - 1) / block_size, 2 * ny + 1,
+             2 * nz + 1);  // cover the whole fine grid?
     prolongation_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
                                                         rhs_size, x, x_size);
 }
