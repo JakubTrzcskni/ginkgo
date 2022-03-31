@@ -28,9 +28,28 @@ __device__ void get_ofs(const int warp_id, int* ofs)
     ofs[2] = tmp % 3 - 1;
 }
 template <typename IndexType>
-__device__ void init_row_ptrs(int nx, int ny, int nz, int size,
-                              IndexType* row_ptrs)
-{}
+__device__ void init_row_ptrs(int nx, int ny, int nz, int x, int y, int z,
+                              int size, IndexType* row_ptrs)
+{
+    // it has the same value for all threads of all blocks with the same z
+    // coordinate in the grid...
+    auto z_sum_nnz =
+        (z - 1) * ((nx - 1) * (ny - 1) * 27  // interior points
+                   + 4 * 12                  // corners for interior faces
+                   + 2 * (nx - 1) * 18 +     // edges for interior faces
+                   2 * (ny - 1) * 18) +
+        4 * 8                                     // corners on the front face
+        + 2 * (nx - 1) * 12 + 2 * (ny - 1) * 12;  // edges on the front face
+
+    auto y_sum_nnz =
+        (y - 1) * ((nx - 1) * 27  // interior points up to current y
+                   + 2 * 18)      // edge points up to current y
+        + 2 * 12                  // corners for current face
+        + (nx - 1) * 18;          // y==0 edge for current face
+
+    auto x_sum_nnz = (x - 1) * 27  // interior points
+                     + 18;         // first egde point in the row
+}
 // todo
 template <typename ValueType, typename IndexType>
 __global__ void matrix_generation_kernel_impl(int nx, int ny, int nz, int size,
@@ -38,7 +57,9 @@ __global__ void matrix_generation_kernel_impl(int nx, int ny, int nz, int size,
                                               IndexType* row_ptrs,
                                               IndexType* col_idxs)
 {
-    // one row per warp <-max 27 values per row
+    // one warp per row <-max 27 values per row
+    // only max 27/32 Threads are active...
+    // thread per row?
     const auto b_id_x = blockIdx.x;
     const int y = blockIdx.y;
     const int z = blockIdx.z;

@@ -106,6 +106,7 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
         {
             matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
         }
+
         void run(std::shared_ptr<const gko::OmpExecutor>) const override
         {
             auto nx = geo.nx;
@@ -116,7 +117,7 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
             gko::matrix_data<ValueType, IndexType> data{
                 gko::dim<2>(discretization_points), {}};
 
-
+#pragma omp for
             for (auto iz = 0; iz <= nz; iz++) {
                 for (auto iy = 0; iy <= ny; iy++) {
                     for (auto ix = 0; ix <= nx; ix++) {
@@ -210,6 +211,7 @@ protected:
                 auto c_nx = coarse_geo.nx;
 
                 auto coeffs = coefficients.get_const_data();
+
 #pragma omp parallel for
                 for (auto c_z = 0; c_z <= c_nz; c_z++) {
                     auto f_z = 2 * c_z;
@@ -221,30 +223,39 @@ protected:
                             auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
                             c_values[c_row] = 0;
-                            for (auto ofs_z : {-1, 0, 1}) {
-                                if (f_z + ofs_z > -1 &&
-                                    f_z + ofs_z <= 2 * c_nz) {
-                                    for (auto ofs_y : {-1, 0, 1}) {
-                                        if (f_y + ofs_y > -1 &&
-                                            f_y + ofs_y <= 2 * c_ny) {
-                                            for (auto ofs_x : {-1, 0, 1}) {
-                                                if (f_x + ofs_x > -1 &&
-                                                    f_x + ofs_x <= 2 * c_nx) {
-                                                    auto f_id = grid2index(
-                                                        ofs_x, ofs_y, ofs_z,
-                                                        2 * c_nx, 2 * c_ny,
-                                                        f_row);
+                            const auto on_border =
+                                (c_x == 0) | (c_y == 0) | (c_z == 0) |
+                                (c_x == c_nx) | (c_y == c_ny) | (c_z == c_nz);
 
-                                                    c_values[c_row] +=
-                                                        coeffs[ofs_z + 1] *
-                                                        coeffs[ofs_y + 1] *
-                                                        coeffs[ofs_x + 1] *
-                                                        f_values[f_id];
+                            if (!on_border) {
+                                for (auto ofs_z : {-1, 0, 1}) {
+                                    if (f_z + ofs_z > -1 &&
+                                        f_z + ofs_z <= 2 * c_nz) {
+                                        for (auto ofs_y : {-1, 0, 1}) {
+                                            if (f_y + ofs_y > -1 &&
+                                                f_y + ofs_y <= 2 * c_ny) {
+                                                for (auto ofs_x : {-1, 0, 1}) {
+                                                    if (f_x + ofs_x > -1 &&
+                                                        f_x + ofs_x <=
+                                                            2 * c_nx) {
+                                                        auto f_id = grid2index(
+                                                            ofs_x, ofs_y, ofs_z,
+                                                            2 * c_nx, 2 * c_ny,
+                                                            f_row);
+
+                                                        c_values[c_row] +=
+                                                            coeffs[ofs_z + 1] *
+                                                            coeffs[ofs_y + 1] *
+                                                            coeffs[ofs_x + 1] *
+                                                            f_values[f_id];
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                            } else {
+                                c_values[c_row] = f_values[f_row];
                             }
                         }
                     }
@@ -259,6 +270,9 @@ protected:
                     fine_rhs->get_size()[0], coarse_x->get_values(),
                     coarse_x->get_size()[0]);
             }
+            void run(
+                std::shared_ptr<const gko::ReferenceExecutor>) const override
+            {}
             const coef_type& coefficients;
             const vec* fine_rhs;
             vec* coarse_x;
@@ -383,6 +397,9 @@ protected:
                     coarse_rhs->get_const_values(), coarse_rhs->get_size()[0],
                     fine_x->get_values(), fine_x->get_size()[0]);
             }
+            void run(
+                std::shared_ptr<const gko::ReferenceExecutor>) const override
+            {}
             const coef_type& coefficients;
             const vec* coarse_rhs;
             vec* fine_x;
