@@ -39,11 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "include/geometric-multigrid.hpp"
-
-int get_dp_3D(gko::multigrid::problem_geometry& geometry)
-{
-    return (geometry.nx + 1) * (geometry.ny + 1) * (geometry.nz + 1);
-}
+#include "include/utils.hpp"
+#include "test/prolong_restrict_test.hpp"
 
 
 // Creates a stencil matrix in CSR format, rhs, x, and the corresponding exact
@@ -65,70 +62,38 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
     auto x_exact_values = x_exact->get_values();
 
     gko::multigrid::generate_problem_matrix(exec, geometry, matrix);
-
+#pragma omp for
     for (auto iz = 0; iz <= nz; iz++) {
         for (auto iy = 0; iy <= ny; iy++) {
             for (auto ix = 0; ix <= nx; ix++) {
                 auto current_row =
                     gko::multigrid::grid2index(ix, iy, iz, nx, ny);
                 auto nnz_in_row = 0;
-                for (auto ofs_z : {-1, 0, 1}) {
-                    if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
-                        for (auto ofs_y : {-1, 0, 1}) {
-                            if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
-                                for (auto ofs_x : {-1, 0, 1}) {
-                                    if (ix + ofs_x > -1 && ix + ofs_x <= nx) {
-                                        nnz_in_row++;
+#pragma omp simd  // probably it doesn't help here
+                {
+                    for (auto ofs_z : {-1, 0, 1}) {
+                        if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
+                            for (auto ofs_y : {-1, 0, 1}) {
+                                if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
+                                    for (auto ofs_x : {-1, 0, 1}) {
+                                        if (ix + ofs_x > -1 &&
+                                            ix + ofs_x <= nx) {
+                                            nnz_in_row++;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    rhs_values[current_row] = 26.0 - ValueType(nnz_in_row - 1);
+                    x_values[current_row] = 0.0;
+                    x_exact_values[current_row] = 1.0;
                 }
-                rhs_values[current_row] = 26.0 - ValueType(nnz_in_row - 1);
-                x_values[current_row] = 0.0;
-                x_exact_values[current_row] = 1.0;
             }
         }
     }
 }
 
-// Prints the solution `u`.
-template <typename ValueType>
-void print_solution(ValueType u0, ValueType u1,
-                    const gko::matrix::Dense<ValueType>* u)
-{
-    // std::cout << u0 << '\n';
-    for (int i = 0; i < u->get_size()[0]; ++i) {
-        std::cout << u->get_const_values()[i] << '\n';
-    }
-    // std::cout << u1 << std::endl;
-}
-template <typename ValueType>
-void print_matrix(const gko::matrix::Dense<ValueType>* u)
-{
-    for (int i = 0; i < u->get_size()[0]; ++i) {
-        std::cout << u->get_const_values()[i] << '\n';
-    }
-}
-
-// Computes the 1-norm of the error given the computed `u` and the correct
-// solution function `correct_u`.
-template <typename ValueType>
-gko::remove_complex<ValueType> calculate_error(
-    int discretization_points, const gko::matrix::Dense<ValueType>* u,
-    const gko::matrix::Dense<ValueType>* u_exact)
-{
-    const ValueType h = 1.0 / static_cast<ValueType>(discretization_points + 1);
-    gko::remove_complex<ValueType> error = 0.0;
-    for (int i = 0; i < discretization_points; ++i) {
-        using std::abs;
-        error +=
-            abs(u->get_const_values()[i] - u_exact->get_const_values()[i]) /
-            abs(u_exact->get_const_values()[i]);
-    }
-    return error;
-}
 
 template <typename ValueType, typename IndexType>
 void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
@@ -179,6 +144,97 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     auto cg_factory =
         cg::build()
             .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
+            .on(exec);
+
+    auto solver = cg_factory->generate(
+        clone(exec, matrix));  // copy the matrix to the executor
+    std::cout << "Reference CG - no preconditioner" << std::endl;
+
+    auto tic = std::chrono::steady_clock::now();
+
+    solver->apply(lend(rhs), lend(x));
+    exec->synchronize();
+
+    auto tac = std::chrono::steady_clock::now();
+
+    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+
+    matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
+    rhs->compute_norm2(lend(res));
+
+    // std::cout << "Initial residual norm sqrt(r^T r): \n";
+    // write(std::cout, lend(initres));
+    // std::cout << "Final residual norm sqrt(r^T r): \n";
+    // write(std::cout, lend(res));
+
+    std::cout << "Solve complete.\nThe average relative error is "
+              << calculate_error(dp_3D, lend(x), lend(x_exact)) /
+                     static_cast<gko::remove_complex<ValueType>>(dp_3D)
+              << std::endl;
+
+    std::cout << "CG iteration count:     " << logger->get_num_iterations()
+              << std::endl;
+    std::cout << "CG execution time [ms]: "
+              << static_cast<double>(time.count()) / 1000000.0 << std::endl;
+    std::cout << "CG execution time per iteraion[ms]: "
+              << static_cast<double>(time.count()) / 1000000.0 /
+                     logger->get_num_iterations()
+              << std::endl;
+}
+
+template <typename ValueType, typename IndexType>
+void cg_with_preconditioner(const std::shared_ptr<gko::Executor> exec,
+                            gko::multigrid::problem_geometry& geometry,
+                            ValueType value_help, IndexType index_help)
+{
+    using vec = gko::matrix::Dense<ValueType>;
+    using mtx = gko::matrix::Csr<ValueType, IndexType>;
+    using cg = gko::solver::Cg<ValueType>;
+    using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
+    using geo = gko::multigrid::problem_geometry;
+
+    const unsigned int dp_3D = get_dp_3D(geometry);
+
+    // initialize matrix and vectors
+    auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
+    auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    std::cout << "\nmatrices and vectors initialized" << std::endl;
+
+    auto one = gko::initialize<vec>({1.0}, exec);
+    auto neg_one = gko::initialize<vec>({-1.0}, exec);
+    auto initres = gko::initialize<vec>({0.0}, exec);
+    auto res = gko::initialize<vec>({0.0}, exec);
+
+    // generate matrix, rhs and solution
+    // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
+    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
+                     geometry);
+    std::cout << "problem generated" << std::endl;
+    // write(std::cout, lend(matrix));
+    // write(std::cout, lend(x));
+    // write(std::cout, lend(x_exact));
+    // write(std::cout, lend(rhs));
+
+    const gko::remove_complex<ValueType> reduction_factor = 1e-7;
+    // Generate solver and solve the system
+    std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
+        gko::log::Convergence<ValueType>::create(exec);
+    auto iter_stop =
+        gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+    auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
+                        .with_reduction_factor(reduction_factor)
+                        .on(exec);
+    iter_stop->add_logger(logger);
+    tol_stop->add_logger(logger);
+    auto cg_factory =
+        cg::build()
+            .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
+            .with_preconditioner(
+                gko::preconditioner::Jacobi<ValueType, IndexType>::build()
+                    .with_max_block_size(1u)
+                    .on(exec))
             .on(exec);
 
     auto solver = cg_factory->generate(
@@ -252,8 +308,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     //           << calc_nnz(geometry.nx, geometry.ny, geometry.nz);
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
-    auto iter_stop =
-        gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+    auto iter_stop = gko::stop::Iteration::build().with_max_iters(100u).on(
+        exec);  // dp_3D).on(exec);
     auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
                         .with_reduction_factor(reduction_factor)
                         .on(exec);
@@ -351,15 +407,13 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
 }
 
 template <typename ValueType, typename IndexType>
-void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
-                           gko::multigrid::problem_geometry& geometry,
-                           ValueType value_help, IndexType index_help)
+void prolong_test(std::shared_ptr<const gko::Executor> exec,
+                  gko::multigrid::problem_geometry& geometry,
+                  ValueType value_help, IndexType index_help)
 {
     using vec = gko::matrix::Dense<ValueType>;
     using geo = gko::multigrid::problem_geometry;
     using mgP = gko::multigrid::gmg_prolongation<ValueType, IndexType>;
-    using mgR = gko::multigrid::gmg_restriction<ValueType, IndexType>;
-    using gmg = gko::multigrid::Gmg<ValueType, IndexType>;
 
     const unsigned int dp_3D = get_dp_3D(geometry);
     const auto c_nx = geometry.nx / 2;
@@ -369,19 +423,14 @@ void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
 
     auto rhs_coarse =
         vec::create(exec->get_master(), gko::dim<2>(coarse_dp_3D, 1));
-    auto x_coarse =
-        vec::create(exec->get_master(), gko::dim<2>(coarse_dp_3D, 1));
-    auto x_coarse_exec = vec::create(exec, gko::dim<2>(coarse_dp_3D, 1));
-    auto rhs_fine = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+
     auto x_fine = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
     auto x_fine_exec = vec::create(exec, gko::dim<2>(dp_3D, 1));
     for (auto i = 0; i < dp_3D; i++) {
         x_fine->at(i, 0) = 0.0;
-        rhs_fine->at(i, 0) = 1.0;
     }
     for (auto i = 0; i < coarse_dp_3D; i++) {
         rhs_coarse->at(i, 0) = 1.0;
-        x_coarse->at(i, 0) = 0.0;
     }
 
     auto prolongation =
@@ -389,24 +438,13 @@ void prolong_restrict_test(std::shared_ptr<const gko::Executor> exec,
 
     auto prolongation_cpu = mgP::create(exec->get_master(), c_nx, c_ny, c_nz,
                                         coarse_dp_3D, dp_3D, 0.5, 1.0, 0.5);
-    auto restriction = mgR::create(exec, c_nx, c_ny, c_nz, coarse_dp_3D, dp_3D,
-                                   0.25, 0.5, 0.25);
-    auto restriction_cpu = mgR::create(exec->get_master(), c_nx, c_ny, c_nz,
-                                       coarse_dp_3D, dp_3D, 0.25, 0.5, 0.25);
+
     prolongation->apply(lend(rhs_coarse), lend(x_fine_exec));
     prolongation_cpu->apply(lend(rhs_coarse), lend(x_fine));
     // write(std::cout, lend(x_fine));
-    restriction->apply(lend(rhs_fine), lend(x_coarse_exec));
-    restriction_cpu->apply(lend(rhs_fine), lend(x_coarse));
-    // write(std::cout, lend(x_coarse_exec));
 
     std::cout << "\n error on prolong cpu-gpu\n"
               << calculate_error(dp_3D, lend(x_fine), lend(x_fine_exec))
-              << std::endl;
-
-    std::cout << "\n error on restrict cpu-gpu\n"
-              << calculate_error(coarse_dp_3D, lend(x_coarse),
-                                 lend(x_coarse_exec))
               << std::endl;
 }
 
@@ -435,23 +473,18 @@ int main(int argc, char* argv[])
     geo geometry = {};
     if (argc == 3) {
         const unsigned int dp_1D =
-            std::atoi(argv[2]) > 16 ? std::atoi(argv[2]) : 32;
+            std::atoi(argv[2]);  //>= 16 ? std::atoi(argv[2]) : 32;
         geometry = geo{dp_1D, dp_1D, dp_1D};
     } else if (argc == 5) {
         const unsigned int dp_x =
-            std::atoi(argv[2]) > 16 ? std::atoi(argv[2]) : 32;
+            std::atoi(argv[2]);  // >= 16 ? std::atoi(argv[2]) : 32;
         const unsigned int dp_y =
-            std::atoi(argv[3]) > 16 ? std::atoi(argv[3]) : 32;
+            std::atoi(argv[3]);  // >= 16 ? std::atoi(argv[3]) : 32;
         const unsigned int dp_z =
-            std::atoi(argv[4]) > 16 ? std::atoi(argv[4]) : 32;
+            std::atoi(argv[4]);  // >= 16 ? std::atoi(argv[4]) : 32;
         geometry = geo{dp_x, dp_y, dp_z};
     } else {
-        // geometry = geo{64, 64, 64};
-        // geometry = geo{32, 32, 32};
-        // geometry = geo{8, 8, 8};
-        // geometry = geo{4, 4, 4};
-        // geometry = geo{2, 2, 2};
-        geometry = geo{16, 16, 16};
+        geometry = geo{32, 32, 32};
     }
 
     // Figure out where to run the code
@@ -484,13 +517,23 @@ int main(int argc, char* argv[])
         // cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
     }
 
+    // cg with bj
+    {
+        // cg_with_preconditioner(exec, geometry, ValueType{}, IndexType{});
+    }
+
     // Prolongation test
     {
-        // prolong_restrict_test(exec, geometry, ValueType{}, IndexType{});
+        // prolong_test(exec, geometry, ValueType{}, IndexType{});
     }
 
     // MG preconditioned CG
     {
-        cg_with_mg(exec, geometry, ValueType{}, IndexType{});
+        // cg_with_mg(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // explicit restrict
+    {
+        test_restriction(exec, geometry, ValueType{}, IndexType{});
     }
 }

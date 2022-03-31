@@ -90,13 +90,16 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
                 } else {
                     fine_x[f_id] =
                         coeffs[0] * coeffs[0] * coeffs[0] *
-                        (coarse_rhs[c_id] + coarse_rhs[c_id + 1] +
-                         coarse_rhs[c_id + (nx + 1)] +
-                         coarse_rhs[c_id + (nx + 1) * (ny + 1)] +
-                         coarse_rhs[c_id + (nx + 1) + 1] +
-                         coarse_rhs[c_id + (nx + 1) * (ny + 1) + 1] +
-                         coarse_rhs[c_id + (nx + 1) + (nx + 1) * (ny + 1)] +
-                         coarse_rhs[c_id + (nx + 1) + (nx + 1) * (ny + 1) + 1]);
+                        (coarse_rhs[c_id] +
+                         coarse_rhs[c_id + 1] +         //(0,0,0), (1,0,0)
+                         coarse_rhs[c_id + (nx + 1)] +  //(0,1,0)
+                         coarse_rhs[c_id + (nx + 1) * (ny + 1)] +      //(0,0,1)
+                         coarse_rhs[c_id + (nx + 1) + 1] +             //(1,1,0)
+                         coarse_rhs[c_id + (nx + 1) * (ny + 1) + 1] +  //(1,0,1)
+                         coarse_rhs[c_id + (nx + 1) +
+                                    (nx + 1) * (ny + 1)] +  //(0,1,1)
+                         coarse_rhs[c_id + (nx + 1) + (nx + 1) * (ny + 1) +
+                                    1]);  //(1,1,1)
                 }
             }
         }
