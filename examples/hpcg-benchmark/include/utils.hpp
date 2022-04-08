@@ -1,10 +1,25 @@
+#ifndef MULTIGRID_UTILS
+#define MULTIGRID_UTILS
+
 #include <ginkgo/ginkgo.hpp>
 #include "geometric-multigrid.hpp"
 
-int get_dp_3D(gko::multigrid::problem_geometry& geometry)
+static int get_dp_3D(const int nx, const int ny, const int nz)
 {
-    return (geometry.nx + 1) * (geometry.ny + 1) * (geometry.nz + 1);
+    return (nx + 1) * (ny + 1) * (nz + 1);
 }
+static int get_dp_3D(const gko::multigrid::problem_geometry& geometry)
+{
+    return get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
+}
+static int calc_nnz(const int nx, const int ny, const int nz)
+{
+    return (nx + 1) * (ny + 1) * (nz + 1) * 27 + 64 + ((nx + 1) - 2) * 4 * 3 +
+           ((ny + 1) - 2) * 4 * 3 + ((nz + 1) - 2) * 4 * 3 -
+           2 * (nx + 1) * (ny + 1) * 9 - 2 * (nx + 1) * (nz + 1) * 9 -
+           2 * (ny + 1) * (nz + 1) * 9;
+};
+
 // Prints the solution `u`.
 template <typename ValueType>
 void print_solution(ValueType u0, ValueType u1,
@@ -41,3 +56,4 @@ gko::remove_complex<ValueType> calculate_error(
     }
     return error;
 }
+#endif
