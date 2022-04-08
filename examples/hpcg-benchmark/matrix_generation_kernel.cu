@@ -2,7 +2,11 @@
 
 #include <ginkgo/ginkgo.hpp>
 
-#define block_size 512
+#include "examples/hpcg-benchmark/include/geometric-multigrid.hpp"
+#include "examples/hpcg-benchmark/include/utils.hpp"
+
+
+#define block_size 256
 #define warp_size 32
 
 #define INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(_macro) \
@@ -11,51 +15,183 @@
     template _macro(float, int64_t);                      \
     template _macro(double, int64_t);
 
-#define MATRIX_GEN_KERNEL(_v_type, _i_type)                                  \
-    void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, \
-                                  int nx, int ny, int nz,                    \
-                                  gko::matrix::Csr<_v_type, _i_type>* mat);
+#define MATRIX_GEN_KERNEL(_v_type, _i_type)                             \
+    std::shared_ptr<gko::matrix::Csr<_v_type, _i_type>>                 \
+    matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, \
+                             const int nx, const int ny, const int nz,  \
+                             _v_type value_type, _i_type index_type);
 
 namespace {
 
-// probably should be int** ofs ?
-__device__ void get_ofs(const int warp_id, int* ofs)
+__device__ void get_ofs(const int id, int* ofs)
 {
-    ofs[0] = warp_id % 3 - 1;
-    int tmp = warp_id / 3;
+    ofs[0] = id % 3 - 1;
+    int tmp = id / 3;
     ofs[1] = tmp % 3 - 1;
     tmp /= 3;
     ofs[2] = tmp % 3 - 1;
 }
-template <typename IndexType>
-__device__ void init_row_ptrs(int nx, int ny, int nz, int x, int y, int z,
-                              int size, IndexType* row_ptrs)
+
+// todo: rename
+// goal: translate ofs [0,26] to [0,7]/[0,11]/[0,17]/[0,26] depending on the
+// grid position
+__device__ int get_id_in_row(const int curr_id, const bool x_eq_zero,
+                             const bool x_eq_nx, const bool y_eq_zero,
+                             const bool y_eq_ny, const bool z_eq_zero, int* ofs)
 {
+    const auto x_border = x_eq_zero | x_eq_nx;
+    const auto y_border = y_eq_zero | y_eq_ny;
+    const auto tmp = (ofs[2] + 1) * ((x_border + y_border) * (-3) +
+                                     (x_border & y_border))  // z part
+                     + z_eq_zero * (-9 + 3 * (x_border + y_border) -
+                                    (x_border & y_border))  // z part
+                     + (ofs[1] + 1) * (x_border * (-1))     // y part
+                     + y_eq_zero * (-3 + x_border)          // y part
+                     + x_eq_zero * (-1);                    // x part
+
+
+    return curr_id + tmp;
+}
+
+template <typename IndexType>
+__device__ void init_row_ptrs(const int nx, const int ny, const int nz,
+                              const int x, const int y, const int z,
+                              const int row, IndexType* row_ptrs)
+{
+    const int corner_y[2] = {12, 8};
+    const int corner_x[3] = {18, 12, 8};
+    const int edge_y[2] = {18, 12};
+    const int inside[3] = {27, 18, 12};
+    const int general_case[4] = {27, 18, 12, 8};
+
     // it has the same value for all threads of all blocks with the same z
     // coordinate in the grid...
+    auto if_z_zero = (z == 0);
+    auto z_on_border = if_z_zero | (z == nz);
+
     auto z_sum_nnz =
-        (z - 1) * ((nx - 1) * (ny - 1) * 27  // interior points
-                   + 4 * 12                  // corners for interior faces
-                   + 2 * (nx - 1) * 18 +     // edges for interior faces
-                   2 * (ny - 1) * 18) +
-        4 * 8                                     // corners on the front face
-        + 2 * (nx - 1) * 12 + 2 * (ny - 1) * 12;  // edges on the front face
+        (1 - if_z_zero) *                     // if we're on the front face,
+                                              // the whole sum should be 0
+        ((z - 1) * ((nx - 1) * (ny - 1) * 27  // interior points
+                    + 4 * 12                  // corners for interior faces
+                    + 2 * (nx - 1) * 18 +     // edges for interior faces
+                    2 * (ny - 1) * 18) +
+         18 * (nx - 1) * (ny - 1)                   // inside of the front face
+         + 4 * 8                                    // corners on the front face
+         + 2 * (nx - 1) * 12 + 2 * (ny - 1) * 12);  // edges on the front face
+
+    auto if_y_zero = (y == 0);
+    auto y_on_border = if_y_zero | (y == ny);
 
     auto y_sum_nnz =
-        (y - 1) * ((nx - 1) * 27  // interior points up to current y
-                   + 2 * 18)      // edge points up to current y
-        + 2 * 12                  // corners for current face
-        + (nx - 1) * 18;          // y==0 edge for current face
+        ((1 - if_y_zero) *
+         ((y - 1) * ((nx - 1) *
+                         inside[z_on_border]  // interior points up to current y
+                     + 2 * edge_y[z_on_border])  // edge points up to current y
+          + 2 * corner_y[z_on_border]            // corners for current face
+          + (nx - 1) * edge_y[z_on_border]));    // y==0 edge for current face
 
-    auto x_sum_nnz = (x - 1) * 27  // interior points
-                     + 18;         // first egde point in the row
+    auto if_x_zero = (x == 0);
+    auto x_on_border = if_x_zero | (x == nx);
+
+    auto x_sum_nnz =
+        (1 - if_x_zero) *
+        ((x - 1) * inside[z_on_border + y_on_border]  // interior points
+         + corner_x[z_on_border + y_on_border]);  // first egde point in the row
+
+    auto nnz_curr = z_sum_nnz + y_sum_nnz + x_sum_nnz;
+
+    row_ptrs[row] = nnz_curr;
+
+    // not necessary if handled by a separate kernel, todo
+    if (z == nz && y == ny && x == nx) {
+        row_ptrs[row + 1] =
+            nnz_curr + general_case[x_on_border + y_on_border +
+                                    z_on_border];  // its always the furthest
+                                                   // corner -> nnz == 8
+    }
 }
-// todo
+
+
 template <typename ValueType, typename IndexType>
-__global__ void matrix_generation_kernel_impl(int nx, int ny, int nz, int size,
+__global__ void matrix_generation_kernel_impl(const int active_threads_in_block,
+                                              int nx, int ny, int nz, int size,
                                               int nnz, ValueType* values,
                                               IndexType* row_ptrs,
                                               IndexType* col_idxs)
+{
+    // cover only full rows -> no need for
+    // synchronisation between threadblocks
+    const int t_id = threadIdx.x;
+    const int face_id = blockIdx.y * active_threads_in_block + t_id;
+    const int z = blockIdx.z;
+
+    const int row_base = z * (nx + 1) * (ny + 1);
+    const int row_offset = (face_id / 27);
+
+    if (t_id < active_threads_in_block && row_offset < ((nx + 1) * (ny + 1))) {
+        // max 27 values per row, for big
+        // matrices the ratio is favourable
+        // block_size and grid size have to be adjusted for optimal
+        // occupancy 256 -> 5% threads idle 1024 ->2,4% threads idle
+
+
+        const int x = row_offset % (nx + 1);
+        const int y = row_offset / (nx + 1);
+
+        const int id_in_row = face_id % 27;
+        int ofs[3];
+        get_ofs(id_in_row, ofs);
+
+        const int row = row_base + row_offset;
+        const int row_ptr = row_ptrs[row];
+
+        const int col =
+            row + ofs[2] * (nx + 1) * (ny + 1) + ofs[1] * (nx + 1) + ofs[0];
+        const int row_eq_col = (row == col);
+        const int val =
+            row_eq_col * ValueType{26} + (1 - row_eq_col) * ValueType{-1};
+
+        const int x_eq_zero = (x == 0);
+        const int y_eq_zero = (y == 0);
+        const int z_eq_zero = (z == 0);
+        const int x_eq_nx = (x == nx);
+        const int y_eq_ny = (y == ny);
+        int curr_id = get_id_in_row(row_ptr + id_in_row, x_eq_zero, x_eq_nx,
+                                    y_eq_zero, y_eq_ny, z_eq_zero, ofs);
+        const int valid = (z + ofs[2] >= 0 && z + ofs[2] <= nz) &&
+                          (y + ofs[1] >= 0 && y + ofs[1] <= ny) &&
+                          (x + ofs[0] >= 0 && x + ofs[0] <= nx);
+
+        if (valid) {
+            col_idxs[curr_id] = col;
+            values[curr_id] = val;
+        }
+    }
+}
+
+template <typename IndexType>
+__global__ void initialize_row_ptrs(const int nx, const int ny, const int nz,
+                                    IndexType* row_ptrs, const int size)
+{
+    const auto id = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto z = id / ((nx + 1) * (ny + 1));
+    const auto y = (id % ((nx + 1) * (ny + 1))) / (nx + 1);
+    const auto x = id % (nx + 1);
+
+    // todo proper(fast) handling of the row_ptrs[num_rows] value
+    if (id < size - 1) {
+        init_row_ptrs(nx, ny, nz, x, y, z, id, row_ptrs);
+    }
+}
+
+// todo
+template <typename ValueType, typename IndexType>
+__global__ void matrix_generation_kernel_impl_old(int nx, int ny, int nz,
+                                                  int size, int nnz,
+                                                  ValueType* values,
+                                                  IndexType* row_ptrs,
+                                                  IndexType* col_idxs)
 {
     // one warp per row <-max 27 values per row
     // only max 27/32 Threads are active...
@@ -87,9 +223,9 @@ __global__ void matrix_generation_kernel_impl(int nx, int ny, int nz, int size,
 
                     // todo
                     // number of nnz in the current row
-                    // change to current_value_ptr with atomicAdd update ?
-                    // firstly initialize row_ptrs -> separate kernel / before
-                    // this loop
+                    // change to current_value_ptr with atomicAdd update
+                    // ? firstly initialize row_ptrs -> separate kernel
+                    // / before this loop
                     auto curr_id =
                         row_ptrs[row] +
                         atomicAdd(&(curr_val_ptr_offs[id_per_row]), 1);
@@ -107,45 +243,46 @@ __global__ void matrix_generation_kernel_impl(int nx, int ny, int nz, int size,
 }
 }  // namespace
 
-int calc_nnz(int nx, int ny, int nz)
-{
-    return (nx + 1) * (ny + 1) * (nz + 1) * 27 + 64 + ((nx + 1) - 2) * 4 * 3 +
-           ((ny + 1) - 2) * 4 * 3 + ((nz + 1) - 2) * 4 * 3 -
-           2 * (nx + 1) * (ny + 1) * 9 - 2 * (nx + 1) * (nz + 1) * 9 -
-           2 * (ny + 1) * (nz + 1) * 9;
-}
 
 template <typename ValueType, typename IndexType>
-void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, int nx,
-                              int ny, int nz,
-                              gko::matrix::Csr<ValueType, IndexType>* mat)
+std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
+matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
+                         const int nx, const int ny, const int nz,
+                         ValueType value_help, IndexType index_help)
 {
     using val_array = gko::Array<ValueType>;
     using id_array = gko::Array<IndexType>;
+    using csr = gko::matrix::Csr<ValueType, IndexType>;
 
-    const auto mat_size = mat->get_size()[0];
+
     const auto mat_nnz = calc_nnz(nx, ny, nz);
+    const auto mat_size = get_dp_3D(nx, ny, nz);
 
     // how to initialize with given Arrays?
-    // auto values = val_array{exec, mat_size};
-    // auto row_ptrs = id_array{exec, mat_size + 1};
-    // auto col_idxs = id_array{exec, mat_size};
-    //  gko::device_matrix_data<ValueType, IndexType> data{
-    //      exec, gko::dim<2>(mat->get_size()[0]),
-    //      gko::lend(row_ptrs->get_data()), gko::lend(col_idxs->get_data()),
-    //      gko::lend(values->get_data())};
+    auto values = val_array{exec, mat_nnz};
+    auto row_ptrs = id_array{exec, mat_size + 1};
+    auto col_idxs = id_array{exec, mat_nnz};
 
-    gko::device_matrix_data<ValueType, IndexType> data{
-        exec, gko::dim<2>(mat->get_size()[0]), mat_nnz};
+    const auto init_grid = (mat_size + 1 + block_size - 1) / block_size;
 
-    // todo
-    // adjust
-    // grid ->2D, block size
-    const auto row_per_block = block_size / warp_size;
-    const auto grid_size = (mat_size + row_per_block - 1) / row_per_block;
+    initialize_row_ptrs<<<init_grid, block_size>>>(
+        nx, ny, nz, row_ptrs.get_data(), mat_size + 1);
+
+    const auto threshold =
+        (block_size / 27);  // cover only full rows -> no need for
+                            // synchronisation between threadblocks
+    const auto grid_y = ((nx + 1) * (ny + 1) + threshold - 1) / threshold;
+
+    const auto grid_size = dim3(1, grid_y, nz + 1);
     matrix_generation_kernel_impl<<<grid_size, block_size>>>(
-        nx, ny, nz, mat_size, mat_nnz, data.get_values(), data.get_row_idxs(),
-        data.get_col_idxs());
+        threshold * 27, nx, ny, nz, mat_size, mat_nnz, values.get_data(),
+        row_ptrs.get_data(), col_idxs.get_data());
+
+
+    auto mat = share(csr::create(exec, gko::dim<2>(mat_size), std::move(values),
+                                 std::move(col_idxs), std::move(row_ptrs)));
+
+    return mat;
 }
 
 INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(MATRIX_GEN_KERNEL);

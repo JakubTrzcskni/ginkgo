@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/components/fill_array_kernels.hpp"
 #include "core/matrix/csr_builder.hpp"
 
+
 template <typename ValueType>
 void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
@@ -62,25 +63,27 @@ void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                         const ValueType* rhs, const int rhs_size, ValueType* x,
                         const int x_size);
 template <typename ValueType, typename IndexType>
-void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, int nx,
-                              int ny, int nz,
-                              gko::matrix::Csr<ValueType, IndexType>* mat);
+std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
+matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
+                         const int nx, const int ny, const int nz,
+                         ValueType value_help, IndexType index_help);
+
 
 namespace gko {
 namespace multigrid {
 
 struct problem_geometry {
-    gko::size_type nx;
-    gko::size_type ny;
-    gko::size_type nz;
+    size_type nx;
+    size_type ny;
+    size_type nz;
 };
 
-size_t grid2index(size_t x, size_t y, size_t z, size_t nx, size_t ny,
-                  size_t offset = 0)
+static size_t grid2index(size_t x, size_t y, size_t z, size_t nx, size_t ny,
+                         size_t offset = 0)
 {
     return offset + z * (ny + 1) * (nx + 1) + y * (nx + 1) + x;
 };
-int integerPower(int base, int exponent)
+static int integerPower(int base, int exponent)
 {
     if (exponent == 0) return 1;
 
@@ -104,7 +107,7 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
         {}
         void run(std::shared_ptr<const gko::CudaExecutor>) const override
         {
-            matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
+            // matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
         }
 
         void run(std::shared_ptr<const gko::OmpExecutor>) const override

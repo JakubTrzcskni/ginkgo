@@ -39,7 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "include/geometric-multigrid.hpp"
+
 #include "include/utils.hpp"
+#include "test/matrix_generation_test.hpp"
 #include "test/prolong_restrict_test.hpp"
 
 
@@ -106,7 +108,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
     using geo = gko::multigrid::problem_geometry;
 
-    const unsigned int dp_3D = get_dp_3D(geometry);
+    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 
     // initialize matrix and vectors
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
@@ -193,7 +195,7 @@ void cg_with_preconditioner(const std::shared_ptr<gko::Executor> exec,
     using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
     using geo = gko::multigrid::problem_geometry;
 
-    const unsigned int dp_3D = get_dp_3D(geometry);
+    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 
     // initialize matrix and vectors
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
@@ -284,7 +286,7 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     using mg = gko::solver::Multigrid;
     using gmg = gko::multigrid::Gmg<ValueType, IndexType>;
 
-    const unsigned int dp_3D = get_dp_3D(geometry);
+    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 
 
     // initialize matrix and vectors
@@ -415,7 +417,7 @@ void prolong_test(std::shared_ptr<const gko::Executor> exec,
     using geo = gko::multigrid::problem_geometry;
     using mgP = gko::multigrid::gmg_prolongation<ValueType, IndexType>;
 
-    const unsigned int dp_3D = get_dp_3D(geometry);
+    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
     const auto c_nx = geometry.nx / 2;
     const auto c_ny = geometry.ny / 2;
     const auto c_nz = geometry.nz / 2;
@@ -535,5 +537,10 @@ int main(int argc, char* argv[])
     // explicit restrict
     {
         test_restriction(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // test matrix generation cuda
+    {
+        test_matrix_generation(exec, geometry, ValueType{}, IndexType{});
     }
 }
