@@ -1,5 +1,5 @@
+#include <array>
 #include <cstdlib>
-
 #include <ginkgo/ginkgo.hpp>
 
 #include "examples/hpcg-benchmark/include/geometric-multigrid.hpp"
@@ -20,6 +20,12 @@
     matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, \
                              const int nx, const int ny, const int nz,  \
                              _v_type value_type, _i_type index_type);
+
+#define RHS_AND_X_GEN_KERNEL(_v_type, _i_type)                   \
+    std::array<std::shared_ptr<gko::matrix::Dense<_v_type>>, 3u> \
+    rhs_and_x_generation_kernel(                                 \
+        std::shared_ptr<const gko::Executor> exec,               \
+        gko::matrix::Csr<_v_type, _i_type>* system_matrix);
 
 namespace {
 
@@ -114,11 +120,10 @@ __device__ void init_row_ptrs(const int nx, const int ny, const int nz,
 
 
 template <typename ValueType, typename IndexType>
-__global__ void matrix_generation_kernel_impl(const int active_threads_in_block,
-                                              int nx, int ny, int nz, int size,
-                                              int nnz, ValueType* values,
-                                              IndexType* row_ptrs,
-                                              IndexType* col_idxs)
+__global__ void matrix_generation_kernel_impl(
+    const int active_threads_in_block, const int nx, const int ny, const int nz,
+    const int size, ValueType* __restrict__ values,
+    const IndexType* __restrict__ row_ptrs, IndexType* __restrict__ col_idxs)
 {
     // cover only full rows -> no need for
     // synchronisation between threadblocks
@@ -157,8 +162,9 @@ __global__ void matrix_generation_kernel_impl(const int active_threads_in_block,
         const int z_eq_zero = (z == 0);
         const int x_eq_nx = (x == nx);
         const int y_eq_ny = (y == ny);
-        int curr_id = get_id_in_row(row_ptr + id_in_row, x_eq_zero, x_eq_nx,
-                                    y_eq_zero, y_eq_ny, z_eq_zero, ofs);
+        const int curr_id =
+            get_id_in_row(row_ptr + id_in_row, x_eq_zero, x_eq_nx, y_eq_zero,
+                          y_eq_ny, z_eq_zero, ofs);
         const int valid = (z + ofs[2] >= 0 && z + ofs[2] <= nz) &&
                           (y + ofs[1] >= 0 && y + ofs[1] <= ny) &&
                           (x + ofs[0] >= 0 && x + ofs[0] <= nx);
@@ -172,7 +178,8 @@ __global__ void matrix_generation_kernel_impl(const int active_threads_in_block,
 
 template <typename IndexType>
 __global__ void initialize_row_ptrs(const int nx, const int ny, const int nz,
-                                    IndexType* row_ptrs, const int size)
+                                    IndexType* __restrict__ row_ptrs,
+                                    const int size)
 {
     const auto id = blockIdx.x * blockDim.x + threadIdx.x;
     const auto z = id / ((nx + 1) * (ny + 1));
@@ -182,6 +189,21 @@ __global__ void initialize_row_ptrs(const int nx, const int ny, const int nz,
     // todo proper(fast) handling of the row_ptrs[num_rows] value
     if (id < size - 1) {
         init_row_ptrs(nx, ny, nz, x, y, z, id, row_ptrs);
+    }
+}
+
+template <typename ValueType, typename IndexType>
+__global__ void rhs_and_x_gen_impl(const IndexType* __restrict__ row_ptrs,
+                                   ValueType* __restrict__ rhs,
+                                   ValueType* __restrict__ x_exact,
+                                   ValueType* __restrict__ x, const int size)
+{
+    const auto id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id < size) {
+        const auto nnz_in_row = row_ptrs[id + 1] - row_ptrs[id];
+        rhs[id] = 27.0 - ValueType{nnz_in_row};
+        x_exact[id] = ValueType{1};
+        x[id] = ValueType{0};
     }
 }
 
@@ -243,6 +265,30 @@ __global__ void matrix_generation_kernel_impl_old(int nx, int ny, int nz,
 }
 }  // namespace
 
+template <typename ValueType, typename IndexType>
+std::array<std::shared_ptr<gko::matrix::Dense<ValueType>>, 3u>
+rhs_and_x_generation_kernel(
+    std::shared_ptr<const gko::Executor> exec,
+    gko::matrix::Csr<ValueType, IndexType>* system_matrix)
+{
+    using vec = gko::matrix::Dense<ValueType>;
+    // GKO_ASSERT_EQ(exec, system_matrix->get_executor());  // not sure if
+    // correct
+    const auto mat_size = system_matrix->get_size()[0];
+    const auto row_ptrs = system_matrix->get_const_row_ptrs();
+
+    auto rhs = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
+    auto x_exact = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
+    auto x = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
+
+    const auto grid = (mat_size + block_size - 1) / block_size;
+    rhs_and_x_gen_impl<<<grid, block_size>>>(row_ptrs, rhs->get_values(),
+                                             x_exact->get_values(),
+                                             x->get_values(), mat_size);
+
+
+    return std::array<std::shared_ptr<vec>, 3>{rhs, x_exact, x};
+}
 
 template <typename ValueType, typename IndexType>
 std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
@@ -254,11 +300,9 @@ matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
     using id_array = gko::Array<IndexType>;
     using csr = gko::matrix::Csr<ValueType, IndexType>;
 
-
     const auto mat_nnz = calc_nnz(nx, ny, nz);
     const auto mat_size = get_dp_3D(nx, ny, nz);
 
-    // how to initialize with given Arrays?
     auto values = val_array{exec, mat_nnz};
     auto row_ptrs = id_array{exec, mat_size + 1};
     auto col_idxs = id_array{exec, mat_nnz};
@@ -275,9 +319,8 @@ matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
 
     const auto grid_size = dim3(1, grid_y, nz + 1);
     matrix_generation_kernel_impl<<<grid_size, block_size>>>(
-        threshold * 27, nx, ny, nz, mat_size, mat_nnz, values.get_data(),
-        row_ptrs.get_data(), col_idxs.get_data());
-
+        threshold * 27, nx, ny, nz, mat_size, values.get_data(),
+        row_ptrs.get_const_data(), col_idxs.get_data());
 
     auto mat = share(csr::create(exec, gko::dim<2>(mat_size), std::move(values),
                                  std::move(col_idxs), std::move(row_ptrs)));
@@ -286,3 +329,4 @@ matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
 }
 
 INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(MATRIX_GEN_KERNEL);
+INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(RHS_AND_X_GEN_KERNEL);

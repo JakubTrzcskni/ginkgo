@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GKO_PUBLIC_CORE_MULTIGRID_GMG_HPP_
 
 
+#include <array>
 #include <vector>
 
 #include <ginkgo/core/base/array.hpp>
@@ -62,6 +63,12 @@ template <typename ValueType>
 void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                         const ValueType* rhs, const int rhs_size, ValueType* x,
                         const int x_size);
+template <typename ValueType, typename IndexType>
+std::array<std::shared_ptr<gko::matrix::Dense<ValueType>>, 3u>
+rhs_and_x_generation_kernel(
+    std::shared_ptr<const gko::Executor> exec,
+    gko::matrix::Csr<ValueType, IndexType>* system_matrix);
+
 template <typename ValueType, typename IndexType>
 std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
 matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
@@ -161,6 +168,58 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
         matrix::Csr<ValueType, IndexType>* mat;
     };
     exec->run(matrix_generation(exec, geo, mat));
+}
+
+// Creates a stencil matrix in CSR format, rhs, x, and the corresponding exact
+// solution
+template <typename ValueType, typename IndexType>
+void generate_problem(std::shared_ptr<const gko::Executor> exec,
+                      gko::matrix::Csr<ValueType, IndexType>* matrix,
+                      gko::matrix::Dense<ValueType>* rhs,
+                      gko::matrix::Dense<ValueType>* x,
+                      gko::matrix::Dense<ValueType>* x_exact,
+                      gko::multigrid::problem_geometry& geometry)
+{
+    const auto nx = geometry.nx;
+    const auto ny = geometry.ny;
+    const auto nz = geometry.nz;
+
+    auto rhs_values = rhs->get_values();
+    auto x_values = x->get_values();
+    auto x_exact_values = x_exact->get_values();
+
+    // gko::multigrid::
+    generate_problem_matrix(exec, geometry, matrix);
+#pragma omp for
+    for (auto iz = 0; iz <= nz; iz++) {
+        for (auto iy = 0; iy <= ny; iy++) {
+            for (auto ix = 0; ix <= nx; ix++) {
+                auto current_row =
+                    gko::multigrid::grid2index(ix, iy, iz, nx, ny);
+                auto nnz_in_row = 0;
+#pragma omp simd  // probably it doesn't help here
+                {
+                    for (auto ofs_z : {-1, 0, 1}) {
+                        if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
+                            for (auto ofs_y : {-1, 0, 1}) {
+                                if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
+                                    for (auto ofs_x : {-1, 0, 1}) {
+                                        if (ix + ofs_x > -1 &&
+                                            ix + ofs_x <= nx) {
+                                            nnz_in_row++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    rhs_values[current_row] = 26.0 - ValueType(nnz_in_row - 1);
+                    x_values[current_row] = 0.0;
+                    x_exact_values[current_row] = 1.0;
+                }
+            }
+        }
+    }
 }
 
 
@@ -347,20 +406,21 @@ protected:
 
                 auto f_values = fine_x->get_values();
 
-                auto c_nz = coarse_geo.nz;
-                auto c_ny = coarse_geo.ny;
-                auto c_nx = coarse_geo.nx;
+                const auto c_nz = coarse_geo.nz;
+                const auto c_ny = coarse_geo.ny;
+                const auto c_nx = coarse_geo.nx;
 
-                auto coeffs = coefficients.get_const_data();
+                const auto coeffs = coefficients.get_const_data();
 #pragma omp parallel for
                 for (auto c_z = 0; c_z <= c_nz; c_z++) {
-                    auto f_z = 2 * c_z;
+                    const auto f_z = 2 * c_z;
                     for (auto c_y = 0; c_y <= c_ny; c_y++) {
-                        auto f_y = 2 * c_y;
+                        const auto f_y = 2 * c_y;
                         for (auto c_x = 0; c_x <= c_nx; c_x++) {
-                            auto f_x = 2 * c_x;
-                            auto c_row = grid2index(c_x, c_y, c_z, c_nx, c_ny);
-                            auto f_row =
+                            const auto f_x = 2 * c_x;
+                            const auto c_row =
+                                grid2index(c_x, c_y, c_z, c_nx, c_ny);
+                            const auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
                             for (auto ofs_z : {-1, 0, 1}) {
                                 if (f_z + ofs_z > -1 &&
@@ -371,10 +431,11 @@ protected:
                                             for (auto ofs_x : {-1, 0, 1}) {
                                                 if (f_x + ofs_x > -1 &&
                                                     f_x + ofs_x <= 2 * c_nx) {
-                                                    auto f_id = grid2index(
-                                                        ofs_x, ofs_y, ofs_z,
-                                                        2 * c_nx, 2 * c_ny,
-                                                        f_row);
+                                                    const auto f_id =
+                                                        grid2index(
+                                                            ofs_x, ofs_y, ofs_z,
+                                                            2 * c_nx, 2 * c_ny,
+                                                            f_row);
 
                                                     f_values[f_id] +=
                                                         coeffs[ofs_z + 1] *
@@ -503,8 +564,8 @@ protected:
             (coarse_geo.nx + 1) * (coarse_geo.ny + 1) * (coarse_geo.nz + 1);
 
         // which executor ?
-        auto coarse_mat = share(matrix::Csr<ValueType, IndexType>::create(
-            exec->get_master(), gko::dim<2>(discretization_points)));
+        auto coarse_mat =
+            share(csr_type::create(exec, gko::dim<2>(discretization_points)));
 
         auto fine_dim = this->system_matrix_->get_size()[0];
         generate_problem_matrix(exec, coarse_geo, lend(coarse_mat.get()));
