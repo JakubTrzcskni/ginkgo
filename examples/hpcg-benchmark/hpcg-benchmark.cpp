@@ -41,60 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "include/geometric-multigrid.hpp"
 
 #include "include/utils.hpp"
-#include "test/matrix_generation_test.hpp"
+#include "test/problem_generation_test.hpp"
 #include "test/prolong_restrict_test.hpp"
-
-
-// Creates a stencil matrix in CSR format, rhs, x, and the corresponding exact
-// solution
-template <typename ValueType, typename IndexType>
-void generate_problem(std::shared_ptr<const gko::Executor> exec,
-                      gko::matrix::Csr<ValueType, IndexType>* matrix,
-                      gko::matrix::Dense<ValueType>* rhs,
-                      gko::matrix::Dense<ValueType>* x,
-                      gko::matrix::Dense<ValueType>* x_exact,
-                      gko::multigrid::problem_geometry& geometry)
-{
-    const auto nx = geometry.nx;
-    const auto ny = geometry.ny;
-    const auto nz = geometry.nz;
-
-    auto rhs_values = rhs->get_values();
-    auto x_values = x->get_values();
-    auto x_exact_values = x_exact->get_values();
-
-    gko::multigrid::generate_problem_matrix(exec, geometry, matrix);
-#pragma omp for
-    for (auto iz = 0; iz <= nz; iz++) {
-        for (auto iy = 0; iy <= ny; iy++) {
-            for (auto ix = 0; ix <= nx; ix++) {
-                auto current_row =
-                    gko::multigrid::grid2index(ix, iy, iz, nx, ny);
-                auto nnz_in_row = 0;
-#pragma omp simd  // probably it doesn't help here
-                {
-                    for (auto ofs_z : {-1, 0, 1}) {
-                        if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
-                            for (auto ofs_y : {-1, 0, 1}) {
-                                if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
-                                    for (auto ofs_x : {-1, 0, 1}) {
-                                        if (ix + ofs_x > -1 &&
-                                            ix + ofs_x <= nx) {
-                                            nnz_in_row++;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    rhs_values[current_row] = 26.0 - ValueType(nnz_in_row - 1);
-                    x_values[current_row] = 0.0;
-                    x_exact_values[current_row] = 1.0;
-                }
-            }
-        }
-    }
-}
 
 
 template <typename ValueType, typename IndexType>
@@ -516,7 +464,7 @@ int main(int argc, char* argv[])
 
     // Reference CG solve
     {
-        // cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
+        cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
     }
 
     // cg with bj
@@ -529,18 +477,29 @@ int main(int argc, char* argv[])
         // prolong_test(exec, geometry, ValueType{}, IndexType{});
     }
 
-    // MG preconditioned CG
-    {
-        // cg_with_mg(exec, geometry, ValueType{}, IndexType{});
-    }
 
     // explicit restrict
     {
-        test_restriction(exec, geometry, ValueType{}, IndexType{});
+        // test_restriction(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // explicit prolong
+    {
+        // test_prolongation(exec, geometry, ValueType{}, IndexType{});
     }
 
     // test matrix generation cuda
     {
-        test_matrix_generation(exec, geometry, ValueType{}, IndexType{});
+        // test_matrix_generation(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // test problem generation cuda
+    {
+        // test_rhs_and_x_generation(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // MG preconditioned CG
+    {
+        cg_with_mg(exec, geometry, ValueType{}, IndexType{});
     }
 }

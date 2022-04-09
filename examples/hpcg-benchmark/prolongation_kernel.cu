@@ -14,10 +14,12 @@
 
 namespace {
 
-// geo is coarse
+// todo correct for symmetric coefficients
+// also a lot of branching
+//  geo is coarse
 template <typename ValueType>
-__global__ void prolongation_kernel_impl(int nx, int ny, int nz,
-                                         const ValueType* coeffs,
+__global__ void prolongation_kernel_impl(const int nx, const int ny,
+                                         const int nz, const ValueType* coeffs,
                                          const ValueType* coarse_rhs,
                                          const int rhs_size, ValueType* fine_x,
                                          const int x_size)
@@ -27,6 +29,7 @@ __global__ void prolongation_kernel_impl(int nx, int ny, int nz,
     const auto f_y = blockIdx.y;
     const auto f_z = blockIdx.z;
 
+    // todo rename : on_coarse == 1 -> not on coarse
     const auto f_x_on_coarse = f_x % 2;
     const auto f_y_on_coarse = f_y % 2;
     const auto f_z_on_coarse = f_z % 2;
