@@ -58,27 +58,23 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 
+    std::cout << "Reference CG - no preconditioner" << std::endl;
     // initialize matrix and vectors
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
-    auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    std::cout << "\nmatrices and vectors initialized" << std::endl;
+    auto rhs = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    auto x = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    auto x_exact = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    std::cout << "matrices and vectors initialized" << std::endl;
 
     auto one = gko::initialize<vec>({1.0}, exec);
     auto neg_one = gko::initialize<vec>({-1.0}, exec);
     auto initres = gko::initialize<vec>({0.0}, exec);
     auto res = gko::initialize<vec>({0.0}, exec);
 
-    // generate matrix, rhs and solution
-    // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
     generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
                      lend(x_exact));
     std::cout << "problem generated" << std::endl;
-    // write(std::cout, lend(matrix));
-    // write(std::cout, lend(x));
-    // write(std::cout, lend(x_exact));
-    // write(std::cout, lend(rhs));
+
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
     // Generate solver and solve the system
@@ -98,7 +94,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     auto solver = cg_factory->generate(
         clone(exec, matrix));  // copy the matrix to the executor
-    std::cout << "Reference CG - no preconditioner" << std::endl;
+
 
     auto tic = std::chrono::steady_clock::now();
 
@@ -112,13 +108,8 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
     rhs->compute_norm2(lend(res));
 
-    // std::cout << "Initial residual norm sqrt(r^T r): \n";
-    // write(std::cout, lend(initres));
-    // std::cout << "Final residual norm sqrt(r^T r): \n";
-    // write(std::cout, lend(res));
-
     std::cout << "Solve complete.\nThe average relative error is "
-              << calculate_error(dp_3D, lend(x), lend(x_exact)) /
+              << calculate_error_device(dp_3D, lend(x), lend(x_exact)) /
                      static_cast<gko::remove_complex<ValueType>>(dp_3D)
               << std::endl;
 
@@ -132,93 +123,6 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
               << std::endl;
 }
 
-template <typename ValueType, typename IndexType>
-void cg_with_preconditioner(const std::shared_ptr<gko::Executor> exec,
-                            gko::multigrid::problem_geometry& geometry,
-                            ValueType value_help, IndexType index_help)
-{
-    using vec = gko::matrix::Dense<ValueType>;
-    using mtx = gko::matrix::Csr<ValueType, IndexType>;
-    using cg = gko::solver::Cg<ValueType>;
-    using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
-    using geo = gko::multigrid::problem_geometry;
-
-    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
-
-    // initialize matrix and vectors
-    auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
-    auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    std::cout << "\nmatrices and vectors initialized" << std::endl;
-
-    auto one = gko::initialize<vec>({1.0}, exec);
-    auto neg_one = gko::initialize<vec>({-1.0}, exec);
-    auto initres = gko::initialize<vec>({0.0}, exec);
-    auto res = gko::initialize<vec>({0.0}, exec);
-
-    // generate matrix, rhs and solution
-    // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
-    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
-                     lend(x_exact));
-    std::cout << "problem generated" << std::endl;
-    // write(std::cout, lend(matrix));
-    // write(std::cout, lend(x));
-    // write(std::cout, lend(x_exact));
-    // write(std::cout, lend(rhs));
-
-    const gko::remove_complex<ValueType> reduction_factor = 1e-7;
-    // Generate solver and solve the system
-    std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
-        gko::log::Convergence<ValueType>::create(exec);
-    auto iter_stop =
-        gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
-    auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
-                        .with_reduction_factor(reduction_factor)
-                        .on(exec);
-    iter_stop->add_logger(logger);
-    tol_stop->add_logger(logger);
-    auto cg_factory =
-        cg::build()
-            .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
-            .with_preconditioner(
-                gko::preconditioner::Jacobi<ValueType, IndexType>::build()
-                    .with_max_block_size(1u)
-                    .on(exec))
-            .on(exec);
-
-    auto solver = cg_factory->generate(
-        clone(exec, matrix));  // copy the matrix to the executor
-    std::cout << "Reference CG - no preconditioner" << std::endl;
-
-    auto tic = std::chrono::steady_clock::now();
-
-    solver->apply(lend(rhs), lend(x));
-    exec->synchronize();
-
-    auto tac = std::chrono::steady_clock::now();
-
-    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
-
-    matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
-    rhs->compute_norm2(lend(res));
-
-    std::cout << "Initial residual norm sqrt(r^T r): \n";
-    write(std::cout, lend(initres));
-    std::cout << "Final residual norm sqrt(r^T r): \n";
-    write(std::cout, lend(res));
-
-    std::cout << "Running " << logger->get_num_iterations()
-              << " iterations of the CG solver took a total of "
-              << static_cast<double>(time.count()) /
-                     static_cast<double>(std::nano::den)
-              << " seconds." << std::endl;
-
-    std::cout << "Solve complete.\nThe average relative error is "
-              << calculate_error(dp_3D, lend(x), lend(x_exact)) /
-                     static_cast<gko::remove_complex<ValueType>>(dp_3D)
-              << std::endl;
-}
 
 template <typename ValueType, typename IndexType>
 void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
@@ -237,12 +141,13 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 
 
+    std::cout << "CG with MG preconditioner" << std::endl;
     // initialize matrix and vectors
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
-    auto rhs = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x_exact = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    std::cout << "\nmatrices and vectors initialized" << std::endl;
+    auto rhs = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    auto x = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    auto x_exact = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    std::cout << "matrices and vectors initialized" << std::endl;
 
     auto one = gko::initialize<vec>({1.0}, exec);
     auto neg_one = gko::initialize<vec>({-1.0}, exec);
@@ -253,9 +158,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
                      lend(x_exact));
     std::cout << "problem generated" << std::endl;
-    // std::cout << "gen nnz = " << matrix->get_num_stored_elements() << "\n";
-    // std::cout << "calculated nnz = "
-    //           << calc_nnz(geometry.nx, geometry.ny, geometry.nz);
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
     auto iter_stop = gko::stop::Iteration::build().with_max_iters(100u).on(
@@ -309,8 +211,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
             .with_preconditioner(gko::share(multigrid_gen))
             .on(exec);
 
-    std::cout << "CG with MG preconditioner" << std::endl;
-
     std::chrono::nanoseconds gen_time(0);
     auto gen_tic = std::chrono::steady_clock::now();
     auto solver = solver_gen->generate(matrix);
@@ -332,14 +232,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
     rhs->compute_norm2(lend(res));
 
-    // std::cout << "Initial residual norm sqrt(r^T r): \n";
-    // write(std::cout, lend(initres));
-    // std::cout << "Final residual norm sqrt(r^T r): \n";
-    // write(std::cout, lend(res));
-    // write(std::ofstream("data/x.mtx"), lend(x));
-
     std::cout << "Solve complete.\nThe average relative error is "
-              << calculate_error(dp_3D, lend(x), lend(x_exact)) /
+              << calculate_error_device(dp_3D, lend(x), lend(x_exact)) /
                      static_cast<gko::remove_complex<ValueType>>(dp_3D)
               << std::endl;
 
@@ -353,48 +247,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     std::cout << "CG execution time per iteraion[ms]: "
               << static_cast<double>(time.count()) / 1000000.0 /
                      logger->get_num_iterations()
-              << std::endl;
-}
-
-template <typename ValueType, typename IndexType>
-void prolong_test(std::shared_ptr<const gko::Executor> exec,
-                  gko::multigrid::problem_geometry& geometry,
-                  ValueType value_help, IndexType index_help)
-{
-    using vec = gko::matrix::Dense<ValueType>;
-    using geo = gko::multigrid::problem_geometry;
-    using mgP = gko::multigrid::gmg_prolongation<ValueType, IndexType>;
-
-    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
-    const auto c_nx = geometry.nx / 2;
-    const auto c_ny = geometry.ny / 2;
-    const auto c_nz = geometry.nz / 2;
-    const unsigned int coarse_dp_3D = (c_nx + 1) * (c_ny + 1) * (c_nz + 1);
-
-    auto rhs_coarse =
-        vec::create(exec->get_master(), gko::dim<2>(coarse_dp_3D, 1));
-
-    auto x_fine = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
-    auto x_fine_exec = vec::create(exec, gko::dim<2>(dp_3D, 1));
-    for (auto i = 0; i < dp_3D; i++) {
-        x_fine->at(i, 0) = 0.0;
-    }
-    for (auto i = 0; i < coarse_dp_3D; i++) {
-        rhs_coarse->at(i, 0) = 1.0;
-    }
-
-    auto prolongation =
-        mgP::create(exec, c_nx, c_ny, c_nz, coarse_dp_3D, dp_3D, 0.5, 1.0, 0.5);
-
-    auto prolongation_cpu = mgP::create(exec->get_master(), c_nx, c_ny, c_nz,
-                                        coarse_dp_3D, dp_3D, 0.5, 1.0, 0.5);
-
-    prolongation->apply(lend(rhs_coarse), lend(x_fine_exec));
-    prolongation_cpu->apply(lend(rhs_coarse), lend(x_fine));
-    // write(std::cout, lend(x_fine));
-
-    std::cout << "\n error on prolong cpu-gpu\n"
-              << calculate_error(dp_3D, lend(x_fine), lend(x_fine_exec))
               << std::endl;
 }
 
@@ -485,11 +337,6 @@ int main(int argc, char* argv[])
     // Reference CG solve
     {
         cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
-    }
-
-    // cg with bj
-    {
-        // cg_with_preconditioner(exec, geometry, ValueType{}, IndexType{});
     }
 
     // MG preconditioned CG
