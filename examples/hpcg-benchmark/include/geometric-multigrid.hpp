@@ -64,16 +64,16 @@ void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                         const ValueType* rhs, const int rhs_size, ValueType* x,
                         const int x_size);
 template <typename ValueType, typename IndexType>
-std::array<std::shared_ptr<gko::matrix::Dense<ValueType>>, 3u>
-rhs_and_x_generation_kernel(
+void rhs_and_x_generation_kernel(
     std::shared_ptr<const gko::Executor> exec,
-    gko::matrix::Csr<ValueType, IndexType>* system_matrix);
+    gko::matrix::Csr<ValueType, IndexType>* system_matrix,
+    gko::matrix::Dense<ValueType>* rhs, gko::matrix::Dense<ValueType>* x_exact,
+    gko::matrix::Dense<ValueType>* x);
 
 template <typename ValueType, typename IndexType>
-std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
-matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
-                         const int nx, const int ny, const int nz,
-                         ValueType value_help, IndexType index_help);
+void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
+                              const int nx, const int ny, const int nz,
+                              gko::matrix::Csr<ValueType, IndexType>* mat);
 
 
 namespace gko {
@@ -103,18 +103,18 @@ static int integerPower(int base, int exponent)
 };
 template <typename ValueType, typename IndexType>
 void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
-                             problem_geometry& geo,
+                             const problem_geometry& geo,
                              matrix::Csr<ValueType, IndexType>* mat)
 {
     struct matrix_generation : gko::Operation {
         matrix_generation(std::shared_ptr<const gko::Executor> exec,
-                          problem_geometry geo,
+                          const problem_geometry& geo,
                           matrix::Csr<ValueType, IndexType>* mat)
             : exec{exec}, geo{geo}, mat{mat}
         {}
         void run(std::shared_ptr<const gko::CudaExecutor>) const override
         {
-            // matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
+            matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
         }
 
         void run(std::shared_ptr<const gko::OmpExecutor>) const override
@@ -164,7 +164,7 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
             mat->read(data);
         }
         std::shared_ptr<const gko::Executor> exec;
-        problem_geometry geo;
+        const problem_geometry geo;
         matrix::Csr<ValueType, IndexType>* mat;
     };
     exec->run(matrix_generation(exec, geo, mat));
@@ -174,52 +174,82 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
 // solution
 template <typename ValueType, typename IndexType>
 void generate_problem(std::shared_ptr<const gko::Executor> exec,
+                      const gko::multigrid::problem_geometry& geometry,
                       gko::matrix::Csr<ValueType, IndexType>* matrix,
                       gko::matrix::Dense<ValueType>* rhs,
                       gko::matrix::Dense<ValueType>* x,
-                      gko::matrix::Dense<ValueType>* x_exact,
-                      gko::multigrid::problem_geometry& geometry)
+                      gko::matrix::Dense<ValueType>* x_exact)
 {
-    const auto nx = geometry.nx;
-    const auto ny = geometry.ny;
-    const auto nz = geometry.nz;
+    struct problem_generation : gko::Operation {
+        problem_generation(std::shared_ptr<const gko::Executor> exec,
+                           const gko::multigrid::problem_geometry& geometry,
+                           gko::matrix::Csr<ValueType, IndexType>* matrix,
+                           gko::matrix::Dense<ValueType>* rhs,
+                           gko::matrix::Dense<ValueType>* x,
+                           gko::matrix::Dense<ValueType>* x_exact)
+            : exec{exec},
+              geo{geometry},
+              mat{matrix},
+              rhs{rhs},
+              x{x},
+              x_exact{x_exact}
+        {}
 
-    auto rhs_values = rhs->get_values();
-    auto x_values = x->get_values();
-    auto x_exact_values = x_exact->get_values();
+        void run(std::shared_ptr<const gko::OmpExecutor>) const override
+        {
+            const auto nx = geo.nx;
+            const auto ny = geo.ny;
+            const auto nz = geo.nz;
 
-    // gko::multigrid::
-    generate_problem_matrix(exec, geometry, matrix);
+            auto rhs_values = rhs->get_values();
+            auto x_values = x->get_values();
+            auto x_exact_values = x_exact->get_values();
+
+            generate_problem_matrix(exec, geo, mat);
 #pragma omp for
-    for (auto iz = 0; iz <= nz; iz++) {
-        for (auto iy = 0; iy <= ny; iy++) {
-            for (auto ix = 0; ix <= nx; ix++) {
-                auto current_row =
-                    gko::multigrid::grid2index(ix, iy, iz, nx, ny);
-                auto nnz_in_row = 0;
-#pragma omp simd  // probably it doesn't help here
-                {
-                    for (auto ofs_z : {-1, 0, 1}) {
-                        if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
-                            for (auto ofs_y : {-1, 0, 1}) {
-                                if (iy + ofs_y > -1 && iy + ofs_y <= ny) {
-                                    for (auto ofs_x : {-1, 0, 1}) {
-                                        if (ix + ofs_x > -1 &&
-                                            ix + ofs_x <= nx) {
-                                            nnz_in_row++;
+            for (auto iz = 0; iz <= nz; iz++) {
+                for (auto iy = 0; iy <= ny; iy++) {
+                    for (auto ix = 0; ix <= nx; ix++) {
+                        auto current_row = grid2index(ix, iy, iz, nx, ny);
+                        auto nnz_in_row = 0;
+                        {
+                            for (auto ofs_z : {-1, 0, 1}) {
+                                if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
+                                    for (auto ofs_y : {-1, 0, 1}) {
+                                        if (iy + ofs_y > -1 &&
+                                            iy + ofs_y <= ny) {
+                                            for (auto ofs_x : {-1, 0, 1}) {
+                                                if (ix + ofs_x > -1 &&
+                                                    ix + ofs_x <= nx) {
+                                                    nnz_in_row++;
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
+                            rhs_values[current_row] =
+                                26.0 - ValueType(nnz_in_row - 1);
+                            x_values[current_row] = 0.0;
+                            x_exact_values[current_row] = 1.0;
                         }
                     }
-                    rhs_values[current_row] = 26.0 - ValueType(nnz_in_row - 1);
-                    x_values[current_row] = 0.0;
-                    x_exact_values[current_row] = 1.0;
                 }
             }
         }
-    }
+        void run(std::shared_ptr<const gko::CudaExecutor>) const override
+        {
+            matrix_generation_kernel(exec, geo.nx, geo.ny, geo.nz, mat);
+            rhs_and_x_generation_kernel(exec, mat, rhs, x_exact, x);
+        }
+        std::shared_ptr<const gko::Executor> exec;
+        const problem_geometry geo;
+        matrix::Csr<ValueType, IndexType>* mat;
+        gko::matrix::Dense<ValueType>* rhs;
+        gko::matrix::Dense<ValueType>* x;
+        gko::matrix::Dense<ValueType>* x_exact;
+    };
+    exec->run(problem_generation(exec, geometry, matrix, rhs, x, x_exact));
 }
 
 
