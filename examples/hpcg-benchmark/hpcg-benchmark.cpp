@@ -72,8 +72,8 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     // generate matrix, rhs and solution
     // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
-    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
-                     geometry);
+    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
+                     lend(x_exact));
     std::cout << "problem generated" << std::endl;
     // write(std::cout, lend(matrix));
     // write(std::cout, lend(x));
@@ -159,8 +159,8 @@ void cg_with_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     // generate matrix, rhs and solution
     // std::cout << "matrix size = " << matrix->get_size()[0] << "\n";
-    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
-                     geometry);
+    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
+                     lend(x_exact));
     std::cout << "problem generated" << std::endl;
     // write(std::cout, lend(matrix));
     // write(std::cout, lend(x));
@@ -250,8 +250,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto res = gko::initialize<vec>({0.0}, exec);
 
     // generate matrix, rhs and solution
-    generate_problem(exec, lend(matrix), lend(rhs), lend(x), lend(x_exact),
-                     geometry);
+    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
+                     lend(x_exact));
     std::cout << "problem generated" << std::endl;
     // std::cout << "gen nnz = " << matrix->get_num_stored_elements() << "\n";
     // std::cout << "calculated nnz = "
@@ -462,6 +462,26 @@ int main(int argc, char* argv[])
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
 
+    // explicit restrict
+    {
+        test_restriction(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // explicit prolong
+    {
+        test_prolongation(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // test matrix generation cuda
+    if (strcmp(executor_string, "cuda") == 0) {
+        test_matrix_generation(exec, geometry, ValueType{}, IndexType{});
+    }
+
+    // test problem generation cuda
+    if (strcmp(executor_string, "cuda") == 0) {
+        test_rhs_and_x_generation(exec, geometry, ValueType{}, IndexType{});
+    }
+
     // Reference CG solve
     {
         cg_without_preconditioner(exec, geometry, ValueType{}, IndexType{});
@@ -470,32 +490,6 @@ int main(int argc, char* argv[])
     // cg with bj
     {
         // cg_with_preconditioner(exec, geometry, ValueType{}, IndexType{});
-    }
-
-    // Prolongation test
-    {
-        // prolong_test(exec, geometry, ValueType{}, IndexType{});
-    }
-
-
-    // explicit restrict
-    {
-        // test_restriction(exec, geometry, ValueType{}, IndexType{});
-    }
-
-    // explicit prolong
-    {
-        // test_prolongation(exec, geometry, ValueType{}, IndexType{});
-    }
-
-    // test matrix generation cuda
-    {
-        // test_matrix_generation(exec, geometry, ValueType{}, IndexType{});
-    }
-
-    // test problem generation cuda
-    {
-        // test_rhs_and_x_generation(exec, geometry, ValueType{}, IndexType{});
     }
 
     // MG preconditioned CG

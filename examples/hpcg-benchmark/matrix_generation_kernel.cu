@@ -15,17 +15,17 @@
     template _macro(float, int64_t);                      \
     template _macro(double, int64_t);
 
-#define MATRIX_GEN_KERNEL(_v_type, _i_type)                             \
-    std::shared_ptr<gko::matrix::Csr<_v_type, _i_type>>                 \
-    matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, \
-                             const int nx, const int ny, const int nz,  \
-                             _v_type value_type, _i_type index_type);
+#define MATRIX_GEN_KERNEL(_v_type, _i_type)                                  \
+    void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec, \
+                                  const int nx, const int ny, const int nz,  \
+                                  gko::matrix::Csr<_v_type, _i_type>* mat);
 
-#define RHS_AND_X_GEN_KERNEL(_v_type, _i_type)                   \
-    std::array<std::shared_ptr<gko::matrix::Dense<_v_type>>, 3u> \
-    rhs_and_x_generation_kernel(                                 \
-        std::shared_ptr<const gko::Executor> exec,               \
-        gko::matrix::Csr<_v_type, _i_type>* system_matrix);
+#define RHS_AND_X_GEN_KERNEL(_v_type, _i_type)             \
+    void rhs_and_x_generation_kernel(                      \
+        std::shared_ptr<const gko::Executor> exec,         \
+        gko::matrix::Csr<_v_type, _i_type>* system_matrix, \
+        gko::matrix::Dense<_v_type>* rhs,                  \
+        gko::matrix::Dense<_v_type>* x_exact, gko::matrix::Dense<_v_type>* x);
 
 namespace {
 
@@ -266,10 +266,11 @@ __global__ void matrix_generation_kernel_impl_old(int nx, int ny, int nz,
 }  // namespace
 
 template <typename ValueType, typename IndexType>
-std::array<std::shared_ptr<gko::matrix::Dense<ValueType>>, 3u>
-rhs_and_x_generation_kernel(
+void rhs_and_x_generation_kernel(
     std::shared_ptr<const gko::Executor> exec,
-    gko::matrix::Csr<ValueType, IndexType>* system_matrix)
+    gko::matrix::Csr<ValueType, IndexType>* system_matrix,
+    gko::matrix::Dense<ValueType>* rhs, gko::matrix::Dense<ValueType>* x_exact,
+    gko::matrix::Dense<ValueType>* x)
 {
     using vec = gko::matrix::Dense<ValueType>;
     // GKO_ASSERT_EQ(exec, system_matrix->get_executor());  // not sure if
@@ -277,24 +278,24 @@ rhs_and_x_generation_kernel(
     const auto mat_size = system_matrix->get_size()[0];
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
 
-    auto rhs = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
-    auto x_exact = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
-    auto x = share(vec::create(exec, gko::dim<2>(mat_size, 1)));
+    auto generated_rhs = vec::create(exec, gko::dim<2>(mat_size, 1));
+    auto generated_x_exact = vec::create(exec, gko::dim<2>(mat_size, 1));
+    auto generated_x = vec::create(exec, gko::dim<2>(mat_size, 1));
 
     const auto grid = (mat_size + block_size - 1) / block_size;
-    rhs_and_x_gen_impl<<<grid, block_size>>>(row_ptrs, rhs->get_values(),
-                                             x_exact->get_values(),
-                                             x->get_values(), mat_size);
+    rhs_and_x_gen_impl<<<grid, block_size>>>(
+        row_ptrs, generated_rhs->get_values(), generated_x_exact->get_values(),
+        generated_x->get_values(), mat_size);
 
-
-    return std::array<std::shared_ptr<vec>, 3>{rhs, x_exact, x};
+    generated_rhs->move_to(rhs);
+    generated_x_exact->move_to(x_exact);
+    generated_x->move_to(x);
 }
 
 template <typename ValueType, typename IndexType>
-std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>>
-matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
-                         const int nx, const int ny, const int nz,
-                         ValueType value_help, IndexType index_help)
+void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
+                              const int nx, const int ny, const int nz,
+                              gko::matrix::Csr<ValueType, IndexType>* mat)
 {
     using val_array = gko::Array<ValueType>;
     using id_array = gko::Array<IndexType>;
@@ -322,10 +323,10 @@ matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
         threshold * 27, nx, ny, nz, mat_size, values.get_data(),
         row_ptrs.get_const_data(), col_idxs.get_data());
 
-    auto mat = share(csr::create(exec, gko::dim<2>(mat_size), std::move(values),
-                                 std::move(col_idxs), std::move(row_ptrs)));
-
-    return mat;
+    auto generated_mat =
+        csr::create(exec, gko::dim<2>(mat_size), std::move(values),
+                    std::move(col_idxs), std::move(row_ptrs));
+    generated_mat->move_to(mat);
 }
 
 INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(MATRIX_GEN_KERNEL);
