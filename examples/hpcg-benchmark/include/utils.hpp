@@ -57,23 +57,30 @@ gko::remove_complex<ValueType> calculate_error(
     return error;
 }
 
+
 template <typename ValueType>
 gko::remove_complex<ValueType> calculate_error_device(
-    std::shared_ptr<const gko::Executor> exec, const int discretization_points,
-    gko::matrix::Dense<ValueType>* u_device,
-    const gko::matrix::Dense<ValueType>* u_exact)
+    const int discretization_points, gko::matrix::Dense<ValueType>* u_device,
+    gko::matrix::Dense<ValueType>* u_exact)
 {
     using array = gko::Array<ValueType>;
+    auto exec = u_exact->get_executor();
     auto values_device =
-        array::view(exec, discretization_points, u_device->get_values());
+        array::view(u_device->get_executor(), discretization_points,
+                    u_device->get_values());
     values_device.set_executor(exec->get_master());
+
+    auto values_exact =
+        array::view(exec, discretization_points, u_exact->get_values());
+    values_exact.set_executor(exec->get_master());
+
     const ValueType h = 1.0 / static_cast<ValueType>(discretization_points + 1);
     gko::remove_complex<ValueType> error = 0.0;
     for (int i = 0; i < discretization_points; ++i) {
         using std::abs;
         error += abs(values_device.get_const_data()[i] -
-                     u_exact->get_const_values()[i]) /
-                 abs(u_exact->get_const_values()[i]);
+                     values_exact.get_const_data()[i]) /
+                 abs(values_exact.get_const_data()[i]);
     }
     return error;
 }

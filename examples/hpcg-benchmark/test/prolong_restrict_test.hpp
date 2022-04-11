@@ -157,8 +157,7 @@ void test_restriction(std::shared_ptr<const gko::Executor> exec,
     restrict_explicit->apply(lend(rhs_fine), lend(x_coarse_ref));
 
     std::cout << "\nerror on restrict explicit/implicit\n"
-              << calculate_error_device(exec, coarse_dp_3D,
-                                        lend(x_coarse_device),
+              << calculate_error_device(coarse_dp_3D, lend(x_coarse_device),
                                         lend(x_coarse_ref))
               << std::endl;
 }
@@ -210,6 +209,7 @@ void test_prolongation(std::shared_ptr<const gko::Executor> exec,
     prolong_explicit->apply(lend(rhs_coarse_ref), lend(x_fine_ref));
 
     std::cout << "error on prolong explicit/implicit\n"
-              << calculate_error_device(exec, fine_dp_3D, lend(x_fine_device),
-                                        lend(x_fine_ref));
+              << calculate_error_device(fine_dp_3D, lend(x_fine_device),
+                                        lend(x_fine_ref))
+              << std::endl;
 }

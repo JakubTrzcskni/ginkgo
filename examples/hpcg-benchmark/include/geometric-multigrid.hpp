@@ -571,7 +571,6 @@ protected:
         }
     }
 
-    // void generate();  // not sure if needed with the generate() defined below
     void generate()
     {
         using csr_type = matrix::Csr<ValueType, IndexType>;
@@ -593,7 +592,6 @@ protected:
         auto discretization_points =
             (coarse_geo.nx + 1) * (coarse_geo.ny + 1) * (coarse_geo.nz + 1);
 
-        // which executor ?
         auto coarse_mat =
             share(csr_type::create(exec, gko::dim<2>(discretization_points)));
 
