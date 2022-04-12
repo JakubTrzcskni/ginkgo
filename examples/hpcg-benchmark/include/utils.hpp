@@ -2,16 +2,8 @@
 #define MULTIGRID_UTILS
 
 #include <ginkgo/ginkgo.hpp>
-#include "geometric-multigrid.hpp"
 
-static int get_dp_3D(const int nx, const int ny, const int nz)
-{
-    return (nx + 1) * (ny + 1) * (nz + 1);
-}
-static int get_dp_3D(const gko::multigrid::problem_geometry& geometry)
-{
-    return get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
-}
+
 static int calc_nnz(const int nx, const int ny, const int nz)
 {
     return (nx + 1) * (ny + 1) * (nz + 1) * 27 + 64 + ((nx + 1) - 2) * 4 * 3 +

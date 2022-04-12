@@ -51,6 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/row_gatherer.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
 #include <ginkgo/core/multigrid/multigrid_level.hpp>
+
+#include "core/base/utils.hpp"
 #include "core/components/fill_array_kernels.hpp"
 #include "core/matrix/csr_builder.hpp"
 
@@ -59,6 +61,10 @@ template <typename ValueType>
 void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
                          const int x_size);
+template <typename ValueType>
+void prolongation_kernel_v2(int nx, int ny, int nz, const ValueType* coeffs,
+                            const ValueType* rhs, const int rhs_size,
+                            ValueType* x, const int x_size);
 template <typename ValueType>
 void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                         const ValueType* rhs, const int rhs_size, ValueType* x,
@@ -83,6 +89,14 @@ struct problem_geometry {
     size_type nx;
     size_type ny;
     size_type nz;
+};
+static int get_dp_3D(const int nx, const int ny, const int nz)
+{
+    return (nx + 1) * (ny + 1) * (nz + 1);
+};
+static int get_dp_3D(const gko::multigrid::problem_geometry& geometry)
+{
+    return get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
 };
 
 static size_t grid2index(size_t x, size_t y, size_t z, size_t nx, size_t ny,
@@ -398,7 +412,7 @@ public:
     // uses a 3D stencil (27-Point) to interpolate (prolong) the rhs vector
     // it doubles the number of discretization points in respect to every
     // axis
-    // -> rhs vector length is increased 8-folg
+    // -> rhs vector length is increased 8-fold
     // the stencil is generated symmetrically
     // passed geometry is the coarse problem geometry
     gmg_prolongation(std::shared_ptr<const gko::Executor> exec,
@@ -409,7 +423,7 @@ public:
                      ValueType center = 1.0, ValueType right = 0.5)
         : gko::EnableLinOp<gmg_prolongation>(
               exec, gko::dim<2>{fine_size, coarse_size}),
-          coefficients(exec, {left, center, right}),
+          coefficients{exec, {left, center, right}},
           geo{dp_x, dp_y, dp_z}
     {}
 
@@ -424,7 +438,7 @@ protected:
 
         struct prolongation_operation : gko::Operation {
             prolongation_operation(const coef_type& coefficients, const vec* b,
-                                   vec* x, problem_geometry geo)
+                                   vec* x, const problem_geometry geo)
                 : coefficients{coefficients},
                   coarse_rhs{b},
                   fine_x{x},
@@ -494,10 +508,10 @@ protected:
             void run(
                 std::shared_ptr<const gko::ReferenceExecutor>) const override
             {}
-            const coef_type& coefficients;
+            const coef_type coefficients;
             const vec* coarse_rhs;
             vec* fine_x;
-            problem_geometry coarse_geo;
+            const problem_geometry coarse_geo;
         };
         this->get_executor()->run(
             prolongation_operation(coefficients, dense_b, dense_x, geo));
@@ -506,6 +520,7 @@ protected:
     void apply_impl(const gko::LinOp* alpha, const gko::LinOp* b,
                     const gko::LinOp* beta, gko::LinOp* x) const override
     {
+        // todo, this impl is being used in the solver
         auto dense_b = gko::as<vec>(b);
         auto dense_x = gko::as<vec>(x);
         auto tmp_x = dense_x->clone();
@@ -566,7 +581,13 @@ protected:
           system_matrix_{system_matrix}
     {
         if (system_matrix_->get_size()[0] != 0) {
-            this->geo = parameters_.fine_geo;
+            problem_geometry coarse_geo;
+            generate_coarse_geo(parameters_.fine_geo, coarse_geo);
+            while (get_dp_3D(coarse_geo) >= system_matrix_->get_size()[0]) {
+                generate_coarse_geo(coarse_geo, coarse_geo);
+            }
+            this->coarse_geo = coarse_geo;
+
             this->generate();
         }
     }
@@ -577,40 +598,41 @@ protected:
         using real_type = remove_complex<ValueType>;
         auto exec = this->get_executor();
         const auto num_rows = this->system_matrix_->get_size()[0];
-        std::shared_ptr<const csr_type> gmg_op_shared_ptr{};
+
+        // Only support csr matrix currently.
         const csr_type* gmg_op =
             dynamic_cast<const csr_type*>(system_matrix_.get());
+        std::shared_ptr<const csr_type> gmg_op_shared_ptr{};
         if (!gmg_op) {
+            // gmg_op_shared_ptr =
+            //     copy_and_convert_to<csr_type>(exec, system_matrix_);
             gmg_op_shared_ptr =
-                copy_and_convert_to<csr_type>(exec, system_matrix_);
+                convert_to_with_sorting<csr_type>(exec, system_matrix_, false);
             gmg_op = gmg_op_shared_ptr.get();
             this->set_fine_op(gmg_op_shared_ptr);
         }
 
-        problem_geometry coarse_geo;
-        generate_coarse_geo(this->geo, coarse_geo);
-        auto discretization_points =
-            (coarse_geo.nx + 1) * (coarse_geo.ny + 1) * (coarse_geo.nz + 1);
+        auto coarse_dim = get_dp_3D(this->coarse_geo);
 
         auto coarse_mat =
-            share(csr_type::create(exec, gko::dim<2>(discretization_points)));
+            share(csr_type::create(exec, gko::dim<2>(coarse_dim)));
 
         auto fine_dim = this->system_matrix_->get_size()[0];
-        generate_problem_matrix(exec, coarse_geo, lend(coarse_mat.get()));
+        generate_problem_matrix(exec, this->coarse_geo, lend(coarse_mat.get()));
 
         this->set_multigrid_level(
-            gmg_prolongation<ValueType, IndexType>::create(
-                exec, coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
-                discretization_points, fine_dim),
+            share(gmg_prolongation<ValueType, IndexType>::create(
+                exec, this->coarse_geo.nx, this->coarse_geo.ny,
+                this->coarse_geo.nz, coarse_dim, fine_dim)),
             coarse_mat,
-            gmg_restriction<ValueType, IndexType>::create(
-                exec, coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
-                discretization_points, fine_dim));
+            share(gmg_restriction<ValueType, IndexType>::create(
+                exec, this->coarse_geo.nx, this->coarse_geo.ny,
+                this->coarse_geo.nz, coarse_dim, fine_dim)));
     }
 
 private:
     std::shared_ptr<const LinOp> system_matrix_{};
-    problem_geometry geo;
+    problem_geometry coarse_geo;
 
     void generate_coarse_geo(problem_geometry& fine_geo,
                              problem_geometry& coarse_geo)

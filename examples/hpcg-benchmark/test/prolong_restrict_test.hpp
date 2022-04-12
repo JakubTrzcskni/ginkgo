@@ -180,7 +180,7 @@ void test_prolongation(std::shared_ptr<const gko::Executor> exec,
     const unsigned int fine_dp_3D = get_dp_3D(geometry);
     const unsigned int dp_3D = get_dp_3D(c_nx, c_ny, c_nz);
 
-    ValueType coeffs[3] = {0.5, 1.0, 0.5};
+    const ValueType coeffs[3] = {0.5, 1.0, 0.5};
 
     auto rhs_coarse_device = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto rhs_coarse_ref =
@@ -212,4 +212,5 @@ void test_prolongation(std::shared_ptr<const gko::Executor> exec,
               << calculate_error_device(fine_dp_3D, lend(x_fine_device),
                                         lend(x_fine_ref))
               << std::endl;
+    // write(std::cout, lend(prolong_explicit));
 }

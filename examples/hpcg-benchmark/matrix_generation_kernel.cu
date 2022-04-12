@@ -302,7 +302,7 @@ void matrix_generation_kernel(std::shared_ptr<const gko::Executor> exec,
     using csr = gko::matrix::Csr<ValueType, IndexType>;
 
     const auto mat_nnz = calc_nnz(nx, ny, nz);
-    const auto mat_size = get_dp_3D(nx, ny, nz);
+    const auto mat_size = gko::multigrid::get_dp_3D(nx, ny, nz);
 
     auto values = val_array{exec, mat_nnz};
     auto row_ptrs = id_array{exec, mat_size + 1};

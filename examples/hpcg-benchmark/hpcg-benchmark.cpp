@@ -30,6 +30,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************<GINKGO LICENSE>*******************************/
 
+#include <omp.h>
 #include <chrono>
 #include <fstream>
 #include <ginkgo/ginkgo.hpp>
@@ -37,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <map>
 #include <string>
+
 
 #include "include/geometric-multigrid.hpp"
 
@@ -195,15 +197,17 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto multigrid_gen =
         mg::build()
             .with_max_levels(9u)
-            .with_min_coarse_rows(10u)
+            .with_min_coarse_rows(28u)
             .with_pre_smoother(smoother_gen)
             .with_post_uses_pre(true)
             .with_mg_level(gko::share(mg_level_gen))
             .with_coarsest_solver(coarsest_gen)
             .with_zero_guess(true)
             .with_criteria(gko::stop::Iteration::build().with_max_iters(1u).on(
-                exec))  // what does max_iters influence here?
+                exec))  // max_iters - how many mg cycles are used for the
+                        // preconditioning/solving
             .on(exec);
+
 
     auto solver_gen =
         cg::build()
@@ -214,8 +218,10 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     std::chrono::nanoseconds gen_time(0);
     auto gen_tic = std::chrono::steady_clock::now();
     auto solver = solver_gen->generate(matrix);
+    // auto solver = multigrid_gen->generate(matrix);
     exec->synchronize();
     auto gen_toc = std::chrono::steady_clock::now();
+
     gen_time +=
         std::chrono::duration_cast<std::chrono::nanoseconds>(gen_toc - gen_tic);
 
@@ -227,7 +233,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     exec->synchronize();
     auto toc = std::chrono::steady_clock::now();
     time += std::chrono::duration_cast<std::chrono::nanoseconds>(toc - tic);
-
 
     matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
     rhs->compute_norm2(lend(res));
