@@ -104,8 +104,12 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     exec->synchronize();
 
     auto tac = std::chrono::steady_clock::now();
-
     auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+
+    double total_flops =
+        calculate_FLOPS(1, logger->get_num_iterations(), lend(matrix));
+    std::cout << "total GFLOPs: " << total_flops / 1.0E9 << "\n"
+              << "total GFLOPs/s: " << total_flops / time.count() << "\n";
 
     matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
     rhs->compute_norm2(lend(res));
@@ -140,8 +144,7 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     using mg = gko::solver::Multigrid;
     using gmg = gko::multigrid::Gmg<ValueType, IndexType>;
 
-    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
-
+    const unsigned int dp_3D = get_dp_3D(geometry);
 
     std::cout << "CG with MG preconditioner" << std::endl;
     // initialize matrix and vectors
@@ -207,7 +210,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
                 exec))  // max_iters - how many mg cycles are used for the
                         // preconditioning/solving
             .on(exec);
-
 
     auto solver_gen =
         cg::build()

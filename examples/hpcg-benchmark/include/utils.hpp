@@ -1,8 +1,62 @@
 #ifndef MULTIGRID_UTILS
 #define MULTIGRID_UTILS
 
+#include <chrono>
 #include <ginkgo/ginkgo.hpp>
 
+// FLOPs for CG solve without preconditioning
+template <typename ValueType, typename IndexType>
+int calculate_FLOPS(int num_CG_sets, int num_iters_per_CG_solve,
+                    gko::matrix::Csr<ValueType, IndexType>* mat)
+{
+    const auto nnz = mat->get_num_stored_elements();
+    const auto num_rows = mat->get_size()[0];
+    const auto total_iters = num_CG_sets * num_iters_per_CG_solve;
+
+    const auto num_ops_dot = 2 * total_iters * 2 * num_rows;
+    const auto num_ops_axpby = 3 * total_iters * 2 * num_rows;
+    const auto num_ops_spmv = (total_iters + num_CG_sets) * 2 * nnz;
+    const auto num_ops_norm2 = total_iters * 2 * num_rows;
+
+    return num_ops_dot + num_ops_axpby + num_ops_spmv + num_ops_norm2;
+};
+
+// FLOPs for CG solve with MG-preconditioner
+template <typename ValueType, typename IndexType>
+int calculate_FLOPS(
+    int num_CG_sets, int num_iters_per_CG_solve,
+    gko::matrix::Csr<ValueType, IndexType>* mat, int num_mg_levels,
+    std::vector<std::shared_ptr<const gko::multigrid::MultigridLevel>>
+        mg_level_list,
+    int num_presmooth_steps, int num_postsmooth_steps)
+{
+    // similar to HPCG reference implementation
+    using csr = gko::matrix::Csr<ValueType, IndexType>;
+    const auto total_iters = num_CG_sets * num_iters_per_CG_solve;
+
+    const auto num_ops_cg =
+        calculate_FLOPS(num_CG_sets, num_iters_per_CG_solve, mat);
+
+    const auto num_ops_mg = 0;
+    for (auto i = 0; i < num_mg_levels; i++) {
+        // make 1 test run of the mg as a solver ->pass on the list of fine_ops
+        // ->cast to csr ->get_num_stored_elems()
+        const csr* op_at_level =
+            dynamic_cast<const csr*>(mg_level_list.at(i)->get_fine_op().get());
+        const auto nnz_at_level = op_at_level->get_num_stored_elements();
+        const auto num_rows_at_level = op_at_level->get_size()[0];
+        // num_ops_mg += num_presmooth_steps * total_iters *; //todo
+        // num_ops_mg += num_postsmooth_steps * total_iters *;//todo
+        // num_ops_mg += total_iters * ; //todo, fine grid residual calculation
+
+        // TODO ops per prolong / restrict
+        //  num_ops_mg += total_iters * num_rows_at_level * ;//prolong
+        //  num_ops_mg += total_iters * num_rows_at_level * ;//restrict
+    }
+    // num_ops_mg += total_iters * ;//todo cost of the ir solve on the coarsest
+    // level
+    return num_ops_cg + num_ops_mg;
+};
 
 static int calc_nnz(const int nx, const int ny, const int nz)
 {
