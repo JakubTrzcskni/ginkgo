@@ -46,7 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 template <typename ValueType, typename IndexType>
 void benchmark_cg(
-    const std::shared_ptr<gko::Executor> exec, bool preconditioner,
+    const std::shared_ptr<gko::Executor> exec,
+    gko::multigrid::problem_geometry& fine_geo, bool preconditioner,
     int num_presmooth_steps, int num_postsmooth_steps,
     std::shared_ptr<gko::solver::Multigrid::Factory> multigrid_gen,
     std::shared_ptr<gko::stop::Iteration::Factory> val_iter_stop,
@@ -57,11 +58,12 @@ void benchmark_cg(
 {
     using cg = gko::solver::Cg<ValueType>;
     using mg = gko::solver::Multigrid;
+    using gmg = gko::multigrid::Gmg<ValueType, IndexType>;
+    using mg = gko::solver::Multigrid;
+
     auto val_cg_factory = cg::build().with_criteria(val_iter_stop).on(exec);
 
-    if (preconditioner) {
-        GKO_ASSERT(multigrid_gen);
-
+    if (preconditioner && multigrid_gen) {
         auto val_cg_precond_factory = cg::build()
                                           .with_criteria(val_iter_stop)
                                           .with_preconditioner(multigrid_gen)
@@ -73,7 +75,7 @@ void benchmark_cg(
     int num_cg_sets = total_runtime / ref_time + 1;
     std::cout << "Validation phase\n"
               << "Running approx. " << num_cg_sets << " cg sets\n"
-              << "For a total runtime of approx. " << total_runtime / 1.0E9
+              << "For a total runtime of at least " << total_runtime / 1.0E9
               << "s\n";
 
     size_t total_validation_time = 0;
@@ -104,11 +106,27 @@ void benchmark_cg(
     size_t total_flops{};
     size_t total_memory{};
     if (preconditioner) {
-        auto mg_solver = multigrid_gen->generate(matrix);
+        auto mg_level_gen =
+            gmg::build().with_fine_geo(fine_geo).with_explicit_op(true).on(
+                exec->get_master());
+        auto mg_gen_helper =
+            mg::build()
+                .with_max_levels(9u)
+                .with_min_coarse_rows(28u)
+                .with_mg_level(share(mg_level_gen))
+                .with_criteria(
+                    gko::stop::Iteration::build().with_max_iters(1u).on(exec))
+                .on(exec->get_master());
+
+        auto mg_solver =
+            mg_gen_helper->generate(clone(exec->get_master(), lend(matrix)));
         auto mg_level_list = mg_solver->get_mg_level_list();
         total_flops = calculate_FLOPS(num_cg_sets, num_iters_ref, lend(matrix),
                                       mg_level_list, num_presmooth_steps,
                                       num_postsmooth_steps, true);
+        total_memory = calculate_bandwidth(
+            num_cg_sets, num_iters_ref, lend(matrix), mg_level_list,
+            num_presmooth_steps, num_postsmooth_steps, true);
     } else {
         total_flops = calculate_FLOPS(num_cg_sets, num_iters_ref, lend(matrix));
         total_memory =
@@ -123,7 +141,7 @@ void benchmark_cg(
               << " GB\n"
               << "total bandwidth: "
               << static_cast<double>(total_memory) / total_validation_time
-              << "/s\n";
+              << " GB/s\n";
 }
 
 template <typename ValueType, typename IndexType>
@@ -208,8 +226,9 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     auto val_iter_stop = share(
         gko::stop::Iteration::build().with_max_iters(num_iters_ref).on(exec));
 
-    benchmark_cg(exec, false, 0, 0, NULL, val_iter_stop, matrix, share(rhs),
-                 share(x), total_runtime, ref_time.count(), num_iters_ref);
+    benchmark_cg(exec, geometry, false, 0, 0, NULL, val_iter_stop, matrix,
+                 share(rhs), share(x), total_runtime, ref_time.count(),
+                 num_iters_ref);
 }
 
 
@@ -342,8 +361,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto val_iter_stop = share(
         gko::stop::Iteration::build().with_max_iters(num_iters_ref).on(exec));
 
-    benchmark_cg(exec, true, 2, 2, multigrid_gen, val_iter_stop, matrix,
-                 share(rhs), share(x), total_runtime, ref_time.count(),
+    benchmark_cg(exec, geometry, true, 2, 2, multigrid_gen, val_iter_stop,
+                 matrix, share(rhs), share(x), total_runtime, ref_time.count(),
                  num_iters_ref);
 }
 
