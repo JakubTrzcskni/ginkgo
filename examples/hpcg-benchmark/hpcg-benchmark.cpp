@@ -39,13 +39,73 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <string>
 
-
 #include "include/geometric-multigrid.hpp"
-
 #include "include/utils.hpp"
 #include "test/problem_generation_test.hpp"
 #include "test/prolong_restrict_test.hpp"
 
+template <typename ValueType, typename IndexType>
+void benchmark_cg(
+    const std::shared_ptr<gko::Executor> exec, bool preconditioner,
+    std::shared_ptr<gko::solver::Multigrid::Factory> multigrid_gen,
+    std::shared_ptr<gko::stop::Iteration::Factory> val_iter_stop,
+    std::shared_ptr<gko::matrix::Csr<ValueType, IndexType>> matrix,
+    std::shared_ptr<gko::matrix::Dense<ValueType>> rhs,
+    std::shared_ptr<gko::matrix::Dense<ValueType>> x, double total_runtime,
+    double ref_time, size_t num_iters_ref)
+{
+    using cg = gko::solver::Cg<ValueType>;
+    using mg = gko::solver::Multigrid;
+    auto val_cg_factory = cg::build().with_criteria(val_iter_stop).on(exec);
+
+    if (preconditioner) {
+        GKO_ASSERT(multigrid_gen);
+        val_cg_factory->clear();
+        val_cg_factory = cg::build()
+                             .with_criteria(val_iter_stop)
+                             .with_preconditioner(multigrid_gen)
+                             .on(exec);
+    }
+    auto val_solver = val_cg_factory->generate(matrix);
+    int num_cg_sets = total_runtime / ref_time + 1;  // ref_time.count() + 1;
+    std::cout << "Validation phase\n"
+              << "Running approx. " << num_cg_sets << " cg sets\n"
+              << "For a total runtime of approx. " << total_runtime / 1.0E9
+              << "s\n";
+
+    size_t total_validation_time = 0;
+    auto elapsed_time_start = std::chrono::steady_clock::now();
+    for (auto i = 1; i <= num_cg_sets; i++) {
+        x->fill(ValueType{0});
+        auto tic = std::chrono::steady_clock::now();
+        val_solver->apply(lend(rhs), lend(x));
+        exec->synchronize();
+        auto tac = std::chrono::steady_clock::now();
+        auto solve_time =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+        total_validation_time += solve_time.count();
+        if (i == num_cg_sets && total_validation_time < total_runtime) {
+            num_cg_sets++;
+        } else if (total_validation_time > total_runtime) {
+            num_cg_sets = i;
+        }
+    }
+    auto elapsed_time_end = std::chrono::steady_clock::now();
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        elapsed_time_end - elapsed_time_start);
+    std::cout << "num_cg_sets " << num_cg_sets
+              << " completed\ntotal validation time "
+              << total_validation_time / 1.0E9 << "\nelapsed time "
+              << elapsed_time.count() / 1.0E9 << "s\n";
+
+    size_t total_flops =
+        calculate_FLOPS(num_cg_sets, num_iters_ref, lend(matrix));
+    std::cout << "total GFLOPs: " << static_cast<double>(total_flops) / 1.0E9
+              << "\n"
+              << "total GFLOPs/s: "
+              << static_cast<double>(total_flops) / total_validation_time
+              << "\n";
+}
 
 template <typename ValueType, typename IndexType>
 void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
@@ -58,15 +118,17 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     using bj = gko::preconditioner::Jacobi<ValueType, IndexType>;
     using geo = gko::multigrid::problem_geometry;
 
-    const unsigned int dp_3D = get_dp_3D(geometry.nx, geometry.ny, geometry.nz);
+    const unsigned int dp_3D = get_dp_3D(geometry);
 
     std::cout << "Reference CG - no preconditioner" << std::endl;
+
     // initialize matrix and vectors
+
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
     auto rhs = vec::create(exec, gko::dim<2>(dp_3D, 1));
+    auto tmp_res = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto x = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto x_exact = vec::create(exec, gko::dim<2>(dp_3D, 1));
-    std::cout << "matrices and vectors initialized" << std::endl;
 
     auto one = gko::initialize<vec>({1.0}, exec);
     auto neg_one = gko::initialize<vec>({-1.0}, exec);
@@ -75,11 +137,11 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
 
     generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
                      lend(x_exact));
-    std::cout << "problem generated" << std::endl;
+    std::cout << "problem setup complete" << std::endl;
 
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-7;
-    // Generate solver and solve the system
+    // Generate solver and solve the system for reference
     std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
         gko::log::Convergence<ValueType>::create(exec);
     auto iter_stop =
@@ -94,9 +156,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
             .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
             .on(exec);
 
-    auto solver = cg_factory->generate(
-        clone(exec, matrix));  // copy the matrix to the executor
-
+    auto solver = cg_factory->generate(matrix);
 
     auto tic = std::chrono::steady_clock::now();
 
@@ -104,29 +164,35 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     exec->synchronize();
 
     auto tac = std::chrono::steady_clock::now();
-    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+    auto ref_time =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+    matrix->apply(lend(one), lend(x), lend(neg_one), lend(tmp_res));
+    tmp_res->compute_norm2(lend(res));
 
-    double total_flops =
-        calculate_FLOPS(1, logger->get_num_iterations(), lend(matrix));
-    std::cout << "total GFLOPs: " << total_flops / 1.0E9 << "\n"
-              << "total GFLOPs/s: " << total_flops / time.count() << "\n";
-
-    matrix->apply(lend(one), lend(x), lend(neg_one), lend(rhs));
-    rhs->compute_norm2(lend(res));
-
-    std::cout << "Solve complete.\nThe average relative error is "
+    std::cout << "Reference solve complete.\nThe average relative error is "
               << calculate_error_device(dp_3D, lend(x), lend(x_exact)) /
                      static_cast<gko::remove_complex<ValueType>>(dp_3D)
               << std::endl;
-
     std::cout << "CG iteration count:     " << logger->get_num_iterations()
               << std::endl;
     std::cout << "CG execution time [ms]: "
-              << static_cast<double>(time.count()) / 1000000.0 << std::endl;
+              << static_cast<double>(ref_time.count()) / 1.0E6 << std::endl;
     std::cout << "CG execution time per iteraion[ms]: "
-              << static_cast<double>(time.count()) / 1000000.0 /
+              << static_cast<double>(ref_time.count()) / 1.0E6 /
                      logger->get_num_iterations()
               << std::endl;
+
+    // we make all the validation runs run the same number of iterations as the
+    // reference run above(which were needed for convergence)
+    auto num_iters_ref = logger->get_num_iterations();
+    auto val_iter_stop = share(
+        gko::stop::Iteration::build().with_max_iters(num_iters_ref).on(exec));
+    // minimum total runtime for the validation part of the benchmark in
+    // (nano)seconds
+    double total_runtime = 5.0 * 1.0E9;
+
+    benchmark_cg(exec, false, NULL, val_iter_stop, matrix, share(rhs), share(x),
+                 total_runtime, ref_time.count(), num_iters_ref);
 }
 
 
@@ -206,9 +272,8 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
             .with_mg_level(gko::share(mg_level_gen))
             .with_coarsest_solver(coarsest_gen)
             .with_zero_guess(true)
-            .with_criteria(gko::stop::Iteration::build().with_max_iters(1u).on(
-                exec))  // max_iters - how many mg cycles are used for the
-                        // preconditioning/solving
+            .with_criteria(
+                gko::stop::Iteration::build().with_max_iters(1u).on(exec))
             .on(exec);
 
     auto solver_gen =
@@ -244,9 +309,9 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
                      static_cast<gko::remove_complex<ValueType>>(dp_3D)
               << std::endl;
 
-    // Print solver statistics
-    std::cout << "CG iteration count:     " << logger->get_num_iterations()
-              << std::endl;
+
+    std::cout << "CG with MG preconditioner iteration count: "
+              << logger->get_num_iterations() << std::endl;
     std::cout << "CG generation time [ms]: "
               << static_cast<double>(gen_time.count()) / 1000000.0 << std::endl;
     std::cout << "CG execution time [ms]: "

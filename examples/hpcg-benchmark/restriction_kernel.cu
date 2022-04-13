@@ -2,7 +2,7 @@
 
 #include <ginkgo/ginkgo.hpp>
 
-#define block_size 256
+#define block_size 512
 #define goal_work_per_thread 8
 
 #define INSTANTIATE_FOR_EACH_VALUE_TYPE(_macro) \
