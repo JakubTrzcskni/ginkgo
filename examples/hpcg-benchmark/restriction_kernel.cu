@@ -26,8 +26,7 @@ __global__ void restriction_kernel_impl(int nx, int ny, int nz,
     const auto c_z = blockIdx.z;
     const auto f_z = 2 * c_z;
 
-    for (auto i = global_id;
-         i < (nx + 1) * (ny + 1);  //< or <= #points in the grid slice ?
+    for (auto i = global_id; i < (nx + 1) * (ny + 1);
          i += gridDim.y * blockDim.x) {
         const auto c_x = i % (nx + 1);
         const auto c_y = i / (nx + 1);
@@ -40,8 +39,7 @@ __global__ void restriction_kernel_impl(int nx, int ny, int nz,
             f_z * (2 * nx + 1) * (2 * ny + 1) + f_y * (2 * nx + 1) + f_x;
 
         const auto on_border = (c_x == 0) | (c_y == 0) | (c_z == 0) |
-                               (c_x == nx) | (c_y == ny) |
-                               (c_z == nz);  // bitwise or standard or?
+                               (c_x == nx) | (c_y == ny) | (c_z == nz);
         auto tmp = ValueType{};
         for (auto ofs_z = 0; ofs_z < 3; ofs_z++) {
             for (auto ofs_y = 0; ofs_y < 3; ofs_y++) {
