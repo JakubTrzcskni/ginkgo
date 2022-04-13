@@ -6,8 +6,8 @@
 
 // FLOPs for CG solve without preconditioning
 template <typename ValueType, typename IndexType>
-int calculate_FLOPS(int num_CG_sets, int num_iters_per_CG_solve,
-                    gko::matrix::Csr<ValueType, IndexType>* mat)
+size_t calculate_FLOPS(size_t num_CG_sets, size_t num_iters_per_CG_solve,
+                       gko::matrix::Csr<ValueType, IndexType>* mat)
 {
     const auto nnz = mat->get_num_stored_elements();
     const auto num_rows = mat->get_size()[0];
@@ -23,12 +23,12 @@ int calculate_FLOPS(int num_CG_sets, int num_iters_per_CG_solve,
 
 // FLOPs for CG solve with MG-preconditioner
 template <typename ValueType, typename IndexType>
-int calculate_FLOPS(
-    int num_CG_sets, int num_iters_per_CG_solve,
-    gko::matrix::Csr<ValueType, IndexType>* mat, int num_mg_levels,
+size_t calculate_FLOPS(
+    size_t num_CG_sets, size_t num_iters_per_CG_solve,
+    gko::matrix::Csr<ValueType, IndexType>* mat, size_t num_mg_levels,
     std::vector<std::shared_ptr<const gko::multigrid::MultigridLevel>>
         mg_level_list,
-    int num_presmooth_steps, int num_postsmooth_steps)
+    size_t num_presmooth_steps, size_t num_postsmooth_steps)
 {
     // similar to HPCG reference implementation
     using csr = gko::matrix::Csr<ValueType, IndexType>;

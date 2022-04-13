@@ -6,7 +6,7 @@
 #include "examples/hpcg-benchmark/include/utils.hpp"
 
 
-#define block_size 256
+#define block_size 512
 #define warp_size 32
 
 #define INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(_macro) \
