@@ -57,7 +57,8 @@ void create_explicit_prolongation(gko::matrix::Csr<ValueType, IndexType>* mat,
 
 template <typename ValueType, typename IndexType>
 void create_explicit_restriction(gko::matrix::Csr<ValueType, IndexType>* mat,
-                                 int nx, int ny, int nz, ValueType* coeffs)
+                                 const int nx, const int ny, const int nz,
+                                 ValueType* coeffs)
 {
     const auto coarse_dp = mat->get_size()[0];
     const auto fine_dp = mat->get_size()[1];

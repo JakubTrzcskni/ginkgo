@@ -279,6 +279,29 @@ __global__ void prolongation_kernel_impl_v2(
     }
 }
 
+template <typename ValueType>
+__global__ void prolongation_kernel_impl_inject(
+    const int nx, const int ny, const int nz,
+    const ValueType* __restrict__ coarse_rhs, ValueType* __restrict__ fine_x)
+{
+    const auto nt_x = blockDim.x;
+    const auto f_x = threadIdx.x + nt_x * blockIdx.x;
+    const auto f_y = blockIdx.y;
+    const auto f_z = blockIdx.z;
+
+    const auto f_x_off_coarse_grid = f_x % 2;
+    const auto f_y_off_coarse_grid = f_y % 2;
+    const auto f_z_off_coarse_grid = f_z % 2;
+
+    const auto f_id =
+        f_z * (2 * nx + 1) * (2 * ny + 1) + f_y * (2 * nx + 1) + f_x;
+    const auto c_id = ((f_z - f_z_off_coarse_grid) / 2) * (nx + 1) * (ny + 1) +
+                      ((f_y - f_y_off_coarse_grid) / 2) * (nx + 1) +
+                      ((f_x - f_x_off_coarse_grid) / 2);
+
+    fine_x[f_id] = coarse_rhs[c_id];
+}
+
 }  // namespace
 
 template <typename ValueType>
@@ -291,6 +314,10 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
              2 * nz + 1);  // cover the whole fine grid?
     prolongation_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
                                                         rhs_size, x, x_size);
+
+    // prolongation_kernel_impl_inject<<<grid_size, block_size>>>(nx, ny, nz,
+    // rhs,
+    //                                                            x);
 }
 
 template <typename ValueType>
