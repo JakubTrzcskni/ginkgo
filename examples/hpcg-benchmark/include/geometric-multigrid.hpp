@@ -266,9 +266,9 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
     exec->run(problem_generation(exec, geometry, matrix, rhs, x, x_exact));
 }
 template <typename ValueType, typename IndexType>
-void create_explicit_p(gko::matrix::Csr<ValueType, IndexType>* mat,
-                       const int nx, const int ny, const int nz,
-                       const ValueType* coeffs)
+void create_explicit_prolongation(gko::matrix::Csr<ValueType, IndexType>* mat,
+                                  const int nx, const int ny, const int nz,
+                                  const ValueType* coeffs)
 {
     const auto coarse_dp = mat->get_size()[1];
     const auto fine_dp = mat->get_size()[0];
@@ -316,9 +316,9 @@ void create_explicit_p(gko::matrix::Csr<ValueType, IndexType>* mat,
 }
 
 template <typename ValueType, typename IndexType>
-void create_explicit_r(gko::matrix::Csr<ValueType, IndexType>* mat,
-                       const int nx, const int ny, const int nz,
-                       ValueType* coeffs)
+void create_explicit_restriction(gko::matrix::Csr<ValueType, IndexType>* mat,
+                                 const int nx, const int ny, const int nz,
+                                 ValueType* coeffs)
 {
     const auto coarse_dp = mat->get_size()[0];
     const auto fine_dp = mat->get_size()[1];
@@ -659,6 +659,7 @@ public:
     {
         problem_geometry GKO_FACTORY_PARAMETER(fine_geo,
                                                problem_geometry{32, 32, 32});
+        bool GKO_FACTORY_PARAMETER_SCALAR(explicit_op, false);
     };
     GKO_ENABLE_LIN_OP_FACTORY(Gmg, parameters, Factory);
     GKO_ENABLE_BUILD_METHOD(Factory);
@@ -693,7 +694,7 @@ protected:
                 generate_coarse_geo(coarse_geo, coarse_geo);
             }
             this->coarse_geo = coarse_geo;
-
+            this->use_explicit_op = parameters_.explicit_op;
             this->generate();
         }
     }
@@ -725,36 +726,38 @@ protected:
         generate_problem_matrix(exec, this->coarse_geo, lend(coarse_mat.get()));
 
         // version with explicit prolong/restrict operators
-        //  auto prolong_explicit = share(csr_type::create(
-        //      exec->get_master(), gko::dim<2>(fine_dim, coarse_dim)));
-        //  ValueType coeffs_p[3] = {0.5, 1.0, 0.5};
-        //  create_explicit_p(lend(prolong_explicit), this->coarse_geo.nx,
-        //                    this->coarse_geo.ny, this->coarse_geo.nz,
-        //                    coeffs_p);
+        if (this->use_explicit_op) {
+            auto prolong_explicit = share(csr_type::create(
+                exec->get_master(), gko::dim<2>(fine_dim, coarse_dim)));
+            ValueType coeffs_p[3] = {0.5, 1.0, 0.5};
+            create_explicit_prolongation(
+                lend(prolong_explicit), this->coarse_geo.nx,
+                this->coarse_geo.ny, this->coarse_geo.nz, coeffs_p);
 
-        // auto restrict_explicit = share(
-        //     csr_type::create(exec->get_master(), dim<2>(coarse_dim,
-        //     fine_dim)));
-        // ValueType coeffs_r[3] = {0.25, 0.5, 0.25};
-        // create_explicit_r(lend(restrict_explicit), this->coarse_geo.nx,
-        //                   this->coarse_geo.ny, this->coarse_geo.nz,
-        //                   coeffs_r);
-        // this->set_multigrid_level(prolong_explicit,
-        //     coarse_mat,restrict_explicit);
-
-        this->set_multigrid_level(
-            share(gmg_prolongation<ValueType, IndexType>::create(
-                exec, this->coarse_geo.nx, this->coarse_geo.ny,
-                this->coarse_geo.nz, coarse_dim, fine_dim)),
-            coarse_mat,
-            share(gmg_restriction<ValueType, IndexType>::create(
-                exec, this->coarse_geo.nx, this->coarse_geo.ny,
-                this->coarse_geo.nz, coarse_dim, fine_dim)));
+            auto restrict_explicit = share(csr_type::create(
+                exec->get_master(), dim<2>(coarse_dim, fine_dim)));
+            ValueType coeffs_r[3] = {0.25, 0.5, 0.25};
+            create_explicit_restriction(
+                lend(restrict_explicit), this->coarse_geo.nx,
+                this->coarse_geo.ny, this->coarse_geo.nz, coeffs_r);
+            this->set_multigrid_level(prolong_explicit, coarse_mat,
+                                      restrict_explicit);
+        } else {
+            this->set_multigrid_level(
+                share(gmg_prolongation<ValueType, IndexType>::create(
+                    exec, this->coarse_geo.nx, this->coarse_geo.ny,
+                    this->coarse_geo.nz, coarse_dim, fine_dim)),
+                coarse_mat,
+                share(gmg_restriction<ValueType, IndexType>::create(
+                    exec, this->coarse_geo.nx, this->coarse_geo.ny,
+                    this->coarse_geo.nz, coarse_dim, fine_dim)));
+        }
     }
 
 private:
     std::shared_ptr<const LinOp> system_matrix_{};
     problem_geometry coarse_geo;
+    bool use_explicit_op;
 
     void generate_coarse_geo(problem_geometry& fine_geo,
                              problem_geometry& coarse_geo)

@@ -20,15 +20,15 @@
 
 namespace {
 
-// todo correct for symmetric coefficients
+// todo
+// correct only for symmetric coefficients
 // also a lot of branching
-//  geo is coarse
+// geo is coarse
 template <typename ValueType>
 __global__ void prolongation_kernel_impl(
     const int nx, const int ny, const int nz,
     const ValueType* __restrict__ coeffs,
-    const ValueType* __restrict__ coarse_rhs, const int rhs_size,
-    ValueType* __restrict__ fine_x, const int x_size)
+    const ValueType* __restrict__ coarse_rhs, ValueType* __restrict__ fine_x)
 {
     const auto nt_x = blockDim.x;
     const auto f_x = threadIdx.x + nt_x * blockIdx.x;
@@ -111,8 +111,7 @@ __global__ void prolongation_kernel_impl(
 template <typename ValueType>
 __global__ void prolongation_kernel_impl_v2(
     const int nx, const int ny, const int nz, const ValueType* coeffs,
-    const ValueType* __restrict__ coarse_rhs, const int rhs_size,
-    ValueType* __restrict__ fine_x, const int x_size)
+    const ValueType* __restrict__ coarse_rhs, ValueType* __restrict__ fine_x)
 {
     const auto coeff_off_center = coeffs[0];
     const auto coeff_center = coeffs[1];
@@ -313,7 +312,7 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
         dim3((2 * nx + 1 + block_size - 1) / block_size, 2 * ny + 1,
              2 * nz + 1);  // cover the whole fine grid?
     prolongation_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
-                                                        rhs_size, x, x_size);
+                                                        x);
 
     // prolongation_kernel_impl_inject<<<grid_size, block_size>>>(nx, ny, nz,
     // rhs,
@@ -328,8 +327,8 @@ void prolongation_kernel_v2(int nx, int ny, int nz, const ValueType* coeffs,
     const auto grid_size =
         dim3((2 * nx + 1 + block_size - 1) / block_size, 2 * ny + 1,
              2 * nz + 1);  // cover the whole fine grid?
-    prolongation_kernel_impl_v2<<<grid_size, block_size>>>(
-        nx, ny, nz, coeffs, rhs, rhs_size, x, x_size);
+    prolongation_kernel_impl_v2<<<grid_size, block_size>>>(nx, ny, nz, coeffs,
+                                                           rhs, x);
 }
 
 INSTANTIATE_FOR_EACH_VALUE_TYPE(PROLONGATION_KERNEL);
