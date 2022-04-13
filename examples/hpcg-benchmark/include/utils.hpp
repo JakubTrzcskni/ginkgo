@@ -4,6 +4,47 @@
 #include <chrono>
 #include <ginkgo/ginkgo.hpp>
 
+template <typename ValueType, typename IndexType>
+size_t calculate_bandwidth(size_t num_CG_sets, size_t num_iters_per_CG_solve,
+                           gko::matrix::Csr<ValueType, IndexType>* mat)
+{
+    // ginkgo cg solver:
+    /* Memory movement summary:
+     * 18n * values + matrix/preconditioner storage
+     * 1x SpMV:           2n * values + storage
+     * 1x Preconditioner: 2n * values + storage
+     * 2x dot             4n
+     * 1x step 1 (axpy)   3n
+     * 1x step 2 (axpys)  6n
+     * 1x norm2 residual   n
+     */
+    const auto nnz = mat->get_num_stored_elements();
+    const auto num_rows = mat->get_size()[0];
+    const auto total_iters = num_CG_sets * num_iters_per_CG_solve;
+
+    const auto num_reads_dot =
+        2 * total_iters * 2 * num_rows * sizeof(ValueType);
+    const auto num_writes_dot =
+        2 * total_iters * 1 * num_rows * sizeof(ValueType);
+    const auto num_reads_axpby =
+        3 * total_iters * 2 * num_rows * sizeof(ValueType);
+    const auto num_writes_axpby =
+        3 * total_iters * 1 * num_rows * sizeof(ValueType);
+    const auto num_reads_spmv = (total_iters + num_CG_sets) *
+                                (nnz * (sizeof(ValueType) + sizeof(IndexType)) +
+                                 num_rows * sizeof(ValueType));
+    const auto num_writes_spmv =
+        (total_iters + num_CG_sets) * num_rows * sizeof(ValueType);
+
+    const auto num_reads_norm2 = total_iters * 1 * num_rows * sizeof(ValueType);
+    const auto num_writes_norm2 = total_iters * 1;
+
+    return num_reads_dot + num_writes_dot + num_reads_axpby + num_writes_axpby +
+           num_reads_spmv + num_writes_spmv + num_reads_norm2 +
+           num_writes_norm2;
+};
+
+
 // FLOPs for CG solve without preconditioning
 template <typename ValueType, typename IndexType>
 size_t calculate_FLOPS(size_t num_CG_sets, size_t num_iters_per_CG_solve,
@@ -84,6 +125,10 @@ size_t calculate_FLOPS(
                                4 * num_fine_points_2_out_of_3_dim_on_coarse +
                                6 * num_fine_points_1_out_of_3_dim_on_coarse +
                                10 * num_fine_points_off_coarse_grid);
+
+
+            // alternative: create explicit prolong -> get nnz -> application is
+            // a standard spmv
         }
         if (full_weighting && i != num_mg_levels - 1) {  // restrict
             // nnz on border * 1 + nnz inside * 27 * (1 + 3)

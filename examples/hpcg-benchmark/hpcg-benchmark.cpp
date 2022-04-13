@@ -102,7 +102,7 @@ void benchmark_cg(
               << total_validation_time / 1.0E9 << "\nelapsed time "
               << elapsed_time.count() / 1.0E9 << "s\n";
     size_t total_flops{};
-
+    size_t total_memory{};
     if (preconditioner) {
         auto mg_solver = multigrid_gen->generate(matrix);
         auto mg_level_list = mg_solver->get_mg_level_list();
@@ -111,12 +111,19 @@ void benchmark_cg(
                                       num_postsmooth_steps, true);
     } else {
         total_flops = calculate_FLOPS(num_cg_sets, num_iters_ref, lend(matrix));
+        total_memory =
+            calculate_bandwidth(num_cg_sets, num_iters_ref, lend(matrix));
     }
     std::cout << "total GFLOPs: " << static_cast<double>(total_flops) / 1.0E9
               << "\n"
               << "total GFLOPs/s: "
               << static_cast<double>(total_flops) / total_validation_time
               << "\n";
+    std::cout << "total memory: " << static_cast<double>(total_memory) / 1.0E9
+              << " GB\n"
+              << "total bandwidth: "
+              << static_cast<double>(total_memory) / total_validation_time
+              << "/s\n";
 }
 
 template <typename ValueType, typename IndexType>
@@ -406,14 +413,15 @@ int main(int argc, char* argv[])
     // minimum total runtime for the validation part of the benchmark in
     // (nano)seconds
     double total_runtime = 1.0 * 1.0E9;
+    bool use_full_weighting = true;
 
     // explicit restrict
-    {
+    if (use_full_weighting) {
         test_restriction(exec, geometry, ValueType{}, IndexType{});
     }
 
     // explicit prolong
-    {
+    if (use_full_weighting) {
         test_prolongation(exec, geometry, ValueType{}, IndexType{});
     }
 
