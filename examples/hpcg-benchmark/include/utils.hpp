@@ -25,10 +25,11 @@ size_t calculate_FLOPS(size_t num_CG_sets, size_t num_iters_per_CG_solve,
 template <typename ValueType, typename IndexType>
 size_t calculate_FLOPS(
     size_t num_CG_sets, size_t num_iters_per_CG_solve,
-    gko::matrix::Csr<ValueType, IndexType>* mat, size_t num_mg_levels,
+    gko::matrix::Csr<ValueType, IndexType>* mat,
     std::vector<std::shared_ptr<const gko::multigrid::MultigridLevel>>
         mg_level_list,
-    size_t num_presmooth_steps, size_t num_postsmooth_steps)
+    size_t num_presmooth_steps, size_t num_postsmooth_steps,
+    bool full_weighting)
 {
     // similar to HPCG reference implementation
     using csr = gko::matrix::Csr<ValueType, IndexType>;
@@ -37,24 +38,69 @@ size_t calculate_FLOPS(
     const auto num_ops_cg =
         calculate_FLOPS(num_CG_sets, num_iters_per_CG_solve, mat);
 
-    const auto num_ops_mg = 0;
+    size_t num_mg_levels = mg_level_list.size();
+    size_t num_ops_mg = 0;
     for (auto i = 0; i < num_mg_levels; i++) {
-        // make 1 test run of the mg as a solver ->pass on the list of fine_ops
-        // ->cast to csr ->get_num_stored_elems()
         const csr* op_at_level =
             dynamic_cast<const csr*>(mg_level_list.at(i)->get_fine_op().get());
         const auto nnz_at_level = op_at_level->get_num_stored_elements();
         const auto num_rows_at_level = op_at_level->get_size()[0];
-        // num_ops_mg += num_presmooth_steps * total_iters *; //todo
-        // num_ops_mg += num_postsmooth_steps * total_iters *;//todo
-        // num_ops_mg += total_iters * ; //todo, fine grid residual calculation
+        num_ops_mg +=
+            (num_presmooth_steps + num_postsmooth_steps) * total_iters *
+            (2 * nnz_at_level  // iterative refinement -> 1x spmv per smoothing
+                               // step
+             + 2 * num_rows_at_level);  // application of the bj smoother -> 1x
+                                        // axpy per smoothing step
 
-        // TODO ops per prolong / restrict
-        //  num_ops_mg += total_iters * num_rows_at_level * ;//prolong
-        //  num_ops_mg += total_iters * num_rows_at_level * ;//restrict
+        num_ops_mg +=
+            total_iters * 2 *  // ?
+            nnz_at_level;      // fine grid residual calculation -> 1x spmv
+
+        auto curr_dp_1D = static_cast<int>(cbrt(num_rows_at_level)) - 1;
+        // if prolongation and restriction use full weighting
+        // works for symmetric grids (dp_x = dp_y = dp_z)
+        if (full_weighting && i != 0) {  // prolong
+            // in case of prolongation curr_dp_1D is the 1D dimension of the
+            // coarse grid
+            //  3 for fine grid points on the coarse grid
+            //  3 + 1 for fine grid points with 2 out of 3 coord. on the coarse
+            //  grid
+            //  3 + 3 for fine grid points with 1 out of 3 coord. on the
+            //  coarse grid 3 + 7 for fine grid points off the coarse grid
+            auto fine_dp_1D = 2 * curr_dp_1D;
+            auto num_coarse_grid_points = num_rows_at_level;
+            auto num_fine_grid_points =
+                (fine_dp_1D + 1) * (fine_dp_1D + 1) * (fine_dp_1D + 1);
+            auto num_fine_points_off_coarse_grid =
+                curr_dp_1D * curr_dp_1D * curr_dp_1D;
+            auto num_fine_points_2_out_of_3_dim_on_coarse =
+                3 * curr_dp_1D * (curr_dp_1D + 1) * (curr_dp_1D + 1);
+            auto num_fine_points_1_out_of_3_dim_on_coarse =
+                num_fine_grid_points - num_coarse_grid_points -
+                num_fine_points_off_coarse_grid -
+                num_fine_points_2_out_of_3_dim_on_coarse;
+            num_ops_mg +=
+                total_iters * (3 * num_coarse_grid_points +
+                               4 * num_fine_points_2_out_of_3_dim_on_coarse +
+                               6 * num_fine_points_1_out_of_3_dim_on_coarse +
+                               10 * num_fine_points_off_coarse_grid);
+        }
+        if (full_weighting && i != num_mg_levels - 1) {  // restrict
+            // nnz on border * 1 + nnz inside * 27 * (1 + 3)
+            auto fine_dp_1D = curr_dp_1D;
+            auto coarse_dp_1D = fine_dp_1D / 2;
+            auto points_inside =
+                (coarse_dp_1D - 1) * (coarse_dp_1D - 1) * (coarse_dp_1D - 1);
+            auto points_on_border = nnz_at_level - points_inside;
+            num_ops_mg +=
+                total_iters * (points_on_border + points_inside * 27 * 4);
+        }
+        if (i == num_mg_levels - 1) {      // higher lvl -> coarser
+            num_ops_mg += total_iters * 4  // num iters of the coarsest solver
+                          * (2 * nnz_at_level +
+                             2 * num_rows_at_level);  // same as smoother
+        }
     }
-    // num_ops_mg += total_iters * ;//todo cost of the ir solve on the coarsest
-    // level
     return num_ops_cg + num_ops_mg;
 };
 
