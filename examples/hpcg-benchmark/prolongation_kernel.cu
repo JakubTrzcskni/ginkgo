@@ -13,11 +13,6 @@
                              const _type* rhs, const int rhs_size, _type* x, \
                              const int x_size);
 
-#define PROLONGATION_KERNEL_V2(_type)                                        \
-    void prolongation_kernel_v2(int nx, int ny, int nz, const _type* coeffs, \
-                                const _type* rhs, const int rhs_size,        \
-                                _type* x, const int x_size);
-
 namespace {
 
 // todo
@@ -90,9 +85,10 @@ __global__ void prolongation_kernel_impl(
                          coarse_rhs[c_id + (nx + 1) * (ny + 1) + (nx + 1)]);
                 } else {
                     fine_x[f_id] =
-                        coeffs[0] * coeffs[0] * coeffs[0] *
-                        (coarse_rhs[c_id] +
-                         coarse_rhs[c_id + 1] +         //(0,0,0), (1,0,0)
+                        coeffs[0] * coeffs[0] *
+                        coeffs[0] *                     //(x,y,z) <- offsets
+                        (coarse_rhs[c_id] +             //(0,0,0)
+                         coarse_rhs[c_id + 1] +         //(1,0,0)
                          coarse_rhs[c_id + (nx + 1)] +  //(0,1,0)
                          coarse_rhs[c_id + (nx + 1) * (ny + 1)] +      //(0,0,1)
                          coarse_rhs[c_id + (nx + 1) + 1] +             //(1,1,0)
@@ -107,7 +103,8 @@ __global__ void prolongation_kernel_impl(
     }
 }
 
-// support only for symmetric stencil coefficients
+// todo, needs fixing
+//  support only for symmetric stencil coefficients
 template <typename ValueType>
 __global__ void prolongation_kernel_impl_v2(
     const int nx, const int ny, const int nz, const ValueType* coeffs,
@@ -287,18 +284,20 @@ __global__ void prolongation_kernel_impl_inject(
     const auto f_x = threadIdx.x + nt_x * blockIdx.x;
     const auto f_y = blockIdx.y;
     const auto f_z = blockIdx.z;
+    if (f_x <= 2 * nx) {
+        const auto f_x_off_coarse_grid = f_x % 2;
+        const auto f_y_off_coarse_grid = f_y % 2;
+        const auto f_z_off_coarse_grid = f_z % 2;
 
-    const auto f_x_off_coarse_grid = f_x % 2;
-    const auto f_y_off_coarse_grid = f_y % 2;
-    const auto f_z_off_coarse_grid = f_z % 2;
+        const auto f_id =
+            f_z * (2 * nx + 1) * (2 * ny + 1) + f_y * (2 * nx + 1) + f_x;
+        const auto c_id =
+            ((f_z - f_z_off_coarse_grid) / 2) * (nx + 1) * (ny + 1) +
+            ((f_y - f_y_off_coarse_grid) / 2) * (nx + 1) +
+            ((f_x - f_x_off_coarse_grid) / 2);
 
-    const auto f_id =
-        f_z * (2 * nx + 1) * (2 * ny + 1) + f_y * (2 * nx + 1) + f_x;
-    const auto c_id = ((f_z - f_z_off_coarse_grid) / 2) * (nx + 1) * (ny + 1) +
-                      ((f_y - f_y_off_coarse_grid) / 2) * (nx + 1) +
-                      ((f_x - f_x_off_coarse_grid) / 2);
-
-    fine_x[f_id] = coarse_rhs[c_id];
+        fine_x[f_id] = coarse_rhs[c_id];
+    }
 }
 
 }  // namespace
@@ -308,28 +307,23 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
                          const int x_size)
 {
-    const auto grid_size =
-        dim3((2 * nx + 1 + block_size - 1) / block_size, 2 * ny + 1,
-             2 * nz + 1);  // cover the whole fine grid?
+    const auto grid_size = dim3((2 * nx + 1 + block_size - 1) / block_size,
+                                2 * ny + 1, 2 * nz + 1);
+
+    // full-weighting
     prolongation_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
                                                         x);
 
+    // injection
     // prolongation_kernel_impl_inject<<<grid_size, block_size>>>(nx, ny, nz,
     // rhs,
     //                                                            x);
-}
 
-template <typename ValueType>
-void prolongation_kernel_v2(int nx, int ny, int nz, const ValueType* coeffs,
-                            const ValueType* rhs, const int rhs_size,
-                            ValueType* x, const int x_size)
-{
-    const auto grid_size =
-        dim3((2 * nx + 1 + block_size - 1) / block_size, 2 * ny + 1,
-             2 * nz + 1);  // cover the whole fine grid?
-    prolongation_kernel_impl_v2<<<grid_size, block_size>>>(nx, ny, nz, coeffs,
-                                                           rhs, x);
+    // impl_v2
+    //  needs fixing
+    //  prolongation_kernel_impl_v2<<<grid_size, block_size>>>(nx, ny, nz,
+    //  coeffs,
+    //                                                         rhs, x);
 }
 
 INSTANTIATE_FOR_EACH_VALUE_TYPE(PROLONGATION_KERNEL);
-INSTANTIATE_FOR_EACH_VALUE_TYPE(PROLONGATION_KERNEL_V2);

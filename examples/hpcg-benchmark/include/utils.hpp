@@ -119,6 +119,8 @@ size_t calculate_bandwidth(
             auto fine_dp_1D = curr_dp_1D;
             auto coarse_dp_1D = fine_dp_1D / 2;
             auto num_fine_grid_points = num_rows_at_level;
+
+            // alternative: access the op of the coarser lvl and get num_rows
             auto num_coarse_grid_points =
                 (coarse_dp_1D + 1) * (coarse_dp_1D + 1) * (coarse_dp_1D + 1);
 

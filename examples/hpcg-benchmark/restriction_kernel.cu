@@ -149,8 +149,11 @@ void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                   goal_work_per_thread;
     const auto grid_size = dim3(1, grid_y, nz + 1);
 
+    // full-weighting
     restriction_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
                                                        x, x_size);
+
+    // injection
     // restriction_kernel_impl_inject<<<grid_size, block_size>>>(nx, ny, nz,
     // rhs,
     //                                                           x);

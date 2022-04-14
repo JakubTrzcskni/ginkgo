@@ -101,8 +101,9 @@ void benchmark_cg(
         elapsed_time_end - elapsed_time_start);
     std::cout << "num_cg_sets " << num_cg_sets
               << " completed\ntotal validation time "
-              << total_validation_time / 1.0E9 << "\nelapsed time "
-              << elapsed_time.count() / 1.0E9 << "s\n";
+              << total_validation_time / 1.0E9 << "\n"
+              << "average time per solve "
+              << total_validation_time / 1.0E9 / num_cg_sets << "s\n";
     size_t total_flops{};
     size_t total_memory{};
     if (preconditioner) {
@@ -177,21 +178,24 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
                      lend(x_exact));
     std::cout << "problem setup complete" << std::endl;
 
-
-    const gko::remove_complex<ValueType> reduction_factor = 1e-7;
+    const gko::remove_complex<ValueType> reduction_factor = 1e-10;
     // Generate solver and solve the system for reference
     std::shared_ptr<const gko::log::Convergence<ValueType>> logger =
         gko::log::Convergence<ValueType>::create(exec);
     auto iter_stop =
-        gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+        gko::stop::Iteration::build().with_max_iters(500u).on(exec);
     auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
                         .with_reduction_factor(reduction_factor)
                         .on(exec);
     iter_stop->add_logger(logger);
     tol_stop->add_logger(logger);
+
+    auto inner_solver_gen =
+        gko::share(bj::build().with_max_block_size(1u).on(exec));
     auto cg_factory =
         cg::build()
             .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
+            // .with_preconditioner(inner_solver_gen)
             .on(exec);
 
     auto solver = cg_factory->generate(matrix);
@@ -266,9 +270,9 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
                      lend(x_exact));
     std::cout << "problem setup complete" << std::endl;
 
-    const gko::remove_complex<ValueType> reduction_factor = 1e-7;
+    const gko::remove_complex<ValueType> reduction_factor = 1e-10;
     auto iter_stop =
-        gko::stop::Iteration::build().with_max_iters(dp_3D).on(exec);
+        gko::stop::Iteration::build().with_max_iters(100u).on(exec);
     auto tol_stop = gko::stop::ResidualNorm<ValueType>::build()
                         .with_reduction_factor(reduction_factor)
                         .on(exec);
@@ -290,6 +294,9 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
             .on(exec));
 
     auto mg_level_gen = gmg::build().with_fine_geo(geometry).on(exec);
+
+    // auto mg_level_gen =
+    // gmg::build().with_fine_geo(geometry).with_explicit_op(true).on(exec);
 
     auto coarsest_gen = gko::share(
         ir::build()
@@ -431,7 +438,7 @@ int main(int argc, char* argv[])
 
     // minimum total runtime for the validation part of the benchmark in
     // (nano)seconds
-    double total_runtime = 1.0 * 1.0E9;
+    double total_runtime = 0.0 * 1.0E9;
     bool use_full_weighting = true;
 
     // explicit restrict

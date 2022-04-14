@@ -29,6 +29,7 @@
 
 namespace {
 
+// translates id [0,26] to ofs_x [-1,1], ofs_y [-1,1], ofs_z [-1,1]
 __device__ void get_ofs(const int id, int* ofs)
 {
     ofs[0] = id % 3 - 1;
@@ -38,12 +39,13 @@ __device__ void get_ofs(const int id, int* ofs)
     ofs[2] = tmp % 3 - 1;
 }
 
-// todo: rename
+
 // goal: translate ofs [0,26] to [0,7]/[0,11]/[0,17]/[0,26] depending on the
 // grid position
-__device__ int get_id_in_row(const int curr_id, const bool x_eq_zero,
-                             const bool x_eq_nx, const bool y_eq_zero,
-                             const bool y_eq_ny, const bool z_eq_zero, int* ofs)
+__device__ int get_curr_id_in_row(const int curr_id, const bool x_eq_zero,
+                                  const bool x_eq_nx, const bool y_eq_zero,
+                                  const bool y_eq_ny, const bool z_eq_zero,
+                                  int* ofs)
 {
     const auto x_border = x_eq_zero | x_eq_nx;
     const auto y_border = y_eq_zero | y_eq_ny;
@@ -128,11 +130,11 @@ __global__ void matrix_generation_kernel_impl(
     // cover only full rows -> no need for
     // synchronisation between threadblocks
     const int t_id = threadIdx.x;
-    const int face_id = blockIdx.y * active_threads_in_block + t_id;
+    const int slice_id = blockIdx.y * active_threads_in_block + t_id;
     const int z = blockIdx.z;
 
     const int row_base = z * (nx + 1) * (ny + 1);
-    const int row_offset = (face_id / 27);
+    const int row_offset = (slice_id / 27);
 
     if (t_id < active_threads_in_block && row_offset < ((nx + 1) * (ny + 1))) {
         // max 27 values per row, for big
@@ -144,7 +146,7 @@ __global__ void matrix_generation_kernel_impl(
         const int x = row_offset % (nx + 1);
         const int y = row_offset / (nx + 1);
 
-        const int id_in_row = face_id % 27;
+        const int id_in_row = slice_id % 27;
         int ofs[3];
         get_ofs(id_in_row, ofs);
 
@@ -163,8 +165,8 @@ __global__ void matrix_generation_kernel_impl(
         const int x_eq_nx = (x == nx);
         const int y_eq_ny = (y == ny);
         const int curr_id =
-            get_id_in_row(row_ptr + id_in_row, x_eq_zero, x_eq_nx, y_eq_zero,
-                          y_eq_ny, z_eq_zero, ofs);
+            get_curr_id_in_row(row_ptr + id_in_row, x_eq_zero, x_eq_nx,
+                               y_eq_zero, y_eq_ny, z_eq_zero, ofs);
         const int valid = (z + ofs[2] >= 0 && z + ofs[2] <= nz) &&
                           (y + ofs[1] >= 0 && y + ofs[1] <= ny) &&
                           (x + ofs[0] >= 0 && x + ofs[0] <= nx);
@@ -207,62 +209,62 @@ __global__ void rhs_and_x_gen_impl(const IndexType* __restrict__ row_ptrs,
     }
 }
 
-// todo
-template <typename ValueType, typename IndexType>
-__global__ void matrix_generation_kernel_impl_old(int nx, int ny, int nz,
-                                                  int size, int nnz,
-                                                  ValueType* values,
-                                                  IndexType* row_ptrs,
-                                                  IndexType* col_idxs)
-{
-    // one warp per row <-max 27 values per row
-    // only max 27/32 Threads are active...
-    // thread per row?
-    const auto b_id_x = blockIdx.x;
-    const int y = blockIdx.y;
-    const int z = blockIdx.z;
-    const auto warps_per_block = block_size / warp_size;
-    const auto t_id = threadIdx.x;
-    const auto warp_id = t_id / warp_size;
-    const int x = b_id_x * warps_per_block + warp_id;
+// old, unfinished impl
+// template <typename ValueType, typename IndexType>
+// __global__ void matrix_generation_kernel_impl_old(int nx, int ny, int nz,
+//                                                   int size, int nnz,
+//                                                   ValueType* values,
+//                                                   IndexType* row_ptrs,
+//                                                   IndexType* col_idxs)
+// {
+//     // one warp per row <-max 27 values per row
+//     // only max 27/32 Threads are active...
+//     // thread per row?
+//     const auto b_id_x = blockIdx.x;
+//     const int y = blockIdx.y;
+//     const int z = blockIdx.z;
+//     const auto warps_per_block = block_size / warp_size;
+//     const auto t_id = threadIdx.x;
+//     const auto warp_id = t_id / warp_size;
+//     const int x = b_id_x * warps_per_block + warp_id;
 
-    const auto row = z * (nx + 1) * (ny + 1) + y * (nx + 1) + x;
-    const auto id_per_row = t_id % warp_size;
+//     const auto row = z * (nx + 1) * (ny + 1) + y * (nx + 1) + x;
+//     const auto id_per_row = t_id % warp_size;
 
-    __shared__ int curr_val_ptr_offs[warps_per_block];
-    if (id_per_row == 0) {
-        curr_val_ptr_offs[warp_id] = 0;
-    }
+//     __shared__ int curr_val_ptr_offs[warps_per_block];
+//     if (id_per_row == 0) {
+//         curr_val_ptr_offs[warp_id] = 0;
+//     }
 
-    if (id_per_row < 27 && row < size) {
-        int ofs[3];
-        get_ofs(id_per_row, ofs);
-        if (z + ofs[2] >= 0 && z + ofs[2] <= nz) {
-            if (y + ofs[1] >= 0 && y + ofs[1] <= ny) {
-                if (x + ofs[0] >= 0 && x + ofs[0] <= nx) {
-                    const auto col = row + ofs[2] * (nx + 1) * (ny + 1) +
-                                     ofs[1] * (nx + 1) + ofs[0];
+//     if (id_per_row < 27 && row < size) {
+//         int ofs[3];
+//         get_ofs(id_per_row, ofs);
+//         if (z + ofs[2] >= 0 && z + ofs[2] <= nz) {
+//             if (y + ofs[1] >= 0 && y + ofs[1] <= ny) {
+//                 if (x + ofs[0] >= 0 && x + ofs[0] <= nx) {
+//                     const auto col = row + ofs[2] * (nx + 1) * (ny + 1) +
+//                                      ofs[1] * (nx + 1) + ofs[0];
 
-                    // todo
-                    // number of nnz in the current row
-                    // change to current_value_ptr with atomicAdd update
-                    // ? firstly initialize row_ptrs -> separate kernel
-                    // / before this loop
-                    auto curr_id =
-                        row_ptrs[row] +
-                        atomicAdd(&(curr_val_ptr_offs[id_per_row]), 1);
+//                     // todo
+//                     // number of nnz in the current row
+//                     // change to current_value_ptr with atomicAdd update
+//                     // ? firstly initialize row_ptrs -> separate kernel
+//                     // / before this loop
+//                     auto curr_id =
+//                         row_ptrs[row] +
+//                         atomicAdd(&(curr_val_ptr_offs[id_per_row]), 1);
 
-                    if (row == col) {
-                        values[curr_id] = ValueType{26};
-                    } else {
-                        values[curr_id] = ValueType{-1};
-                    }
-                    col_idxs[curr_id] = col;
-                }
-            }
-        }
-    }
-}
+//                     if (row == col) {
+//                         values[curr_id] = ValueType{26};
+//                     } else {
+//                         values[curr_id] = ValueType{-1};
+//                     }
+//                     col_idxs[curr_id] = col;
+//                 }
+//             }
+//         }
+//     }
+// }
 }  // namespace
 
 template <typename ValueType, typename IndexType>
@@ -273,8 +275,7 @@ void rhs_and_x_generation_kernel(
     gko::matrix::Dense<ValueType>* x)
 {
     using vec = gko::matrix::Dense<ValueType>;
-    // GKO_ASSERT_EQ(exec, system_matrix->get_executor());  // not sure if
-    // correct
+
     const auto mat_size = system_matrix->get_size()[0];
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
 
