@@ -29,7 +29,7 @@
 
 namespace {
 
-// translates id [0,26] to ofs_x [-1,1], ofs_y [-1,1], ofs_z [-1,1]
+// translates id in range [0,26] to ofs_x [-1,1], ofs_y [-1,1], ofs_z [-1,1]
 __device__ void get_ofs(const int id, int* ofs)
 {
     ofs[0] = id % 3 - 1;
@@ -40,8 +40,8 @@ __device__ void get_ofs(const int id, int* ofs)
 }
 
 
-// goal: translate ofs [0,26] to [0,7]/[0,11]/[0,17]/[0,26] depending on the
-// grid position
+// translate ofs in range [0,26] to the current position in the row - ranges
+// [0,7]/[0,11]/[0,17]/[0,26] depending on the grid position
 __device__ int get_curr_id_in_row(const int curr_id, const bool x_eq_zero,
                                   const bool x_eq_nx, const bool y_eq_zero,
                                   const bool y_eq_ny, const bool z_eq_zero,
@@ -141,7 +141,6 @@ __global__ void matrix_generation_kernel_impl(
         // matrices the ratio is favourable
         // block_size and grid size have to be adjusted for optimal
         // occupancy 256 -> 5% threads idle 1024 ->2,4% threads idle
-
 
         const int x = row_offset % (nx + 1);
         const int y = row_offset / (nx + 1);

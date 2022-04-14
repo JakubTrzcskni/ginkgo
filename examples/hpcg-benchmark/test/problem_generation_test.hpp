@@ -133,15 +133,10 @@ void test_rhs_and_x_generation(std::shared_ptr<const gko::Executor> exec,
 
     const auto mat_size = get_dp_3D(geometry);
     auto system_matrix = csr::create(exec, gko::dim<2>(mat_size));
-    // matrix_generation_kernel(exec, geometry.nx, geometry.ny, geometry.nz,
-    //                          lend(system_matrix));
-
     auto rhs = vec::create(exec, gko::dim<2>(mat_size, 1));
     auto x_exact = vec::create(exec, gko::dim<2>(mat_size, 1));
     auto x = vec::create(exec, gko::dim<2>(mat_size, 1));
 
-    // rhs_and_x_generation_kernel(exec, lend(system_matrix), lend(rhs),
-    //                             lend(x_exact), lend(x));
     generate_problem(exec, geometry, lend(system_matrix), lend(rhs), lend(x),
                      lend(x_exact));
 
