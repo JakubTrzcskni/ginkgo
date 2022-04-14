@@ -171,6 +171,7 @@ void generate_problem_matrix(std::shared_ptr<const gko::Executor> exec,
                     }
                 }
             }
+            data.ensure_row_major_order();
             mat->read(data);
         }
         std::shared_ptr<const gko::Executor> exec;
@@ -226,6 +227,7 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                         auto current_row = grid2index(ix, iy, iz, nx, ny);
                         auto nnz_in_row = 0;
                         {
+                            // todo
                             // alternative: nnz_in_row =
                             // mat->get_row_ptrs()[row+1] -
                             // mat->get_row_ptrs()[row]
@@ -250,8 +252,8 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                                 26.0 - ValueType(nnz_in_row - 1);
                             x_exact_values[current_row] = 1.0;
 
+                            x_values[current_row] = 0.0;
                             // random rhs & x_exact
-                            // x_values[current_row] = 0.0;
                             // x_exact_values[current_row] = dist(e);
                         }
                     }
@@ -488,14 +490,11 @@ protected:
             // cuda impl
             void run(std::shared_ptr<const gko::CudaExecutor>) const override
             {
-                // write(std::cout, coarse_x);
                 restriction_kernel(
                     coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
                     coefficients.get_const_data(), fine_rhs->get_const_values(),
                     fine_rhs->get_size()[0], coarse_x->get_values(),
                     coarse_x->get_size()[0]);
-                // std::cout << "after restrict:\n";
-                // write(std::cout, coarse_x);
             }
             void run(
                 std::shared_ptr<const gko::ReferenceExecutor>) const override
@@ -531,9 +530,6 @@ class gmg_prolongation
       public gko::EnableCreateMethod<gmg_prolongation<ValueType, IndexType>> {
 public:
     // uses a 3D stencil (27-Point) to interpolate (prolong) the rhs vector
-    // it doubles the number of discretization points in respect to every
-    // axis
-    // -> rhs vector length is increased 8-fold
     // the stencil is generated symmetrically
     // passed geometry is the coarse problem geometry
     gmg_prolongation(std::shared_ptr<const gko::Executor> exec,
@@ -567,8 +563,6 @@ protected:
             {}
             void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
-                // std::cout << "before prolong:\n";
-                // write(std::cout, fine_x);
                 const auto c_values = coarse_rhs->get_const_values();
 
                 auto f_values = fine_x->get_values();
@@ -621,21 +615,15 @@ protected:
                         }
                     }
                 }
-                // std::cout << "after prolong:\n";
-                // write(std::cout, fine_x);
             }
             // cuda impl
             void run(std::shared_ptr<const gko::CudaExecutor>) const override
             {
-                // std::cout << "before prolong:\n";
-                // write(std::cout, fine_x);
                 prolongation_kernel(
                     coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
                     coefficients.get_const_data(),
                     coarse_rhs->get_const_values(), coarse_rhs->get_size()[0],
                     fine_x->get_values(), fine_x->get_size()[0]);
-                // std::cout << "after prolong:\n";
-                // write(std::cout, fine_x);
             }
             void run(
                 std::shared_ptr<const gko::ReferenceExecutor>) const override
@@ -768,7 +756,7 @@ protected:
                 this->coarse_geo.ny, this->coarse_geo.nz, coeffs_r);
             this->set_multigrid_level(prolong_explicit, coarse_mat,
                                       restrict_explicit);
-        } else {
+        } else {  // version with implicit operators
             this->set_multigrid_level(
                 share(gmg_prolongation<ValueType, IndexType>::create(
                     exec, this->coarse_geo.nx, this->coarse_geo.ny,

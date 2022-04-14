@@ -86,9 +86,9 @@ void benchmark_cg(
         auto tic = std::chrono::steady_clock::now();
         val_solver->apply(lend(rhs), lend(x));
         exec->synchronize();
-        auto tac = std::chrono::steady_clock::now();
+        auto toc = std::chrono::steady_clock::now();
         auto solve_time =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+            std::chrono::duration_cast<std::chrono::nanoseconds>(toc - tic);
         total_validation_time += solve_time.count();
         if (i == num_cg_sets && total_validation_time < total_runtime) {
             num_cg_sets++;
@@ -103,7 +103,7 @@ void benchmark_cg(
               << " completed\ntotal validation time "
               << total_validation_time / 1.0E9 << "\n"
               << "average time per solve "
-              << total_validation_time / 1.0E9 / num_cg_sets << "s\n";
+              << total_validation_time / 1.0E6 / num_cg_sets << "ms\n";
     size_t total_flops{};
     size_t total_memory{};
     if (preconditioner) {
@@ -160,15 +160,12 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     const unsigned int dp_3D = get_dp_3D(geometry);
 
     std::cout << "\nReference CG - no preconditioner" << std::endl;
-
     // initialize matrix and vectors
-
     auto matrix = share(mtx::create(exec, gko::dim<2>(dp_3D)));
     auto rhs = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto tmp_res = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto x = vec::create(exec, gko::dim<2>(dp_3D, 1));
     auto x_exact = vec::create(exec, gko::dim<2>(dp_3D, 1));
-
     auto one = gko::initialize<vec>({1.0}, exec);
     auto neg_one = gko::initialize<vec>({-1.0}, exec);
     auto initres = gko::initialize<vec>({0.0}, exec);
@@ -191,7 +188,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     tol_stop->add_logger(logger);
 
     auto inner_solver_gen =
-        gko::share(bj::build().with_max_block_size(1u).on(exec));
+        gko::share(bj::build().with_max_block_size(4u).on(exec));
     auto cg_factory =
         cg::build()
             .with_criteria(gko::share(iter_stop), gko::share(tol_stop))
@@ -205,9 +202,9 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
     solver->apply(lend(rhs), lend(x));
     exec->synchronize();
 
-    auto tac = std::chrono::steady_clock::now();
+    auto toc = std::chrono::steady_clock::now();
     auto ref_time =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(tac - tic);
+        std::chrono::duration_cast<std::chrono::nanoseconds>(toc - tic);
     matrix->apply(lend(one), lend(x), lend(neg_one), lend(tmp_res));
     tmp_res->compute_norm2(lend(res));
 
@@ -225,7 +222,7 @@ void cg_without_preconditioner(const std::shared_ptr<gko::Executor> exec,
               << std::endl;
 
     // we make all the validation runs run the same number of iterations as the
-    // reference run above(which were needed for convergence)
+    // reference run above (which were needed for convergence)
     auto num_iters_ref = logger->get_num_iterations();
     auto val_iter_stop = share(
         gko::stop::Iteration::build().with_max_iters(num_iters_ref).on(exec));
@@ -281,9 +278,10 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     // x_exact_rand->move_to(lend(x_exact));
 
     // standard problem setup -> need also to change generate_problem from
-    random to reference impl.generate matrix,
-        rhs and solution generate_problem(exec, geometry, lend(matrix),
-                                          lend(rhs), lend(x), lend(x_exact));
+    // random to reference impl.
+    // generate matrix,rhs and solution
+    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
+                     lend(x_exact));
     std::cout << "problem setup complete" << std::endl;
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-10;
@@ -311,8 +309,10 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
 
     auto mg_level_gen = gmg::build().with_fine_geo(geometry).on(exec);
 
-    // auto mg_level_gen =
-    // gmg::build().with_fine_geo(geometry).with_explicit_op(true).on(exec);
+    // build the mg level generator with explicit prolongation and restriction
+    // operators works only on the cpu
+    //  auto mg_level_gen =
+    //  gmg::build().with_fine_geo(geometry).with_explicit_op(true).on(exec);
 
     auto coarsest_gen = gko::share(
         ir::build()
@@ -325,7 +325,7 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto multigrid_gen =
         share(mg::build()
                   .with_max_levels(9u)
-                  .with_min_coarse_rows(28u)
+                  .with_min_coarse_rows(27u)
                   .with_pre_smoother(smoother_gen)
                   .with_post_uses_pre(true)
                   .with_mg_level(gko::share(mg_level_gen))
@@ -344,13 +344,11 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     std::chrono::nanoseconds gen_time(0);
     auto gen_tic = std::chrono::steady_clock::now();
     auto solver = solver_gen->generate(matrix);
-    // auto solver = multigrid_gen->generate(matrix);
     exec->synchronize();
     auto gen_toc = std::chrono::steady_clock::now();
 
     gen_time +=
         std::chrono::duration_cast<std::chrono::nanoseconds>(gen_toc - gen_tic);
-
 
     exec->synchronize();
     std::chrono::nanoseconds ref_time(0);
@@ -368,7 +366,6 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
                      static_cast<gko::remove_complex<ValueType>>(dp_3D)
               << std::endl;
 
-
     std::cout << "CG with MG preconditioner iteration count: "
               << logger->get_num_iterations() << std::endl;
     std::cout << "CG execution time [ms]: "
@@ -379,7 +376,7 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
               << std::endl;
 
     // we make all the validation runs run the same number of iterations as the
-    // reference run above(which were needed for convergence)
+    // reference run above (which were needed for convergence)
     auto num_iters_ref = logger->get_num_iterations();
     auto val_iter_stop = share(
         gko::stop::Iteration::build().with_max_iters(num_iters_ref).on(exec));
@@ -403,26 +400,26 @@ int main(int argc, char* argv[])
     if (argc == 2 && (std::string(argv[1]) == "--help")) {
         std::cerr << "Usage: " << argv[0]
                   << " [executor] [DISCRETIZATION_POINTS in one dimension of a "
-                     "qube (default = 32, minimum = 16)]\n"
+                     "qube (default = 32, minimum = 4)]\n"
                   << "Alternative: " << argv[0]
                   << " [executor] [DP_x] [DP_y] [DP_z]" << std::endl;
         std::exit(-1);
     }
 
     // Get number of discretization points
-    const auto executor_string = argc >= 2 ? argv[1] : "reference";
+    const auto executor_string = argc >= 2 ? argv[1] : "omp";
     geo geometry = {};
     if (argc == 3) {
         const unsigned int dp_1D =
-            std::atoi(argv[2]);  //>= 16 ? std::atoi(argv[2]) : 32;
+            std::atoi(argv[2]) >= 4 ? std::atoi(argv[2]) : 32;
         geometry = geo{dp_1D, dp_1D, dp_1D};
     } else if (argc == 5) {
         const unsigned int dp_x =
-            std::atoi(argv[2]);  // >= 16 ? std::atoi(argv[2]) : 32;
+            std::atoi(argv[2]) >= 4 ? std::atoi(argv[2]) : 32;
         const unsigned int dp_y =
-            std::atoi(argv[3]);  // >= 16 ? std::atoi(argv[3]) : 32;
+            std::atoi(argv[3]) >= 4 ? std::atoi(argv[3]) : 32;
         const unsigned int dp_z =
-            std::atoi(argv[4]);  // >= 16 ? std::atoi(argv[4]) : 32;
+            std::atoi(argv[4]) >= 4 ? std::atoi(argv[4]) : 32;
         geometry = geo{dp_x, dp_y, dp_z};
     } else {
         geometry = geo{32, 32, 32};
@@ -454,7 +451,7 @@ int main(int argc, char* argv[])
 
     // minimum total runtime for the validation part of the benchmark in
     // (nano)seconds
-    double total_runtime = 0.0 * 1.0E9;
+    double total_runtime = 10.0 * 1.0E9;
     bool use_full_weighting = true;
 
     // explicit restrict

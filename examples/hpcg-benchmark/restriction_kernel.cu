@@ -46,7 +46,8 @@ __global__ void restriction_kernel_impl(int nx, int ny, int nz,
                 for (auto ofs_x = 0; ofs_x < 3; ofs_x++) {
                     auto f_offset = (ofs_z - 1) * (2 * nx + 1) * (2 * ny + 1) +
                                     (ofs_y - 1) * (2 * nx + 1) + (ofs_x - 1);
-                    f_offset *= (on_border - 1);
+                    f_offset *=
+                        (on_border - 1);  // prevent accessing wrong data
 
                     tmp += coeffs[ofs_z] * coeffs[ofs_y] * coeffs[ofs_x] *
                            fine_rhs[f_id + f_offset];

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <ginkgo/ginkgo.hpp>
 
+// calculate bandwidth for CG without preconditioner
 template <typename ValueType, typename IndexType>
 size_t calculate_bandwidth(size_t num_CG_sets, size_t num_iters_per_CG_solve,
                            gko::matrix::Csr<ValueType, IndexType>* mat)
@@ -44,6 +45,8 @@ size_t calculate_bandwidth(size_t num_CG_sets, size_t num_iters_per_CG_solve,
            num_writes_norm2;
 };
 
+// bandwidth for multigrid preconditioned CG solver
+// works for symmetric grids (dp_x = dp_y = dp_z)
 template <typename ValueType, typename IndexType>
 size_t calculate_bandwidth(
     size_t num_CG_sets, size_t num_iters_per_CG_solve,
@@ -93,7 +96,8 @@ size_t calculate_bandwidth(
             total_iters * num_rows_at_level * sizeof(ValueType);  // writes spmv
 
         // works for symmetric grids (dp_x = dp_y = dp_z)
-        auto curr_dp_1D = static_cast<int>(cbrt(num_rows_at_level)) - 1;
+        auto curr_dp_1D =
+            static_cast<int>(cbrt(num_rows_at_level)) - 1;  // not pretty
 
         if (i != 0) {  // prolong
             // current grid is the coarse grid
