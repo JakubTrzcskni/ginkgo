@@ -230,6 +230,7 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                             // mat->get_row_ptrs()[row+1] -
                             // mat->get_row_ptrs()[row]
 
+                            // reference rhs & x
                             for (auto ofs_z : {-1, 0, 1}) {
                                 if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
                                     for (auto ofs_y : {-1, 0, 1}) {
@@ -248,12 +249,15 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                             rhs_values[current_row] =
                                 26.0 - ValueType(nnz_in_row - 1);
                             x_exact_values[current_row] = 1.0;
-                            x_values[current_row] = 0.0;
+
+                            // random rhs & x_exact
+                            // x_values[current_row] = 0.0;
                             // x_exact_values[current_row] = dist(e);
                         }
                     }
                 }
             }
+            // random rhs & x_exact
             // mat->apply(x_exact, rhs);
         }
         void run(std::shared_ptr<const gko::CudaExecutor>) const override

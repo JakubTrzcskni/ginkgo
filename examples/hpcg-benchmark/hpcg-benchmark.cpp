@@ -265,9 +265,25 @@ void cg_with_mg(const std::shared_ptr<gko::Executor> exec,
     auto initres = gko::initialize<vec>({0.0}, exec);
     auto res = gko::initialize<vec>({0.0}, exec);
 
-    // generate matrix, rhs and solution
-    generate_problem(exec, geometry, lend(matrix), lend(rhs), lend(x),
-                     lend(x_exact));
+    // for test purposes
+    // generate random rhs & x_exact on the CPU, then copy to the gpu
+    // auto matrix_host =
+    //     share(mtx::create(exec->get_master(), gko::dim<2>(dp_3D)));
+    // auto rhs_rand = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    // auto x_rand = vec::create(exec->get_master(), gko::dim<2>(dp_3D, 1));
+    // auto x_exact_rand = vec::create(exec->get_master(), gko::dim<2>(dp_3D,
+    // 1)); generate_problem(exec->get_master(), geometry, lend(matrix_host),
+    //                  lend(rhs_rand), lend(x_rand), lend(x_exact_rand));
+
+    // matrix_host->move_to(lend(matrix));
+    // rhs_rand->move_to(lend(rhs));
+    // x_rand->move_to(lend(x));
+    // x_exact_rand->move_to(lend(x_exact));
+
+    // standard problem setup -> need also to change generate_problem from
+    random to reference impl.generate matrix,
+        rhs and solution generate_problem(exec, geometry, lend(matrix),
+                                          lend(rhs), lend(x), lend(x_exact));
     std::cout << "problem setup complete" << std::endl;
 
     const gko::remove_complex<ValueType> reduction_factor = 1e-10;

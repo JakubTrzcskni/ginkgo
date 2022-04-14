@@ -25,9 +25,10 @@ __global__ void prolongation_kernel_impl(
     const ValueType* __restrict__ coeffs,
     const ValueType* __restrict__ coarse_rhs, ValueType* __restrict__ fine_x)
 {
-    const auto nt_x = blockDim.x;
-    const auto f_x = threadIdx.x + nt_x * blockIdx.x;
-    const auto f_y = blockIdx.y;
+    const auto global_id = blockIdx.y * blockDim.x + threadIdx.x;
+    const auto f_x = global_id % (2 * nx + 1);
+    const auto f_y = global_id / (2 * nx + 1);
+
     const auto f_z = blockIdx.z;
 
     const auto f_x_off_coarse_grid = f_x % 2;
@@ -40,7 +41,7 @@ __global__ void prolongation_kernel_impl(
                       ((f_y - f_y_off_coarse_grid) / 2) * (nx + 1) +
                       ((f_x - f_x_off_coarse_grid) / 2);
 
-    if (f_x <= 2 * nx) {
+    if (f_x <= 2 * nx && f_y <= 2 * ny) {
         if (!f_z_off_coarse_grid) {
             if (!f_y_off_coarse_grid) {
                 if (!f_x_off_coarse_grid) {
@@ -307,8 +308,9 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
                          const int x_size)
 {
-    const auto grid_size = dim3((2 * nx + 1 + block_size - 1) / block_size,
-                                2 * ny + 1, 2 * nz + 1);
+    const auto slice_size = (2 * nx + 1) * (2 * ny + 1);
+    const auto grid_size =
+        dim3(1, (slice_size + block_size - 1) / block_size, 2 * nz + 1);
 
     // full-weighting
     prolongation_kernel_impl<<<grid_size, block_size>>>(nx, ny, nz, coeffs, rhs,
