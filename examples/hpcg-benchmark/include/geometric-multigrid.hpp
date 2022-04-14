@@ -62,10 +62,6 @@ void prolongation_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                          const ValueType* rhs, const int rhs_size, ValueType* x,
                          const int x_size);
 template <typename ValueType>
-void prolongation_kernel_v2(int nx, int ny, int nz, const ValueType* coeffs,
-                            const ValueType* rhs, const int rhs_size,
-                            ValueType* x, const int x_size);
-template <typename ValueType>
 void restriction_kernel(int nx, int ny, int nz, const ValueType* coeffs,
                         const ValueType* rhs, const int rhs_size, ValueType* x,
                         const int x_size);
@@ -211,6 +207,9 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
 
         void run(std::shared_ptr<const gko::OmpExecutor>) const override
         {
+            static std::default_random_engine e;
+            static std::uniform_real_distribution<> dist(0., 1.);
+
             const auto nx = geo.nx;
             const auto ny = geo.ny;
             const auto nz = geo.nz;
@@ -227,6 +226,10 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                         auto current_row = grid2index(ix, iy, iz, nx, ny);
                         auto nnz_in_row = 0;
                         {
+                            // alternative: nnz_in_row =
+                            // mat->get_row_ptrs()[row+1] -
+                            // mat->get_row_ptrs()[row]
+
                             for (auto ofs_z : {-1, 0, 1}) {
                                 if (iz + ofs_z > -1 && iz + ofs_z <= nz) {
                                     for (auto ofs_y : {-1, 0, 1}) {
@@ -244,12 +247,14 @@ void generate_problem(std::shared_ptr<const gko::Executor> exec,
                             }
                             rhs_values[current_row] =
                                 26.0 - ValueType(nnz_in_row - 1);
-                            x_values[current_row] = 0.0;
                             x_exact_values[current_row] = 1.0;
+                            x_values[current_row] = 0.0;
+                            // x_exact_values[current_row] = dist(e);
                         }
                     }
                 }
             }
+            // mat->apply(x_exact, rhs);
         }
         void run(std::shared_ptr<const gko::CudaExecutor>) const override
         {
@@ -434,6 +439,9 @@ protected:
                             auto c_row = grid2index(c_x, c_y, c_z, c_nx, c_ny);
                             auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
+                            // injection
+                            // c_values[c_row] = f_values[f_row];
+                            // full-weighting
                             c_values[c_row] = 0;
                             const auto on_border =
                                 (c_x == 0) | (c_y == 0) | (c_z == 0) |
@@ -476,11 +484,14 @@ protected:
             // cuda impl
             void run(std::shared_ptr<const gko::CudaExecutor>) const override
             {
+                // write(std::cout, coarse_x);
                 restriction_kernel(
                     coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
                     coefficients.get_const_data(), fine_rhs->get_const_values(),
                     fine_rhs->get_size()[0], coarse_x->get_values(),
                     coarse_x->get_size()[0]);
+                // std::cout << "after restrict:\n";
+                // write(std::cout, coarse_x);
             }
             void run(
                 std::shared_ptr<const gko::ReferenceExecutor>) const override
@@ -552,6 +563,8 @@ protected:
             {}
             void run(std::shared_ptr<const gko::OmpExecutor>) const override
             {
+                // std::cout << "before prolong:\n";
+                // write(std::cout, fine_x);
                 const auto c_values = coarse_rhs->get_const_values();
 
                 auto f_values = fine_x->get_values();
@@ -572,6 +585,9 @@ protected:
                                 grid2index(c_x, c_y, c_z, c_nx, c_ny);
                             const auto f_row =
                                 grid2index(f_x, f_y, f_z, 2 * c_nx, 2 * c_ny);
+                            // injection
+                            // f_values[f_row] = c_values[c_row];
+                            // full-weighting
                             for (auto ofs_z : {-1, 0, 1}) {
                                 if (f_z + ofs_z > -1 &&
                                     f_z + ofs_z <= 2 * c_nz) {
@@ -601,15 +617,21 @@ protected:
                         }
                     }
                 }
+                // std::cout << "after prolong:\n";
+                // write(std::cout, fine_x);
             }
             // cuda impl
             void run(std::shared_ptr<const gko::CudaExecutor>) const override
             {
+                // std::cout << "before prolong:\n";
+                // write(std::cout, fine_x);
                 prolongation_kernel(
                     coarse_geo.nx, coarse_geo.ny, coarse_geo.nz,
                     coefficients.get_const_data(),
                     coarse_rhs->get_const_values(), coarse_rhs->get_size()[0],
                     fine_x->get_values(), fine_x->get_size()[0]);
+                // std::cout << "after prolong:\n";
+                // write(std::cout, fine_x);
             }
             void run(
                 std::shared_ptr<const gko::ReferenceExecutor>) const override
