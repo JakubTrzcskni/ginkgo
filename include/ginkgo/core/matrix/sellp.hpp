@@ -57,6 +57,9 @@ class Csr;
  * SELL-P format divides rows into smaller slices and store each slice with ELL
  * format.
  *
+ * This implementation uses the column index value invalid_index<IndexType>()
+ * to mark padding entries that are not part of the sparsity pattern.
+ *
  * @tparam ValueType  precision of matrix elements
  * @tparam IndexType  precision of matrix indexes
  *
@@ -290,6 +293,32 @@ public:
             ->get_const_col_idxs()[this->linearize_index(row, slice_set, idx)];
     }
 
+    /**
+     * Copy-assigns a Sellp matrix. Preserves the executor, copies the data and
+     * parameters.
+     */
+    Sellp& operator=(const Sellp&);
+
+    /**
+     * Move-assigns a Sellp matrix. Preserves the executor, moves the data and
+     * parameters. The moved-from object is empty (0x0 with valid slice_sets and
+     * unchanged parameters).
+     */
+    Sellp& operator=(Sellp&&);
+
+    /**
+     * Copy-assigns a Sellp matrix. Inherits the executor, copies the data and
+     * parameters.
+     */
+    Sellp(const Sellp&);
+
+    /**
+     * Move-assigns a Sellp matrix. Inherits the executor, moves the data and
+     * parameters. The moved-from object is empty (0x0 with valid slice_sets and
+     * unchanged parameters).
+     */
+    Sellp(Sellp&&);
+
 protected:
     /**
      * Creates an uninitialized Sellp matrix of the specified size.
@@ -354,10 +383,10 @@ protected:
     }
 
 private:
-    Array<value_type> values_;
-    Array<index_type> col_idxs_;
-    Array<size_type> slice_lengths_;
-    Array<size_type> slice_sets_;
+    array<value_type> values_;
+    array<index_type> col_idxs_;
+    array<size_type> slice_lengths_;
+    array<size_type> slice_sets_;
     size_type slice_size_;
     size_type stride_factor_;
 };

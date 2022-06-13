@@ -13,6 +13,7 @@ target_sources(ginkgo
     base/perturbation.cpp
     base/version.cpp
     distributed/partition.cpp
+    factorization/elimination_forest.cpp
     factorization/ic.cpp
     factorization/ilu.cpp
     factorization/par_ic.cpp
@@ -37,6 +38,7 @@ target_sources(ginkgo
     matrix/sparsity_csr.cpp
     matrix/row_gatherer.cpp
     multigrid/amgx_pgm.cpp
+    multigrid/fixed_coarsening.cpp
     preconditioner/isai.cpp
     preconditioner/jacobi.cpp
     reorder/rcm.cpp

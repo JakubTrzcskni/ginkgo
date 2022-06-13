@@ -14,9 +14,9 @@
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.02260/status.svg)](https://doi.org/10.21105/joss.02260)
 
 Ginkgo is a high-performance linear algebra library for manycore systems, with a
-focus on sparse solution of linear systems. It is implemented using modern C++
-(you will need at least C++14 compliant compiler to build it), with GPU kernels
-implemented in CUDA and HIP.
+focus on the solution of sparse linear systems. It is implemented using modern C++
+(you will need an at least C++14 compliant compiler to build it), with GPU kernels
+implemented in CUDA, HIP, and DPC++.
 
 
 Performance
@@ -53,7 +53,7 @@ The Ginkgo CUDA module has the following __additional__ requirements:
 
 The Ginkgo HIP module has the following __additional__ requirements:
 
-* _ROCm 3.5+_
+* _ROCm 4.0+_
 *    the HIP, hipBLAS, hipSPARSE, hip/rocRAND and rocThrust packages compiled with either:
     * _AMD_ backend (using the `clang` compiler)
     * _9.2 <= CUDA < 11_ backend

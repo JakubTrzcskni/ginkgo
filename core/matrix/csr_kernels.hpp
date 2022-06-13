@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 #include <ginkgo/core/base/array.hpp>
+#include <ginkgo/core/base/index_set.hpp>
 #include <ginkgo/core/base/types.hpp>
 #include <ginkgo/core/matrix/coo.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 #include "core/base/kernel_declaration.hpp"
+#include "core/matrix/csr_lookup.hpp"
 
 
 namespace gko {
@@ -104,9 +106,9 @@ namespace kernels {
 #define GKO_DECLARE_CSR_CONVERT_TO_FBCSR_KERNEL(ValueType, IndexType)      \
     void convert_to_fbcsr(std::shared_ptr<const DefaultExecutor> exec,     \
                           const matrix::Csr<ValueType, IndexType>* source, \
-                          int block_size, Array<IndexType>& row_ptrs,      \
-                          Array<IndexType>& col_idxs,                      \
-                          Array<ValueType>& values)
+                          int block_size, array<IndexType>& row_ptrs,      \
+                          array<IndexType>& col_idxs,                      \
+                          array<ValueType>& values)
 
 #define GKO_DECLARE_CSR_CONVERT_TO_HYBRID_KERNEL(ValueType, IndexType)      \
     void convert_to_hybrid(std::shared_ptr<const DefaultExecutor> exec,     \
@@ -163,13 +165,30 @@ namespace kernels {
     void calculate_nonzeros_per_row_in_span(                                   \
         std::shared_ptr<const DefaultExecutor> exec,                           \
         const matrix::Csr<ValueType, IndexType>* source, const span& row_span, \
-        const span& col_span, Array<IndexType>* row_nnz)
+        const span& col_span, array<IndexType>* row_nnz)
+
+#define GKO_DECLARE_CSR_CALC_NNZ_PER_ROW_IN_INDEX_SET_KERNEL(ValueType, \
+                                                             IndexType) \
+    void calculate_nonzeros_per_row_in_index_set(                       \
+        std::shared_ptr<const DefaultExecutor> exec,                    \
+        const matrix::Csr<ValueType, IndexType>* source,                \
+        const gko::index_set<IndexType>& row_index_set,                 \
+        const gko::index_set<IndexType>& col_index_set, IndexType* row_nnz)
 
 #define GKO_DECLARE_CSR_COMPUTE_SUB_MATRIX_KERNEL(ValueType, IndexType)     \
     void compute_submatrix(std::shared_ptr<const DefaultExecutor> exec,     \
                            const matrix::Csr<ValueType, IndexType>* source, \
                            gko::span row_span, gko::span col_span,          \
                            matrix::Csr<ValueType, IndexType>* result)
+
+#define GKO_DECLARE_CSR_COMPUTE_SUB_MATRIX_FROM_INDEX_SET_KERNEL(ValueType, \
+                                                                 IndexType) \
+    void compute_submatrix_from_index_set(                                  \
+        std::shared_ptr<const DefaultExecutor> exec,                        \
+        const matrix::Csr<ValueType, IndexType>* source,                    \
+        const gko::index_set<IndexType>& row_index_set,                     \
+        const gko::index_set<IndexType>& col_index_set,                     \
+        matrix::Csr<ValueType, IndexType>* result)
 
 #define GKO_DECLARE_CSR_SORT_BY_COLUMN_INDEX(ValueType, IndexType)         \
     void sort_by_column_index(std::shared_ptr<const DefaultExecutor> exec, \
@@ -205,6 +224,20 @@ namespace kernels {
                              const matrix::Dense<ValueType>* alpha,       \
                              const matrix::Dense<ValueType>* beta,        \
                              matrix::Csr<ValueType, IndexType>* mtx)
+
+#define GKO_DECLARE_CSR_BUILD_LOOKUP_OFFSETS_KERNEL(IndexType)               \
+    void build_lookup_offsets(std::shared_ptr<const DefaultExecutor> exec,   \
+                              const IndexType* row_ptrs,                     \
+                              const IndexType* col_idxs, size_type num_rows, \
+                              matrix::csr::sparsity_type allowed,            \
+                              IndexType* storage_offsets)
+
+#define GKO_DECLARE_CSR_BUILD_LOOKUP_KERNEL(IndexType)                        \
+    void build_lookup(std::shared_ptr<const DefaultExecutor> exec,            \
+                      const IndexType* row_ptrs, const IndexType* col_idxs,   \
+                      size_type num_rows, matrix::csr::sparsity_type allowed, \
+                      const IndexType* storage_offsets, int64* row_desc,      \
+                      int32* storage)
 
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                       \
@@ -247,6 +280,12 @@ namespace kernels {
     template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_CSR_COMPUTE_SUB_MATRIX_KERNEL(ValueType, IndexType);       \
     template <typename ValueType, typename IndexType>                      \
+    GKO_DECLARE_CSR_CALC_NNZ_PER_ROW_IN_INDEX_SET_KERNEL(ValueType,        \
+                                                         IndexType);       \
+    template <typename ValueType, typename IndexType>                      \
+    GKO_DECLARE_CSR_COMPUTE_SUB_MATRIX_FROM_INDEX_SET_KERNEL(ValueType,    \
+                                                             IndexType);   \
+    template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_CSR_SORT_BY_COLUMN_INDEX(ValueType, IndexType);            \
     template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_CSR_IS_SORTED_BY_COLUMN_INDEX(ValueType, IndexType);       \
@@ -259,7 +298,11 @@ namespace kernels {
     template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_CSR_CHECK_DIAGONAL_ENTRIES_EXIST(ValueType, IndexType);    \
     template <typename ValueType, typename IndexType>                      \
-    GKO_DECLARE_CSR_ADD_SCALED_IDENTITY_KERNEL(ValueType, IndexType)
+    GKO_DECLARE_CSR_ADD_SCALED_IDENTITY_KERNEL(ValueType, IndexType);      \
+    template <typename IndexType>                                          \
+    GKO_DECLARE_CSR_BUILD_LOOKUP_OFFSETS_KERNEL(IndexType);                \
+    template <typename IndexType>                                          \
+    GKO_DECLARE_CSR_BUILD_LOOKUP_KERNEL(IndexType)
 
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(csr, GKO_DECLARE_ALL_AS_TEMPLATES);

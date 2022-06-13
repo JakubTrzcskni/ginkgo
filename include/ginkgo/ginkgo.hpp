@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/index_set.hpp>
+#include <ginkgo/core/base/intrinsics.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
 #include <ginkgo/core/base/machine_topology.hpp>
 #include <ginkgo/core/base/math.hpp>
@@ -99,6 +100,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
 
 #include <ginkgo/core/multigrid/amgx_pgm.hpp>
+#include <ginkgo/core/multigrid/fixed_coarsening.hpp>
 #include <ginkgo/core/multigrid/multigrid_level.hpp>
 
 #include <ginkgo/core/preconditioner/ic.hpp>
@@ -120,6 +122,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
 #include <ginkgo/core/solver/multigrid.hpp>
+#include <ginkgo/core/solver/solver_base.hpp>
 #include <ginkgo/core/solver/solver_traits.hpp>
 #include <ginkgo/core/solver/upper_trs.hpp>
 
