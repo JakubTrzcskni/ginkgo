@@ -54,6 +54,7 @@ class GaussSeidel
       public Transposable {
     friend class EnableLinOp<GaussSeidel>;
     friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
+    //friend class 
 
 public:
     using value_type = ValueType;
@@ -74,6 +75,13 @@ public:
     GaussSeidel(GaussSeidel&& other);
 
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory){
+
+        //similar to jacobi
+        bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, false);
+
+        // relevant only for SOR/SSOR - general param, or specific and doesn't belong here?
+        // has to be between 0.0 and 2.0
+        double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
 
     };
     GKO_ENABLE_LIN_OP_FACTORY(GaussSeidel, parameters, Factory);

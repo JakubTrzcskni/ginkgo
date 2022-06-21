@@ -36,10 +36,12 @@ namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
 namespace {
-// GKO_REGISTER_OPERATION();
+    //names of the implemented kernels, they will be run exclusively from here
+ GKO_REGISTER_OPERATION(get_permutation, gauss_seidel::get_permutation);
 }
 }  // namespace gauss_seidel
 
+//names of protected gauss-seidel class methods/functions
 // CPU steps of the OPs + specific kernel invocations
 
 }  // namespace preconditioner
