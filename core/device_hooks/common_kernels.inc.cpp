@@ -63,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/matrix/sellp_kernels.hpp"
 #include "core/matrix/sparsity_csr_kernels.hpp"
 #include "core/multigrid/amgx_pgm_kernels.hpp"
+#include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/isai_kernels.hpp"
 #include "core/preconditioner/jacobi_kernels.hpp"
 #include "core/reorder/rcm_kernels.hpp"
@@ -635,6 +636,14 @@ GKO_STUB(GKO_DECLARE_JACOBI_INITIALIZE_PRECISIONS_KERNEL);
 
 
 }  // namespace jacobi
+
+namespace gauss_seidel {
+
+
+GKO_STUB_VALUE_AND_INDEX_TYPE(GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
+GKO_STUB_VALUE_AND_INDEX_TYPE(GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
+
+}  // namespace gauss_seidel
 
 
 namespace isai {

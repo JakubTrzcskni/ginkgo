@@ -54,7 +54,7 @@ class GaussSeidel
       public Transposable {
     friend class EnableLinOp<GaussSeidel>;
     friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
-    //friend class 
+    // friend class
 
 public:
     using value_type = ValueType;
@@ -74,26 +74,46 @@ public:
 
     GaussSeidel(GaussSeidel&& other);
 
-    GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory){
-
-        //similar to jacobi
+    GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
+    {
+        // similar to jacobi
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, false);
 
-        // relevant only for SOR/SSOR - general param, or specific and doesn't belong here?
-        // has to be between 0.0 and 2.0
+        // relevant only for SOR/SSOR - general param, or specific and doesn't
+        // belong here? has to be between 0.0 and 2.0
         double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
-
     };
     GKO_ENABLE_LIN_OP_FACTORY(GaussSeidel, parameters, Factory);
     GKO_ENABLE_BUILD_METHOD(Factory);
 
 protected:
+    // empty GS preconditioner
+    explicit GaussSeidel(std::shared_ptr<const Executor> exec)
+        : EnableLinOp<GaussSeidel>(exec),
+          relaxation_factor_{parameters_.relaxation_factor}
+    {}
+
+    // GS preconditioner from a factory
+    explicit GaussSeidel(const Factory* factory,
+                         std::shared_ptr<const LinOp> system_matrix)
+        : EnableLinOp<GaussSeidel>(factory->get_executor(),
+                                   gko::transpose(system_matrix->get_size())),
+          parameters_{factory->get_parameters()},
+          relaxation_factor_{parameters_.relaxation_factor}
+    {
+        this->generate(lend(system_matrix), parameters_.skip_sorting);
+    }
+
+    void generate(const LinOp* system_matrix, bool skip_sorting);
+
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
     void apply_impl(const LinOp* alpha, const LinOp* b, const LinOp* beta,
                     LinOp* x) const override;
 
 private:
+    std::shared_ptr<Csr> system_matrix_;
+    double relaxation_factor_;
 };
 }  // namespace preconditioner
 }  // namespace gko

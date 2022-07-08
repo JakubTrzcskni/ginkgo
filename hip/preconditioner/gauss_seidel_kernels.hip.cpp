@@ -30,12 +30,38 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************<GINKGO LICENSE>*******************************/
 
-#include "core/preconditioner/gauss_seidel.hpp"
+#include "core/preconditioner/gauss_seidel_kernels.hpp"
+
+#include <ginkgo/core/base/exception_helpers.hpp>
+#include <ginkgo/core/base/math.hpp>
+#include <ginkgo/core/matrix/csr.hpp>
+
+#include "core/base/allocator.hpp"
 
 namespace gko {
 namespace kernels {
 namespace hip {
-namespace gauss_seidel {}
+namespace gauss_seidel {
+
+template <typename ValueType, typename IndexType>
+void apply(std::shared_ptr<const HipExecutor> exec,
+           const matrix::Csr<ValueType, IndexType>* A,
+           const matrix::Dense<ValueType>* alpha,
+           const matrix::Dense<ValueType>* rhs,
+           const matrix::Dense<ValueType>* beta,
+           matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void simple_apply(std::shared_ptr<const HipExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* A,
+                  const matrix::Dense<ValueType>* rhs,
+                  matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
+
+}  // namespace gauss_seidel
 }  // namespace hip
 }  // namespace kernels
 }  // namespace gko

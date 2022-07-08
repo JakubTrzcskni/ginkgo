@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace {
 template <typename ValueIndexType>
-class GaussSeidelFactory : public ::testing : Test {
+class GaussSeidelFactory : public ::testing ::Test {
 protected:
     using value_type =
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
@@ -50,7 +50,10 @@ protected:
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
 
-    // GaussSeidelFactory(){}
+    GaussSeidelFactory()
+        : exec{gko::ReferenceExecutor::create()},
+          gs_factory(GS::build().on(exec))
+    {}
 
     std::shared_ptr<const gko::Executor> exec;
     std::unique_ptr<typename GS::Factory> gs_factory;
