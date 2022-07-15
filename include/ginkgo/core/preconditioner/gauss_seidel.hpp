@@ -36,9 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
+#include <ginkgo/core/base/matrix_data.hpp>
+#include <ginkgo/core/base/polymorphic_object.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/solver/lower_trs.hpp>
 
-// necessary?
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/diagonal.hpp>
 
@@ -47,11 +49,10 @@ namespace gko {
 namespace preconditioner {
 
 template <typename ValueType = default_precision, typename IndexType = int32>
-class GaussSeidel
-    : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
-      // public ConvertibleTo<matrix::Dense<ValueType>>, //necessary?
-      // public WritableToMatrixData<ValueType, IndexType>, //necessary?
-      public Transposable {
+class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
+                    // public ConvertibleTo<matrix::Dense<ValueType>>,
+                    // public WritableToMatrixData<ValueType, IndexType>,
+                    public Transposable {
     friend class EnableLinOp<GaussSeidel>;
     friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
     // friend class
@@ -61,6 +62,13 @@ public:
     using index_type = IndexType;
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Dense = matrix::Dense<ValueType>;
+    using LTrs = solver::LowerTrs<value_type, index_type>;
+
+    // for testing purposes
+    std::shared_ptr<Csr> get_ltr_system_matrix()
+    {
+        return this->lower_triangular_matrix_;
+    }
 
     std::unique_ptr<LinOp> transpose() const override;
 
@@ -76,8 +84,20 @@ public:
 
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
     {
-        // similar to jacobi
-        bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, false);
+        // TODO
+        // sorted matrix is assumed
+        // sorting path not implemented
+        bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
+
+        // if the system matrix is known to be lower triangular this parameter
+        // can be set to false
+        bool GKO_FACTORY_PARAMETER_SCALAR(convert_to_lower_triangular, true);
+
+        // determines if ginkgo lower triangular solver should be used
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_reference, false);
+
+        // determines if GS/SOR or SGS/SSOR should be used
+        bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
 
         // relevant only for SOR/SSOR - general param, or specific and doesn't
         // belong here? has to be between 0.0 and 2.0
@@ -99,21 +119,38 @@ protected:
         : EnableLinOp<GaussSeidel>(factory->get_executor(),
                                    gko::transpose(system_matrix->get_size())),
           parameters_{factory->get_parameters()},
-          relaxation_factor_{parameters_.relaxation_factor}
+          system_matrix_{system_matrix},
+          lower_triangular_matrix_{Csr::create(factory->get_executor())},
+          //   diag_idxs_{factory->get_executor(),
+          //   system_matrix->get_size()[0]},
+          lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
+          relaxation_factor_{parameters_.relaxation_factor},
+          symmetric_{parameters_.symmetric_preconditioner},
+          use_reference_{parameters_.use_reference},
+          convert_to_ltr_{parameters_.convert_to_lower_triangular}
     {
-        this->generate(lend(system_matrix), parameters_.skip_sorting);
+        this->generate(parameters_.skip_sorting);
     }
 
-    void generate(const LinOp* system_matrix, bool skip_sorting);
+    void generate(bool skip_sorting);
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
     void apply_impl(const LinOp* alpha, const LinOp* b, const LinOp* beta,
                     LinOp* x) const override;
 
+
 private:
-    std::shared_ptr<Csr> system_matrix_;
+    std::shared_ptr<const LinOp> system_matrix_{};
+    std::shared_ptr<Csr> lower_triangular_matrix_{};
+    // array<index_type> diag_idxs_;
+    std::shared_ptr<const LinOp> lower_trs_{};
+    std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
+    // std::shared_ptr<const LinOp> upper_trs_{};
     double relaxation_factor_;
+    bool symmetric_;
+    bool use_reference_;
+    bool convert_to_ltr_;
 };
 }  // namespace preconditioner
 }  // namespace gko

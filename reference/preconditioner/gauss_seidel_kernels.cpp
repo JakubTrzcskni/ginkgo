@@ -35,7 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
-// #include <ginkgo/core/matrix/diagonal.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
+#include <ginkgo/core/solver/lower_trs.hpp>
 
 #include "core/base/allocator.hpp"
 
@@ -47,33 +48,59 @@ namespace {
 // local functions
 }  // namespace
 
+template <typename ValueType>
+void ref_apply(std::shared_ptr<const ReferenceExecutor> exec,
+               const LinOp* solver, const matrix::Dense<ValueType>* alpha,
+               const matrix::Dense<ValueType>* b,
+               const matrix::Dense<ValueType>* beta,
+               matrix::Dense<ValueType>* x)
+{
+    solver->apply(alpha, b, beta, x);
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL);
+
+template <typename ValueType>
+void ref_simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
+                      const LinOp* solver, const matrix::Dense<ValueType>* b,
+                      matrix::Dense<ValueType>* x)
+{
+    solver->apply(b, x);
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL);
+
 template <typename ValueType, typename IndexType>
-void apply(std::shared_ptr<const DefaultExecutor> exec,
+void apply(std::shared_ptr<const ReferenceExecutor> exec,
            const matrix::Csr<ValueType, IndexType>* A,
            const matrix::Dense<ValueType>* alpha,
-           const matrix::Dense<ValueType>* rhs,
+           const matrix::Dense<ValueType>* b,
            const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
 {
     const ValueType* values = A->get_const_values();
     const IndexType* row_ptrs = A->get_const_row_ptrs();
     const IndexType* col_idxs = A->get_const_col_idxs();
+    auto diag = A->extract_diagonal();
+    const ValueType* diag_values = diag->get_const_values();
+    // TODO
+    // non-scalar alpha and beta impl
+    GKO_ASSERT_IS_SCALAR(alpha);
+    GKO_ASSERT_IS_SCALAR(beta);
+
+    // beta<->x; alpha<->b
 
     for (size_type i = 0; i < x->get_size()[0]; i++) {
         for (size_type j = 0; j < x->get_size()[1]; j++) {
-            ValueType tmp = alpha->at(i, j) * rhs->at(i, j);
-            ValueType curr_diag{};
+            ValueType tmp = alpha->get_const_values()[0] * b->at(i, j);
 
             for (size_type k = row_ptrs[i]; k < row_ptrs[i + 1]; k++) {
                 IndexType curr_col = col_idxs[k];
                 if (curr_col != i) {
-                    tmp -= values[k] * beta->at(i, j) *
-                           x->at(curr_col, j);  // not sure if correct
-                } else {
-                    curr_diag = values[k];
+                    tmp -= values[k] * beta->get_const_values()[0] *
+                           x->at(curr_col, j);  // not sure if correct with
                 }
             }
-            // GKO_ASSERT(curr_diag != 0);
-            x->at(i, j) = tmp / curr_diag;
+            x->at(i, j) = tmp / diag_values[i];
         }
     }
 }
@@ -81,35 +108,34 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
 
 template <typename ValueType, typename IndexType>
-void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
+void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
                   const matrix::Csr<ValueType, IndexType>* A,
-                  const matrix::Dense<ValueType>* rhs,
+                  const matrix::Dense<ValueType>* b,
                   matrix::Dense<ValueType>* x)
 {
     const ValueType* values = A->get_const_values();
     const IndexType* row_ptrs = A->get_const_row_ptrs();
     const IndexType* col_idxs = A->get_const_col_idxs();
+    auto diag = A->extract_diagonal();
+    const ValueType* diag_values = diag->get_const_values();
 
     for (size_type i = 0; i < x->get_size()[0]; i++) {
         for (size_type j = 0; j < x->get_size()[1]; j++) {
-            ValueType tmp = rhs->at(i, j);
-            ValueType curr_diag{};
+            ValueType tmp = b->at(i, j);
 
             for (size_type k = row_ptrs[i]; k < row_ptrs[i + 1]; k++) {
                 IndexType curr_col = col_idxs[k];
                 if (curr_col != i) {
                     tmp -= values[k] * x->at(curr_col, j);
-                } else {
-                    curr_diag = values[k];
                 }
             }
-            // GKO_ASSERT(curr_diag != 0);
-            x->at(i, j) = tmp / curr_diag;
+            x->at(i, j) = tmp / diag_values[i];
         }
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
+
 
 }  // namespace gauss_seidel
 }  // namespace reference

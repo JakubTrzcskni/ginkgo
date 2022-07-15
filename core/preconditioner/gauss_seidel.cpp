@@ -38,14 +38,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/base/utils.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
+#include "core/utils/matrix_utils.hpp"
 
 namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
 namespace {
-// names of the implemented kernels, they will be run exclusively from here
 GKO_REGISTER_OPERATION(apply, gauss_seidel::apply);
+GKO_REGISTER_OPERATION(ref_apply, gauss_seidel::ref_apply);
 GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
+GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
+// GKO_REGISTER_OPERATION(generate, gauss_seidel::generate);
 
 // GKO_REGISTER_OPERATION(get_permutation, gauss_seidel::get_permutation);
 }  // namespace
@@ -100,9 +103,18 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                                                    LinOp* x) const
 {
     using Dense = matrix::Dense<ValueType>;
-    this->get_executor()->run(gauss_seidel::make_simple_apply(
-        lend(this->system_matrix_), dynamic_cast<const Dense*>(b),
-        dynamic_cast<Dense*>(x)));
+    using Csr = matrix::Csr<ValueType, IndexType>;
+    if (this->use_reference_) {
+        this->get_executor()->run(gauss_seidel::make_ref_simple_apply(
+            lend(this->lower_trs_), as<const Dense>(b), as<Dense>(x)));
+    } else {
+        auto system_matrix = this->convert_to_ltr_
+                                 ? this->lower_triangular_matrix_
+                                 : this->system_matrix_;
+        this->get_executor()->run(
+            gauss_seidel::make_simple_apply(as<const Csr>(lend(system_matrix)),
+                                            as<const Dense>(b), as<Dense>(x)));
+    }
 }
 
 template <typename ValueType, typename IndexType>
@@ -112,10 +124,19 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
                                                    LinOp* x) const
 {
     using Dense = matrix::Dense<ValueType>;
-    this->get_executor()->run(gauss_seidel::make_apply(
-        lend(this->system_matrix_), dynamic_cast<const Dense*>(alpha),
-        dynamic_cast<const Dense*>(b), dynamic_cast<const Dense*>(beta),
-        dynamic_cast<Dense*>(x)));
+    using Csr = matrix::Csr<ValueType, IndexType>;
+    if (this->use_reference_) {
+        this->get_executor()->run(gauss_seidel::make_ref_apply(
+            lend(this->lower_trs_), as<const Dense>(alpha), as<const Dense>(b),
+            as<const Dense>(beta), as<Dense>(x)));
+    } else {
+        auto system_matrix = this->convert_to_ltr_
+                                 ? this->lower_triangular_matrix_
+                                 : this->system_matrix_;
+        this->get_executor()->run(gauss_seidel::make_apply(
+            as<const Csr>(lend(system_matrix)), as<const Dense>(alpha),
+            as<const Dense>(b), as<const Dense>(beta), as<Dense>(x)));
+    }
 }
 
 template <typename ValueType, typename IndexType>
@@ -128,15 +149,26 @@ std::unique_ptr<LinOp> GaussSeidel<ValueType, IndexType>::conj_transpose() const
     GKO_NOT_IMPLEMENTED;
 
 template <typename ValueType, typename IndexType>
-void GaussSeidel<ValueType, IndexType>::generate(const LinOp* system_matrix,
-                                                 bool skip_sorting)
+void GaussSeidel<ValueType, IndexType>::generate(bool skip_sorting)
 {
-    GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix);
     using Csr = matrix::Csr<ValueType, IndexType>;
     const auto exec = this->get_executor();
-    // TODO how to initialise the system matrix?
-    // this->system_matrix_ = std::move(
-    //     convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting));
+    GKO_ASSERT_IS_SQUARE_MATRIX(this->system_matrix_);
+
+    if (this->convert_to_ltr_) {
+        auto csr_matrix = convert_to_with_sorting<Csr>(
+            exec, this->system_matrix_, skip_sorting);
+
+        matrix_data<ValueType, IndexType> tmp_mat_data{csr_matrix->get_size()};
+        csr_matrix->write(tmp_mat_data);
+        utils::make_lower_triangular(tmp_mat_data);
+        this->lower_triangular_matrix_->read(tmp_mat_data);
+        this->lower_trs_ = share(
+            this->lower_trs_factory_->generate(this->lower_triangular_matrix_));
+    } else {
+        this->lower_trs_ =
+            this->lower_trs_factory_->generate(this->system_matrix_);
+    }
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \

@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
 
+#include <ginkgo/core/base/lin_op.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace gko {
 namespace kernels {
+
 #define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType) \
     void apply(std::shared_ptr<const DefaultExecutor> exec,         \
                const matrix::Csr<ValueType, IndexType>* A,          \
@@ -53,17 +55,33 @@ namespace kernels {
                const matrix::Dense<ValueType>* beta,                \
                matrix::Dense<ValueType>* x)
 
+#define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType)             \
+    void ref_apply(std::shared_ptr<const DefaultExecutor> exec,                \
+                   const LinOp* solver, const matrix::Dense<ValueType>* alpha, \
+                   const matrix::Dense<ValueType>* rhs,                        \
+                   const matrix::Dense<ValueType>* beta,                       \
+                   matrix::Dense<ValueType>* x)
+
 #define GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType) \
     void simple_apply(std::shared_ptr<const DefaultExecutor> exec,         \
                       const matrix::Csr<ValueType, IndexType>* A,          \
                       const matrix::Dense<ValueType>* rhs,                 \
                       matrix::Dense<ValueType>* x)
 
-#define GKO_DECLARE_ALL_AS_TEMPLATES                             \
-    template <typename ValueType, typename IndexType>            \
-    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType); \
-    template <typename ValueType, typename IndexType>            \
-    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType);
+#define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType) \
+    void ref_simple_apply(                                                \
+        std::shared_ptr<const DefaultExecutor> exec, const LinOp* solver, \
+        const matrix::Dense<ValueType>* b, matrix::Dense<ValueType>* x)
+
+#define GKO_DECLARE_ALL_AS_TEMPLATES                                    \
+    template <typename ValueType, typename IndexType>                   \
+    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType);        \
+    template <typename ValueType>                                       \
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType);         \
+    template <typename ValueType, typename IndexType>                   \
+    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType); \
+    template <typename ValueType>                                       \
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType)
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(gauss_seidel,
                                         GKO_DECLARE_ALL_AS_TEMPLATES);
