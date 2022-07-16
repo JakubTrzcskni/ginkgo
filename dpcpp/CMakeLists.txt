@@ -28,7 +28,12 @@ target_sources(ginkgo_dpcpp
     factorization/par_ic_kernels.dp.cpp
     factorization/par_ict_kernels.dp.cpp
     factorization/par_ilu_kernels.dp.cpp
-    factorization/par_ilut_kernels.dp.cpp
+    factorization/par_ilut_approx_filter_kernel.dp.cpp
+    factorization/par_ilut_filter_kernel.dp.cpp
+    factorization/par_ilut_select_common.dp.cpp
+    factorization/par_ilut_select_kernel.dp.cpp
+    factorization/par_ilut_spgeam_kernel.dp.cpp
+    factorization/par_ilut_sweep_kernel.dp.cpp
     matrix/coo_kernels.dp.cpp
     matrix/csr_kernels.dp.cpp
     matrix/fbcsr_kernels.dp.cpp
@@ -63,9 +68,7 @@ target_compile_options(ginkgo_dpcpp PRIVATE "${GINKGO_COMPILER_FLAGS}")
 # Note: add MKL as PRIVATE not PUBLIC (MKL example shows) to avoid propagating
 # find_package(MKL) everywhere when linking ginkgo (see the MKL example
 # https://software.intel.com/content/www/us/en/develop/documentation/onemkl-windows-developer-guide/top/getting-started/cmake-config-for-onemkl.html)
-target_compile_options(ginkgo_dpcpp PRIVATE $<TARGET_PROPERTY:MKL::MKL_DPCPP,INTERFACE_COMPILE_OPTIONS>)
-target_compile_features(ginkgo_dpcpp PRIVATE cxx_std_17)
-target_include_directories(ginkgo_dpcpp PRIVATE $<TARGET_PROPERTY:MKL::MKL_DPCPP,INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_features(ginkgo_dpcpp PUBLIC cxx_std_17)
 target_link_options(ginkgo_dpcpp PRIVATE -fsycl-device-lib=all)
 # When building ginkgo as a static library, we need to use dpcpp and per_kernel
 # link option when the program uses a dpcpp related function.

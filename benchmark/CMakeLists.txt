@@ -32,18 +32,18 @@ function(ginkgo_benchmark_hipsparse_linops type def)
     set_target_properties(hipsparse_linops_${type} PROPERTIES COMPILE_FLAGS ${HIP_CXX_FLAGS})
     # use Thrust C++ device just for compilation, we don't use thrust::complex in the benchmarks
     target_compile_definitions(hipsparse_linops_${type} PUBLIC -DTHRUST_DEVICE_SYSTEM=THRUST_DEVICE_SYSTEM_CPP)
-    # for some reason, HIP creates a dependency on Threads::Threads here, so we
-    # need to find it
-    find_package(Threads REQUIRED)
-    find_package(HIP REQUIRED)
-    find_package(hipblas REQUIRED)
-    find_package(hiprand REQUIRED)
-    find_package(hipsparse REQUIRED)
-    find_package(rocrand REQUIRED)
     target_include_directories(hipsparse_linops_${type} SYSTEM PRIVATE
         ${HSA_HEADER} ${HIP_INCLUDE_DIRS}
         ${HIPBLAS_INCLUDE_DIRS} ${HIPSPARSE_INCLUDE_DIRS})
     target_link_libraries(hipsparse_linops_${type} Ginkgo::ginkgo ${HIPSPARSE_LIBRARIES})
+endfunction()
+
+function(ginkgo_benchmark_onemkl_linops type def)
+    add_library(onemkl_linops_${type} utils/dpcpp_linops.dp.cpp)
+    # make the dependency public to catch issues
+    target_compile_definitions(onemkl_linops_${type} PUBLIC ${def})
+    target_compile_features(onemkl_linops_${type} PRIVATE cxx_std_17)
+    target_link_libraries(onemkl_linops_${type} PRIVATE Ginkgo::ginkgo MKL::MKL_DPCPP)
 endfunction()
 
 
@@ -78,6 +78,10 @@ function(ginkgo_add_single_benchmark_executable name use_lib_linops macro_def ty
             target_compile_definitions("${name}" PRIVATE HAS_HIP=1)
             target_link_libraries("${name}" hipsparse_linops_${type})
         endif()
+        if (GINKGO_BUILD_DPCPP)
+            target_compile_definitions("${name}" PRIVATE HAS_DPCPP=1)
+            target_link_libraries("${name}" onemkl_linops_${type})
+        endif()
     endif()
 endfunction(ginkgo_add_single_benchmark_executable)
 
@@ -102,7 +106,6 @@ endfunction(ginkgo_add_typed_benchmark_executables)
 
 
 if (GINKGO_BUILD_CUDA)
-    enable_language(CUDA)
     ginkgo_benchmark_cusparse_linops(d GKO_BENCHMARK_USE_DOUBLE_PRECISION)
     ginkgo_benchmark_cusparse_linops(s GKO_BENCHMARK_USE_SINGLE_PRECISION)
     ginkgo_benchmark_cusparse_linops(z GKO_BENCHMARK_USE_DOUBLE_COMPLEX_PRECISION)
@@ -119,14 +122,16 @@ if (GINKGO_BUILD_HIP)
     add_library(hip_timer utils/hip_timer.hip.cpp)
     EXECUTE_PROCESS(COMMAND ${HIP_PATH}/bin/hipconfig --cpp_config OUTPUT_VARIABLE HIP_CXX_FLAGS)
     set_target_properties(hip_timer PROPERTIES COMPILE_FLAGS ${HIP_CXX_FLAGS})
-    # for some reason, HIP creates a dependency on Threads::Threads here, so we
-    # need to find it
-    find_package(Threads REQUIRED)
-    find_package(HIP REQUIRED)
     target_include_directories(hip_timer SYSTEM PRIVATE ${HSA_HEADER} ${HIP_INCLUDE_DIRS})
     target_link_libraries(hip_timer ginkgo)
 endif()
 
+if (GINKGO_BUILD_DPCPP)
+    ginkgo_benchmark_onemkl_linops(d GKO_BENCHMARK_USE_DOUBLE_PRECISION)
+    ginkgo_benchmark_onemkl_linops(s GKO_BENCHMARK_USE_SINGLE_PRECISION)
+    ginkgo_benchmark_onemkl_linops(z GKO_BENCHMARK_USE_DOUBLE_COMPLEX_PRECISION)
+    ginkgo_benchmark_onemkl_linops(c GKO_BENCHMARK_USE_SINGLE_COMPLEX_PRECISION)
+endif()
 
 add_subdirectory(blas)
 add_subdirectory(conversions)

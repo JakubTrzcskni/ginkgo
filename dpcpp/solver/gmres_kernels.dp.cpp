@@ -301,8 +301,9 @@ void update_hessenberg_2_kernel(
         reduction_helper[tidx] = local_res;
 
         // Perform thread block reduction. Result is in reduction_helper[0]
-        reduce(group::this_thread_block(item_ct1), reduction_helper,
-               [](const ValueType& a, const ValueType& b) { return a + b; });
+        ::gko::kernels::dpcpp::reduce(
+            group::this_thread_block(item_ct1), reduction_helper,
+            [](const ValueType& a, const ValueType& b) { return a + b; });
 
         if (tidx == 0) {
             hessenberg_iter[(iter + 1) * stride_hessenberg + col_idx] =
@@ -469,7 +470,8 @@ void initialize_2(std::shared_ptr<const DpcppExecutor> exec,
                   matrix::Dense<remove_complex<ValueType>>* residual_norm,
                   matrix::Dense<ValueType>* residual_norm_collection,
                   matrix::Dense<ValueType>* krylov_bases,
-                  array<size_type>* final_iter_nums, size_type krylov_dim)
+                  array<size_type>* final_iter_nums, array<char>& tmp,
+                  size_type krylov_dim)
 {
     const auto num_rows = residual->get_size()[0];
     const auto num_rhs = residual->get_size()[1];
@@ -479,7 +481,6 @@ void initialize_2(std::shared_ptr<const DpcppExecutor> exec,
         1, 1);
     const dim3 block_dim(default_block_size, 1, 1);
     constexpr auto block_size = default_block_size;
-    array<char> tmp{exec};
 
     kernels::dpcpp::dense::compute_norm2_dispatch(exec, residual, residual_norm,
                                                   tmp);
