@@ -32,13 +32,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
+#include <iterator>
+#include <set>
+
+#include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/math.hpp>
-#include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/diagonal.hpp>
+#include <ginkgo/core/matrix/sparsity_csr.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
 
+
 #include "core/base/allocator.hpp"
+#include "core/utils/matrix_utils.hpp"
 
 namespace gko {
 namespace kernels {
@@ -136,6 +142,41 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void get_coloring(
+    std::shared_ptr<const ReferenceExecutor> exec,
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    array<IndexType>& vertex_colors)
+{
+    const IndexType* row_ptrs = adjacency_matrix->get_const_row_ptrs();
+    const IndexType* col_idxs = adjacency_matrix->get_const_col_idxs();
+    IndexType highest_color = 0;
+    for (auto i = 0; i < vertex_colors.get_num_elems(); i++) {
+        typename std::set<IndexType> neighbour_colors;
+        for (auto j = row_ptrs[i]; j < row_ptrs[i + 1]; j++) {
+            auto col = col_idxs[j];
+            auto adjacent_vertex_color = vertex_colors.get_const_data()[col];
+            neighbour_colors.insert(adjacent_vertex_color);
+            if (adjacent_vertex_color > highest_color)
+                highest_color = adjacent_vertex_color;
+        }
+        bool color_found = false;
+        for (auto color = 0; !color_found && color <= highest_color; color++) {
+            typename std::set<IndexType>::iterator it;
+            it = neighbour_colors.find(color);
+            if (it == neighbour_colors.end()) {
+                vertex_colors.get_data()[i] = color;
+                color_found = true;
+            }
+        }
+        if (!color_found) {
+            highest_color++;
+            vertex_colors.get_data()[i] = highest_color;
+        }
+    }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL);
 
 }  // namespace gauss_seidel
 }  // namespace reference

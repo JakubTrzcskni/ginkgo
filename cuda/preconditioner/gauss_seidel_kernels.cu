@@ -84,6 +84,14 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void get_coloring(
+    std::shared_ptr<const CudaExecutor> exec,
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    array<IndexType>& vertex_colors) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL);
+
 
 }  // namespace gauss_seidel
 }  // namespace cuda

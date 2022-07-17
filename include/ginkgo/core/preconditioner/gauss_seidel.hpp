@@ -35,10 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 #include <ginkgo/core/base/array.hpp>
+#include <ginkgo/core/base/device_matrix_data.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
 #include <ginkgo/core/base/polymorphic_object.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/sparsity_csr.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
 
 #include <ginkgo/core/matrix/dense.hpp>
@@ -63,12 +65,6 @@ public:
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Dense = matrix::Dense<ValueType>;
     using LTrs = solver::LowerTrs<value_type, index_type>;
-
-    // for testing purposes
-    std::shared_ptr<Csr> get_ltr_system_matrix()
-    {
-        return this->lower_triangular_matrix_;
-    }
 
     std::unique_ptr<LinOp> transpose() const override;
 
@@ -99,8 +95,7 @@ public:
         // determines if GS/SOR or SGS/SSOR should be used
         bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
 
-        // relevant only for SOR/SSOR - general param, or specific and doesn't
-        // belong here? has to be between 0.0 and 2.0
+        // relevant only for SOR/SSOR - has to be between 0.0 and 2.0
         double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
     };
     GKO_ENABLE_LIN_OP_FACTORY(GaussSeidel, parameters, Factory);
@@ -124,6 +119,8 @@ protected:
           //   diag_idxs_{factory->get_executor(),
           //   system_matrix->get_size()[0]},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
+          vertex_colors_{array<index_type>(factory->get_executor(),
+                                           system_matrix->get_size()[0])},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
@@ -133,6 +130,16 @@ protected:
     }
 
     void generate(bool skip_sorting);
+
+    void get_coloring(
+        std::shared_ptr<matrix::Csr<value_type, index_type>> system_matrix,
+        bool is_symmetric);
+
+    template <typename index_type>
+    array<index_type> get_vertex_colors()
+    {
+        return vertex_colors_;
+    }
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
@@ -147,6 +154,7 @@ private:
     std::shared_ptr<const LinOp> lower_trs_{};
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
     // std::shared_ptr<const LinOp> upper_trs_{};
+    array<index_type> vertex_colors_;
     double relaxation_factor_;
     bool symmetric_;
     bool use_reference_;

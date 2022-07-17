@@ -32,9 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
+#include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/matrix_data.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
+#include <ginkgo/core/matrix/sparsity_csr.hpp>
 
 #include "core/base/utils.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
@@ -48,12 +51,9 @@ GKO_REGISTER_OPERATION(apply, gauss_seidel::apply);
 GKO_REGISTER_OPERATION(ref_apply, gauss_seidel::ref_apply);
 GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
-// GKO_REGISTER_OPERATION(generate, gauss_seidel::generate);
-
-// GKO_REGISTER_OPERATION(get_permutation, gauss_seidel::get_permutation);
+GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 }  // namespace
 }  // namespace gauss_seidel
-
 
 template <typename ValueType, typename IndexType>
 GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
@@ -104,14 +104,14 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
 {
     using Dense = matrix::Dense<ValueType>;
     using Csr = matrix::Csr<ValueType, IndexType>;
-    if (this->use_reference_) {
-        this->get_executor()->run(gauss_seidel::make_ref_simple_apply(
-            lend(this->lower_trs_), as<const Dense>(b), as<Dense>(x)));
+    const auto exec = this->get_executor();
+    if (use_reference_) {
+        exec->run(gauss_seidel::make_ref_simple_apply(
+            lend(lower_trs_), as<const Dense>(b), as<Dense>(x)));
     } else {
-        auto system_matrix = this->convert_to_ltr_
-                                 ? this->lower_triangular_matrix_
-                                 : this->system_matrix_;
-        this->get_executor()->run(
+        auto system_matrix =
+            convert_to_ltr_ ? lower_triangular_matrix_ : system_matrix_;
+        exec->run(
             gauss_seidel::make_simple_apply(as<const Csr>(lend(system_matrix)),
                                             as<const Dense>(b), as<Dense>(x)));
     }
@@ -125,15 +125,15 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
 {
     using Dense = matrix::Dense<ValueType>;
     using Csr = matrix::Csr<ValueType, IndexType>;
-    if (this->use_reference_) {
-        this->get_executor()->run(gauss_seidel::make_ref_apply(
-            lend(this->lower_trs_), as<const Dense>(alpha), as<const Dense>(b),
+    const auto exec = this->get_executor();
+    if (use_reference_) {
+        exec->run(gauss_seidel::make_ref_apply(
+            lend(lower_trs_), as<const Dense>(alpha), as<const Dense>(b),
             as<const Dense>(beta), as<Dense>(x)));
     } else {
-        auto system_matrix = this->convert_to_ltr_
-                                 ? this->lower_triangular_matrix_
-                                 : this->system_matrix_;
-        this->get_executor()->run(gauss_seidel::make_apply(
+        auto system_matrix =
+            convert_to_ltr_ ? lower_triangular_matrix_ : system_matrix_;
+        exec->run(gauss_seidel::make_apply(
             as<const Csr>(lend(system_matrix)), as<const Dense>(alpha),
             as<const Dense>(b), as<const Dense>(beta), as<Dense>(x)));
     }
@@ -149,25 +149,56 @@ std::unique_ptr<LinOp> GaussSeidel<ValueType, IndexType>::conj_transpose() const
     GKO_NOT_IMPLEMENTED;
 
 template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::get_coloring(
+    std::shared_ptr<matrix::Csr<ValueType, IndexType>> system_matrix,
+    bool is_symmetric)
+{
+    using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
+    using MatData = matrix_data<ValueType, IndexType>;
+
+    auto exec = this->get_executor();
+
+    auto tmp = copy_and_convert_to<SparsityMatrix>(exec, system_matrix);
+
+    auto adjacency_matrix = SparsityMatrix::create(exec);
+
+    adjacency_matrix = std::move(tmp->to_adjacency_matrix());
+
+    if (!is_symmetric) {
+        MatData tmp_mat_data(system_matrix->get_size());
+        adjacency_matrix->write(tmp_mat_data);
+        utils::make_symmetric_generic(
+            tmp_mat_data, [](auto val) { return ValueType{2} * val; });
+        adjacency_matrix->read(tmp_mat_data);
+    }
+
+    vertex_colors_.fill(IndexType{-1});
+    exec->run(gauss_seidel::make_get_coloring(lend(adjacency_matrix),
+                                              vertex_colors_));
+}
+
+template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::generate(bool skip_sorting)
 {
     using Csr = matrix::Csr<ValueType, IndexType>;
     const auto exec = this->get_executor();
-    GKO_ASSERT_IS_SQUARE_MATRIX(this->system_matrix_);
+    GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix_);
 
-    if (this->convert_to_ltr_) {
-        auto csr_matrix = convert_to_with_sorting<Csr>(
-            exec, this->system_matrix_, skip_sorting);
+    if (convert_to_ltr_) {
+        auto csr_matrix =
+            convert_to_with_sorting<Csr>(exec, system_matrix_, skip_sorting);
 
         matrix_data<ValueType, IndexType> tmp_mat_data{csr_matrix->get_size()};
         csr_matrix->write(tmp_mat_data);
         utils::make_lower_triangular(tmp_mat_data);
-        this->lower_triangular_matrix_->read(tmp_mat_data);
-        this->lower_trs_ = share(
-            this->lower_trs_factory_->generate(this->lower_triangular_matrix_));
+        lower_triangular_matrix_->read(tmp_mat_data);
+        lower_trs_ =
+            share(lower_trs_factory_->generate(lower_triangular_matrix_));
     } else {
-        this->lower_trs_ =
-            this->lower_trs_factory_->generate(this->system_matrix_);
+        lower_trs_ = lower_trs_factory_->generate(system_matrix_);
+    }
+    if (!symmetric_) {
+        get_coloring(lower_triangular_matrix_, false);
     }
 }
 
