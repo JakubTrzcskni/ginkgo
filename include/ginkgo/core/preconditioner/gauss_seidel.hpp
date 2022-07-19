@@ -78,6 +78,10 @@ public:
 
     GaussSeidel(GaussSeidel&& other);
 
+    array<index_type> get_vertex_colors() { return vertex_colors_; }
+
+    array<index_type> get_permutation_idxs() { return permutation_idxs_; }
+
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
     {
         // TODO
@@ -85,8 +89,10 @@ public:
         // sorting path not implemented
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
 
-        // if the system matrix is known to be lower triangular this parameter
-        // can be set to false
+        // matrix should be assumed to NOT Be lower triangular as its not a real
+        // world scenario
+        //  if the system matrix is known to be lower triangular this parameter
+        //  can be set to false
         bool GKO_FACTORY_PARAMETER_SCALAR(convert_to_lower_triangular, true);
 
         // determines if ginkgo lower triangular solver should be used
@@ -121,6 +127,8 @@ protected:
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{array<index_type>(factory->get_executor(),
                                            system_matrix->get_size()[0])},
+          permutation_idxs_{array<index_type>(factory->get_executor(),
+                                              system_matrix->get_size()[0])},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
@@ -131,15 +139,11 @@ protected:
 
     void generate(bool skip_sorting);
 
-    void get_coloring(
+    IndexType get_coloring(
         std::shared_ptr<matrix::Csr<value_type, index_type>> system_matrix,
         bool is_symmetric);
 
-    template <typename index_type>
-    array<index_type> get_vertex_colors()
-    {
-        return vertex_colors_;
-    }
+    void reorder_with_colors(index_type max_color);
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
@@ -155,6 +159,7 @@ private:
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
     // std::shared_ptr<const LinOp> upper_trs_{};
     array<index_type> vertex_colors_;
+    array<index_type> permutation_idxs_;
     double relaxation_factor_;
     bool symmetric_;
     bool use_reference_;

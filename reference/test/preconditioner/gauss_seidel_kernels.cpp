@@ -96,7 +96,11 @@ protected:
                                             {2.0, -1.0, 10.0, -1.0},
                                             {0.0, 3.0, -1.0, 8.0}},
                                            exec)},
-          mtx_csr_3{Csr::create(exec)},
+          mtx_csr_3{gko::initialize<Csr>({{10.0, -1.0, 2.0, 0.0},
+                                          {-1.0, 11.0, -1.0, 3.0},
+                                          {2.0, -1.0, 10.0, -1.0},
+                                          {0.0, 3.0, -1.0, 8.0}},
+                                         exec)},
           mtx_csr_4{Csr::create(exec, gko::dim<2>{5}, 10)},
           rhs_2{gko::initialize<Vec>({3.9, 9.0, 2.2}, exec)},
           ans_2{gko::initialize<Vec>({1.0, 3.0, 2.0}, exec)},
@@ -117,7 +121,7 @@ protected:
 
     {
         mtx_dense_2->convert_to(gko::lend(mtx_csr_2));
-        mtx_dense_3->convert_to(gko::lend(mtx_csr_3));
+        // mtx_dense_3->convert_to(gko::lend(mtx_csr_3));
         init_array<index_type>(mtx_csr_4->get_row_ptrs(), {0, 1, 3, 5, 7, 10});
         init_array<index_type>(mtx_csr_4->get_col_idxs(),
                                {0, 0, 1, 0, 2, 1, 3, 2, 3, 4});
@@ -353,6 +357,25 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
         exec, lend(adjacency_matrix), vertex_colors);
 
     GKO_ASSERT_ARRAY_EQ(vertex_colors, ans);
+}
+
+TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
+{
+    using index_type = typename TestFixture::index_type;
+    using value_type = typename TestFixture::value_type;
+    auto exec = this->exec;
+    size_t grid_size = 4;
+
+    auto regular_grid_matrix =
+        share(this->generate_2D_regular_grid_matrix(grid_size, value_type{0}));
+
+    auto gs = this->gs_factory->generate(regular_grid_matrix);
+
+    auto perm_arr = gs->get_permutation_idxs();
+
+    for (auto i = 0; i < grid_size * grid_size; i++) {
+        std::cout << perm_arr.get_data()[i] << " ";
+    }
 }
 
 }  // namespace

@@ -149,7 +149,7 @@ std::unique_ptr<LinOp> GaussSeidel<ValueType, IndexType>::conj_transpose() const
     GKO_NOT_IMPLEMENTED;
 
 template <typename ValueType, typename IndexType>
-void GaussSeidel<ValueType, IndexType>::get_coloring(
+IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
     std::shared_ptr<matrix::Csr<ValueType, IndexType>> system_matrix,
     bool is_symmetric)
 {
@@ -175,6 +175,27 @@ void GaussSeidel<ValueType, IndexType>::get_coloring(
     vertex_colors_.fill(IndexType{-1});
     exec->run(gauss_seidel::make_get_coloring(lend(adjacency_matrix),
                                               vertex_colors_));
+
+    // TODO save the max color of the computed coloring (and return the value)
+    return IndexType{-1};
+}
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::reorder_with_colors(IndexType max_color)
+{
+    auto num_rows = vertex_colors_.get_num_elems();
+    const auto coloring = vertex_colors_.get_const_data();
+    auto permutation = permutation_idxs_.get_data();
+    IndexType tmp{0};
+    for (auto color = 0; color < max_color; color++) {
+        for (auto i = 0; i < num_rows; i++) {
+            if (coloring[i] == color) {
+                permutation[tmp] = i;
+                tmp++;
+            }
+        }
+    }
+    GKO_ASSERT_EQ(tmp, num_rows);
 }
 
 template <typename ValueType, typename IndexType>
@@ -192,13 +213,22 @@ void GaussSeidel<ValueType, IndexType>::generate(bool skip_sorting)
         csr_matrix->write(tmp_mat_data);
         utils::make_lower_triangular(tmp_mat_data);
         lower_triangular_matrix_->read(tmp_mat_data);
-        lower_trs_ =
-            share(lower_trs_factory_->generate(lower_triangular_matrix_));
-    } else {
-        lower_trs_ = lower_trs_factory_->generate(system_matrix_);
+
+        if (use_reference_) {
+            lower_trs_ =
+                share(lower_trs_factory_->generate(lower_triangular_matrix_));
+        } else {
+            lower_trs_ = {};
+        }
     }
+    // not necessary anymore, matrix is assumed not to be lower triangular.
+    //  else {
+    //      lower_trs_ = lower_trs_factory_->generate(system_matrix_);
+    //  }
     if (!symmetric_) {
-        get_coloring(lower_triangular_matrix_, false);
+        auto max_color = get_coloring(lower_triangular_matrix_, false);
+        // TODO
+        reorder_with_colors(8);  // hard coded for the example
     }
 }
 
