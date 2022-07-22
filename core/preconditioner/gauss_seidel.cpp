@@ -111,8 +111,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
     bool permuted = permutation_idxs_.get_num_elems() > 0;
 
     if (permuted) {
-        auto x_dense = as<Dense>(x);
-        const auto b_dense = as<const Dense>(b);
         const auto b_perm = as<const Dense>(
             as<const Dense>(b)->row_permute(&permutation_idxs_));
         auto x_perm = as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_));
@@ -120,7 +118,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         if (use_reference_) {
             exec->run(gauss_seidel::make_ref_simple_apply(
                 lend(lower_trs_), lend(b_perm), lend(x_perm)));
-
         } else {
             // TODO
             if (b->get_size()[1] > 1) {
@@ -200,13 +197,13 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
 
                     auto one = gko::initialize<Dense>({1.0}, exec);
                     auto neg_one = gko::initialize<Dense>({-1.0}, exec);
-                    curr_under_diag_block->apply(lend(neg_one),
-                                                 lend(curr_x_block), lend(one),
-                                                 lend(tmp_rhs_block));
+                    curr_under_diag_block->apply(
+                        lend(neg_one), lend(up_to_curr_x_block), lend(one),
+                        lend(tmp_rhs_block));
                 }
             }
-            as<Dense>(x)->copy_from(std::move(x_perm));
         }
+        as<Dense>(x)->copy_from(std::move(x_perm));
     } else {
         if (use_reference_) {
             exec->run(gauss_seidel::make_ref_simple_apply(
@@ -297,7 +294,7 @@ void GaussSeidel<ValueType, IndexType>::reorder_with_colors(IndexType max_color)
         }
     }
     GKO_ASSERT_EQ(tmp, num_rows);
-    col_ptrs[max_color] = num_rows;
+    col_ptrs[max_color + 1] = num_rows;
 }
 
 
@@ -318,7 +315,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
     if (use_coloring_) {
         auto max_color =
             get_coloring(mat_data);  // matrix data is made symmetric here
-        color_ptrs_.resize_and_reset(max_color + 1);
+        color_ptrs_.resize_and_reset(max_color + 2);
         reorder_with_colors(max_color);
     }
 

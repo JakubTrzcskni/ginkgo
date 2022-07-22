@@ -79,7 +79,7 @@ protected:
         : exec{gko::ReferenceExecutor::create()},
           gs_factory(GS::build().on(exec)),
           ref_gs_factory(
-              GS::build().with_use_reference(true).with_use_coloring(false).on(
+              GS::build().with_use_reference(true).with_use_coloring(true).on(
                   exec)),
           iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
           res_norm_criterion_factory(
@@ -251,8 +251,11 @@ TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel)
     using value_type = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
+    ans->fill(value_type{-1});
     auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_4);
     ref_gs->apply(lend(this->rhs_4), lend(ans));
+
+    this->print_csr(lend(ref_gs->get_ltr_matrix()));
 
     GKO_ASSERT_MTX_NEAR(ans, this->ans_4, r<value_type>::value);
 }
@@ -265,11 +268,24 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel)
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
     ans->fill(value_type{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_4);
+
+    // auto v_colors = gs->get_vertex_colors();
+    // auto p_idxs = gs->get_permutation_idxs();
+    // auto col_ptrs = gs->get_color_ptrs();
+
+    // this->print_array(v_colors);
+    // this->print_array(p_idxs);
+    // this->print_array(col_ptrs);
+    // this->print_csr(lend(gs->get_ltr_matrix()));
+
     gs->apply(lend(this->rhs_4), lend(ans));
 
-    this->print_csr(lend(gs->get_ltr_matrix()));
-
-    GKO_ASSERT_MTX_NEAR(ans, this->ans_4, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(
+        ans,
+        l({value_type{6.0 / 10.0}, value_type{15.0 / 8.0},
+           value_type{3598.0 / 1760.0}, value_type{-116.0 / 100.0},
+           value_type{-1807.0 / 2800.0}}),
+        r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
@@ -282,15 +298,19 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
     auto gs = this->gs_factory->generate(this->mtx_csr_3);
     gs->apply(lend(this->rhs_3), lend(ans));
 
-    auto v_colors = gs->get_vertex_colors();
-    auto p_idxs = gs->get_permutation_idxs();
+    // auto v_colors = gs->get_vertex_colors();
+    // auto p_idxs = gs->get_permutation_idxs();
 
-    this->print_array(v_colors);
-    this->print_array(p_idxs);
+    // this->print_array(v_colors);
+    // this->print_array(p_idxs);
 
-    this->print_csr(lend(gs->get_ltr_matrix()));
+    // this->print_csr(lend(gs->get_ltr_matrix()));
 
-    GKO_ASSERT_MTX_NEAR(ans, this->ans_3, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(
+        ans,
+        l({value_type{6.0 / 10.0}, value_type{15.0 / 8.0},
+           value_type{799.0 / 440.0}, value_type{-3744.0 / 4400.0}}),
+        r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, ReferenceSimpleApplyNonTriangularMatrix)
