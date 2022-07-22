@@ -88,7 +88,7 @@ template <typename ValueType, typename IndexType>
 void get_coloring(
     std::shared_ptr<const OmpExecutor> exec,
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
-    array<IndexType>& vertex_colors) GKO_NOT_IMPLEMENTED;
+    array<IndexType>& vertex_colors, IndexType* max_color) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL);
 

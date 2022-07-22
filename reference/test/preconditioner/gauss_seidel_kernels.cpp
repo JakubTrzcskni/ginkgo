@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
 #include <ginkgo/core/base/math.hpp>
@@ -77,8 +78,10 @@ protected:
     GaussSeidel()
         : exec{gko::ReferenceExecutor::create()},
           gs_factory(GS::build().on(exec)),
-          ref_gs_factory(GS::build().with_use_reference(true).on(exec)),
-          iter_criterion_factory(Iter::build().with_max_iters(20u).on(exec)),
+          ref_gs_factory(
+              GS::build().with_use_reference(true).with_use_coloring(false).on(
+                  exec)),
+          iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
           res_norm_criterion_factory(
               ResNorm::build()
                   .with_reduction_factor(r<value_type>::value)
@@ -91,11 +94,6 @@ protected:
           mtx_dense_2{gko::initialize<Vec>(
               {{0.9, -1.0, 3.0}, {0.0, 1.0, 3.0}, {0.0, 0.0, 1.1}}, exec)},
           mtx_csr_2{Csr::create(exec)},
-          mtx_dense_3{gko::initialize<Vec>({{10.0, -1.0, 2.0, 0.0},
-                                            {-1.0, 11.0, -1.0, 3.0},
-                                            {2.0, -1.0, 10.0, -1.0},
-                                            {0.0, 3.0, -1.0, 8.0}},
-                                           exec)},
           mtx_csr_3{gko::initialize<Csr>({{10.0, -1.0, 2.0, 0.0},
                                           {-1.0, 11.0, -1.0, 3.0},
                                           {2.0, -1.0, 10.0, -1.0},
@@ -121,7 +119,6 @@ protected:
 
     {
         mtx_dense_2->convert_to(gko::lend(mtx_csr_2));
-        // mtx_dense_3->convert_to(gko::lend(mtx_csr_3));
         init_array<index_type>(mtx_csr_4->get_row_ptrs(), {0, 1, 3, 5, 7, 10});
         init_array<index_type>(mtx_csr_4->get_col_idxs(),
                                {0, 0, 1, 0, 2, 1, 3, 2, 3, 4});
@@ -206,6 +203,15 @@ protected:
         return std::move(matrix);
     }
 
+    template <typename ValueType>
+    void print_array(gko::array<ValueType>& arr)
+    {
+        for (auto i = 0; i < arr.get_num_elems(); i++) {
+            std::cout << arr.get_data()[i] << " ";
+        }
+        std::cout << std::endl;
+    }
+
     std::shared_ptr<const gko::ReferenceExecutor> exec;
     std::shared_ptr<typename GS::Factory> gs_factory;
     std::shared_ptr<typename GS::Factory> ref_gs_factory;
@@ -215,7 +221,6 @@ protected:
     std::shared_ptr<Vec> mtx_dense_2;
     std::shared_ptr<Csr> mtx_csr_2;
     // example wiki 2
-    std::shared_ptr<Vec> mtx_dense_3;
     std::shared_ptr<Csr> mtx_csr_3;
     std::shared_ptr<Csr> mtx_csr_4;
     std::shared_ptr<Vec> rhs_2;
@@ -258,10 +263,34 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel)
     using value_type = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
+    ans->fill(value_type{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_4);
     gs->apply(lend(this->rhs_4), lend(ans));
 
+    this->print_csr(lend(gs->get_ltr_matrix()));
+
     GKO_ASSERT_MTX_NEAR(ans, this->ans_4, r<value_type>::value);
+}
+
+TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
+{
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+
+    auto ans = Vec::create_with_config_of(lend(this->rhs_3));
+    ans->fill(value_type{0});
+    auto gs = this->gs_factory->generate(this->mtx_csr_3);
+    gs->apply(lend(this->rhs_3), lend(ans));
+
+    auto v_colors = gs->get_vertex_colors();
+    auto p_idxs = gs->get_permutation_idxs();
+
+    this->print_array(v_colors);
+    this->print_array(p_idxs);
+
+    this->print_csr(lend(gs->get_ltr_matrix()));
+
+    GKO_ASSERT_MTX_NEAR(ans, this->ans_3, r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, ReferenceSimpleApplyNonTriangularMatrix)
@@ -272,6 +301,8 @@ TYPED_TEST(GaussSeidel, ReferenceSimpleApplyNonTriangularMatrix)
     auto ans = Vec::create_with_config_of(lend(this->rhs_3));
     auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_3);
     ref_gs->apply(lend(this->rhs_3), lend(ans));
+
+    // this->print_csr(lend(ref_gs->get_ltr_matrix()));
 
     GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_3, r<value_type>::value);
 }
@@ -290,7 +321,7 @@ TYPED_TEST(GaussSeidel, SystemSolveReferenceApply)
         Ir::build()
             .with_solver(this->ref_gs_factory)
             .with_criteria(
-                gko::stop::Iteration::build().with_max_iters(10u).on(exec),
+                gko::stop::Iteration::build().with_max_iters(50u).on(exec),
                 gko::stop::ResidualNorm<value_type>::build()
                     .with_reduction_factor(r<value_type>::value)
                     .on(exec))
@@ -353,8 +384,9 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
     auto tmp = gko::copy_and_convert_to<SparsityCsr>(exec, regular_grid_matrix);
     auto adjacency_matrix = SparsityCsr::create(exec);
     adjacency_matrix = std::move(tmp->to_adjacency_matrix());
+    index_type max_color{0};
     gko::kernels::reference::gauss_seidel::get_coloring(
-        exec, lend(adjacency_matrix), vertex_colors);
+        exec, lend(adjacency_matrix), vertex_colors, &max_color);
 
     GKO_ASSERT_ARRAY_EQ(vertex_colors, ans);
 }
@@ -364,7 +396,7 @@ TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
     using index_type = typename TestFixture::index_type;
     using value_type = typename TestFixture::value_type;
     auto exec = this->exec;
-    size_t grid_size = 4;
+    size_t grid_size = 3;
 
     auto regular_grid_matrix =
         share(this->generate_2D_regular_grid_matrix(grid_size, value_type{0}));
@@ -373,9 +405,12 @@ TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
 
     auto perm_arr = gs->get_permutation_idxs();
 
-    for (auto i = 0; i < grid_size * grid_size; i++) {
-        std::cout << perm_arr.get_data()[i] << " ";
-    }
+    // for (auto i = 0; i < grid_size * grid_size; i++) {
+    //     std::cout << perm_arr.get_data()[i] << " ";
+    // }
+    // std::cout << std::endl;
+
+    // this->print_csr(lend(gs->get_ltr_matrix()));
 }
 
 }  // namespace

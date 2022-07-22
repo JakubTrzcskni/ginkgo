@@ -78,7 +78,7 @@ namespace kernels {
     void get_coloring(                                                     \
         std::shared_ptr<const DefaultExecutor> exec,                       \
         const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, \
-        array<IndexType>& vertex_colors)
+        array<IndexType>& vertex_colors, IndexType* max_color)
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                    \
     template <typename ValueType, typename IndexType>                   \

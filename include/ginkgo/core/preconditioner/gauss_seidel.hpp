@@ -82,6 +82,10 @@ public:
 
     array<index_type> get_permutation_idxs() { return permutation_idxs_; }
 
+    array<index_type> get_color_ptrs() { return color_ptrs_; }
+
+    std::shared_ptr<Csr> get_ltr_matrix() { return lower_triangular_matrix_; }
+
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
     {
         // TODO
@@ -89,13 +93,16 @@ public:
         // sorting path not implemented
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
 
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_coloring, true);
+
         // matrix should be assumed to NOT Be lower triangular as its not a real
         // world scenario
         //  if the system matrix is known to be lower triangular this parameter
         //  can be set to false
-        bool GKO_FACTORY_PARAMETER_SCALAR(convert_to_lower_triangular, true);
+        // bool GKO_FACTORY_PARAMETER_SCALAR(convert_to_lower_triangular, true);
 
         // determines if ginkgo lower triangular solver should be used
+        // if reference solver is used no coloring&reordering will take place
         bool GKO_FACTORY_PARAMETER_SCALAR(use_reference, false);
 
         // determines if GS/SOR or SGS/SSOR should be used
@@ -120,28 +127,27 @@ protected:
         : EnableLinOp<GaussSeidel>(factory->get_executor(),
                                    gko::transpose(system_matrix->get_size())),
           parameters_{factory->get_parameters()},
-          system_matrix_{system_matrix},
           lower_triangular_matrix_{Csr::create(factory->get_executor())},
           //   diag_idxs_{factory->get_executor(),
           //   system_matrix->get_size()[0]},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{array<index_type>(factory->get_executor(),
                                            system_matrix->get_size()[0])},
-          permutation_idxs_{array<index_type>(factory->get_executor(),
-                                              system_matrix->get_size()[0])},
+          color_ptrs_{array<index_type>(factory->get_executor())},
+          permutation_idxs_{array<index_type>(factory->get_executor())},
           relaxation_factor_{parameters_.relaxation_factor},
-          symmetric_{parameters_.symmetric_preconditioner},
+          symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
-          convert_to_ltr_{parameters_.convert_to_lower_triangular}
+          use_coloring_{parameters_.use_coloring}
     {
-        this->generate(parameters_.skip_sorting);
+        this->generate(system_matrix, parameters_.skip_sorting);
     }
 
-    void generate(bool skip_sorting);
+    void generate(std::shared_ptr<const LinOp> system_matrix,
+                  bool skip_sorting);
 
-    IndexType get_coloring(
-        std::shared_ptr<matrix::Csr<value_type, index_type>> system_matrix,
-        bool is_symmetric);
+    IndexType get_coloring(matrix_data<ValueType, IndexType>& mat_data,
+                           bool is_symmetric = false);
 
     void reorder_with_colors(index_type max_color);
 
@@ -152,18 +158,21 @@ protected:
 
 
 private:
-    std::shared_ptr<const LinOp> system_matrix_{};
-    std::shared_ptr<Csr> lower_triangular_matrix_{};
+    std::shared_ptr<Csr>
+        lower_triangular_matrix_{};  // aka matrix used in the preconditioner
     // array<index_type> diag_idxs_;
     std::shared_ptr<const LinOp> lower_trs_{};
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
     // std::shared_ptr<const LinOp> upper_trs_{};
     array<index_type> vertex_colors_;
+    array<index_type> color_ptrs_;  // assuming that the colors found constitute
+                                    // a span [0,max_color], i.e., there are no
+                                    // gaps in the assigned color numbers
     array<index_type> permutation_idxs_;
     double relaxation_factor_;
-    bool symmetric_;
+    bool symmetric_preconditioner_;
     bool use_reference_;
-    bool convert_to_ltr_;
+    bool use_coloring_;
 };
 }  // namespace preconditioner
 }  // namespace gko
