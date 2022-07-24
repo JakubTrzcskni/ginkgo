@@ -8,7 +8,7 @@
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=ginkgo-project_ginkgo&metric=reliability_rating)](https://sonarcloud.io/dashboard?id=ginkgo-project_ginkgo)
 
 [![CDash dashboard](https://img.shields.io/badge/CDash-Access-blue.svg)](https://my.cdash.org/index.php?project=Ginkgo+Project)
-[![Documentation](https://img.shields.io/badge/Documentation-latest-blue.svg)](https://ginkgo-project.github.io/ginkgo/doc/develop/)
+[![Documentation](https://img.shields.io/badge/Documentation-latest-blue.svg)](https://ginkgo-project.github.io/ginkgo-generated-documentation/doc/develop/)
 [![License](https://img.shields.io/github/license/ginkgo-project/ginkgo.svg)](./LICENSE)
 [![c++ standard](https://img.shields.io/badge/c%2B%2B-14-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B#Standardization)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.02260/status.svg)](https://doi.org/10.21105/joss.02260)
@@ -128,7 +128,7 @@ An example can be found in the [`test_install`](test_install/CMakeLists.txt).
 
 ### Ginkgo Examples
 
-Various examples are available for you to understand and play with Ginkgo within the `examples/` directory. They can be compiled by passing the `-DGINKGO_BUILD_EXAMPLES=ON` to the cmake command. Documentation for the examples is available within the `doc/` folder in each of the example directory and a commented code with explanations can found in the [online documentation](https://ginkgo-project.github.io/ginkgo/doc/develop/Examples.html).
+Various examples are available for you to understand and play with Ginkgo within the `examples/` directory. They can be compiled by passing the `-DGINKGO_BUILD_EXAMPLES=ON` to the cmake command. Documentation for the examples is available within the `doc/` folder in each of the example directory and a commented code with explanations can found in the [online documentation](https://ginkgo-project.github.io/ginkgo-generated-documentation/doc/develop/Examples.html).
 
 ### Ginkgo Testing
 
