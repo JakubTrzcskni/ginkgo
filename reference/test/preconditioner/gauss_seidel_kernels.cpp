@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <type_traits>
 
 #include <gtest/gtest.h>
@@ -56,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/test/utils.hpp"
+#include "core/utils/matrix_utils.hpp"
 #include "matrices/config.hpp"
 
 namespace {
@@ -72,16 +74,18 @@ protected:
     using ResNorm = gko::stop::ResidualNorm<value_type>;
     using Csr = gko::matrix::Csr<value_type, index_type>;
     using Vec = gko::matrix::Dense<value_type>;
+    using Diagonal = gko::matrix::Diagonal<value_type>;
     using MatData = gko::matrix_data<value_type, index_type>;
 
 
     GaussSeidel()
         : exec{gko::ReferenceExecutor::create()},
-          gs_factory(GS::build().on(exec)),
+          rand_engine{15},
+          gs_factory(GS::build().with_use_coloring(true).on(exec)),
           ref_gs_factory(
-              GS::build().with_use_reference(true).with_use_coloring(true).on(
+              GS::build().with_use_reference(true).with_use_coloring(false).on(
                   exec)),
-          iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
+          iter_criterion_factory(Iter::build().with_max_iters(20u).on(exec)),
           res_norm_criterion_factory(
               ResNorm::build()
                   .with_reduction_factor(r<value_type>::value)
@@ -99,7 +103,8 @@ protected:
                                           {2.0, -1.0, 10.0, -1.0},
                                           {0.0, 3.0, -1.0, 8.0}},
                                          exec)},
-          mtx_csr_4{Csr::create(exec, gko::dim<2>{5}, 10)},
+          mtx_csr_4{Csr::create(exec, gko::dim<2>{5}, 15)},
+          mtx_rand{Csr::create(exec, gko::dim<2>{500})},
           rhs_2{gko::initialize<Vec>({3.9, 9.0, 2.2}, exec)},
           ans_2{gko::initialize<Vec>({1.0, 3.0, 2.0}, exec)},
           rhs_3{gko::initialize<Vec>({6.0, 25.0, -11.0, 15.0}, exec)},
@@ -111,20 +116,38 @@ protected:
           x_1_3{
               gko::initialize<Vec>({0.6, 2.32727, -0.987273, 0.878864}, exec)},
           rhs_4{gko::initialize<Vec>({6.0, 25.0, -11.0, 15.0, -3.0}, exec)},
-          ans_4{gko::initialize<Vec>(
-              {value_type{6.0 / 10.0}, value_type{256.0 / 110.0},
-               value_type{-122.0 / 100.0}, value_type{882.0 / 880.0},
-               value_type{-45956.0 / 61600.0}},
-              exec)}
+          ltr_ans_4{gko::initialize<Vec>(
+              {value_type{6.0 / 10.0}, value_type{253.0 / 110.0},
+               value_type{-116.0 / 100.0}, value_type{1155.0 / 800.0},
+               value_type{-6883.0 / 11200.0}},
+              exec)},
+          rhs_rand{gko::test::generate_random_matrix<Vec>(
+              mtx_rand->get_size()[0], 1,
+              std::uniform_int_distribution<index_type>(
+                  mtx_rand->get_size()[0], mtx_rand->get_size()[0]),
+              std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
+                                                                        1.0),
+              rand_engine, exec)}
 
     {
         mtx_dense_2->convert_to(gko::lend(mtx_csr_2));
-        init_array<index_type>(mtx_csr_4->get_row_ptrs(), {0, 1, 3, 5, 7, 10});
+        init_array<index_type>(mtx_csr_4->get_row_ptrs(), {0, 3, 6, 9, 12, 15});
         init_array<index_type>(mtx_csr_4->get_col_idxs(),
-                               {0, 0, 1, 0, 2, 1, 3, 2, 3, 4});
-        init_array<value_type>(
-            mtx_csr_4->get_values(),
-            {10.0, -1.0, 11.0, 2.0, 10.0, 3.0, 8.0, -1.0, 1.0, 7.0});
+                               {0, 1, 2, 0, 1, 3, 0, 2, 4, 1, 3, 4, 2, 3, 4});
+        init_array<value_type>(mtx_csr_4->get_values(),
+                               {10.0, -0.5, 1.0, -0.5, 11.0, 1.5, 1.0, 10.0,
+                                -0.5, 1.5, 8.0, 0.5, -0.5, 0.5, 7.0});
+
+        auto rand_mat_data =
+            gko::test::generate_random_matrix_data<value_type, index_type>(
+                mtx_rand->get_size()[0], mtx_rand->get_size()[1],
+                std::uniform_int_distribution<index_type>(10, 50),
+                std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
+                                                                          1.0),
+                rand_engine);
+        gko::utils::make_spd(rand_mat_data, 2.0);
+        rand_mat_data.ensure_row_major_order();
+        mtx_rand->read(rand_mat_data);
     }
 
     // Source: jacobi_kernels.cpp (test)
@@ -135,6 +158,7 @@ protected:
             *(arr++) = elem;
         }
     }
+
     template <typename value_type, typename index_type>
     void print_csr(const gko::matrix::Csr<value_type, index_type>* matrix)
     {
@@ -213,6 +237,7 @@ protected:
     }
 
     std::shared_ptr<const gko::ReferenceExecutor> exec;
+    std::default_random_engine rand_engine;
     std::shared_ptr<typename GS::Factory> gs_factory;
     std::shared_ptr<typename GS::Factory> ref_gs_factory;
     std::shared_ptr<typename Iter::Factory> iter_criterion_factory;
@@ -223,6 +248,7 @@ protected:
     // example wiki 2
     std::shared_ptr<Csr> mtx_csr_3;
     std::shared_ptr<Csr> mtx_csr_4;
+    std::shared_ptr<Csr> mtx_rand;
     std::shared_ptr<Vec> rhs_2;
     std::shared_ptr<Vec> ans_2;
     std::shared_ptr<Vec> rhs_3;
@@ -230,7 +256,8 @@ protected:
     std::shared_ptr<Vec> ltr_ans_3;
     std::shared_ptr<Vec> x_1_3;
     std::shared_ptr<Vec> rhs_4;
-    std::shared_ptr<Vec> ans_4;
+    std::shared_ptr<Vec> ltr_ans_4;
+    std::shared_ptr<Vec> rhs_rand;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
@@ -251,13 +278,56 @@ TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel)
     using value_type = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
-    ans->fill(value_type{-1});
+    ans->fill(value_type{0});
     auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_4);
     ref_gs->apply(lend(this->rhs_4), lend(ans));
 
-    this->print_csr(lend(ref_gs->get_ltr_matrix()));
+    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_4, r<value_type>::value);
+}
 
-    GKO_ASSERT_MTX_NEAR(ans, this->ans_4, r<value_type>::value);
+TYPED_TEST(GaussSeidel, ReferenceSimpleApply_2)
+{
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+
+    auto ans = Vec::create_with_config_of(lend(this->rhs_3));
+    auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_3);
+    ref_gs->apply(lend(this->rhs_3), lend(ans));
+
+    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_3, r<value_type>::value);
+}
+
+TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel_rand_mat_spd)
+{
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+    using index_type = typename TestFixture::index_type;
+    auto exec = this->exec;
+
+    auto mtx_rand = this->mtx_rand;
+    auto ref_mtx_rand = share(Csr::create(exec));
+    gko::matrix_data<value_type, index_type> rand_mat_data;
+    mtx_rand->write(rand_mat_data);
+    gko::utils::make_lower_triangular(rand_mat_data);
+    ref_mtx_rand->read(rand_mat_data);
+
+    auto rhs_rand = this->rhs_rand;
+
+    auto x = Vec::create_with_config_of(lend(rhs_rand));
+    x->fill(value_type{0});
+    auto ref_x = Vec::create_with_config_of(lend(rhs_rand));
+    ref_x->fill(value_type{0});
+
+    auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
+    auto ltrs_factory =
+        gko::solver::LowerTrs<value_type, index_type>::build().on(exec);
+    auto ref_ltrs = ltrs_factory->generate(ref_mtx_rand);
+
+    ref_gs->apply(lend(rhs_rand), lend(x));
+    ref_ltrs->apply(lend(rhs_rand), lend(ref_x));
+
+    GKO_ASSERT_MTX_NEAR(x, ref_x, r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel)
@@ -280,12 +350,11 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel)
 
     gs->apply(lend(this->rhs_4), lend(ans));
 
-    GKO_ASSERT_MTX_NEAR(
-        ans,
-        l({value_type{6.0 / 10.0}, value_type{15.0 / 8.0},
-           value_type{3598.0 / 1760.0}, value_type{-116.0 / 100.0},
-           value_type{-1807.0 / 2800.0}}),
-        r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(ans,
+                        l({value_type{6.0 / 10.0}, value_type{3598.0 / 1760.0},
+                           value_type{-116.0 / 100.0}, value_type{15.0 / 8.0},
+                           value_type{-1807.0 / 2800.0}}),
+                        r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
@@ -308,27 +377,126 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
 
     GKO_ASSERT_MTX_NEAR(
         ans,
-        l({value_type{6.0 / 10.0}, value_type{15.0 / 8.0},
-           value_type{799.0 / 440.0}, value_type{-3744.0 / 4400.0}}),
+        l({value_type{6.0 / 10.0}, value_type{799.0 / 440.0},
+           value_type{-3744.0 / 4400.0}, value_type{15.0 / 8.0}}),
         r<value_type>::value);
 }
 
-TYPED_TEST(GaussSeidel, ReferenceSimpleApplyNonTriangularMatrix)
+TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
+{
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+    using index_type = typename TestFixture::index_type;
+    auto exec = this->exec;
+
+    auto mtx_rand = this->mtx_rand;
+
+    auto rhs_rand = this->rhs_rand;
+
+    auto x = Vec::create_with_config_of(lend(rhs_rand));
+    x->fill(value_type{0});
+    auto ref_x = Vec::create_with_config_of(lend(rhs_rand));
+    ref_x->fill(value_type{0});
+
+    auto gs = this->gs_factory->generate(mtx_rand);
+    // auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
+    // comparing to ref_gs yields a small error every time ->effect of
+    // reordering on the system?
+    auto ltrs_factory =
+        gko::solver::LowerTrs<value_type, index_type>::build().on(exec);
+
+    gko::matrix_data<value_type, index_type> ref_data;
+    gs->get_ltr_matrix()->write(ref_data);
+    ref_data.ensure_row_major_order();  // without row major order ltrs won't
+                                        // work correctly
+    auto ref_mtx = share(Csr::create(exec));
+    ref_mtx->read(ref_data);
+    auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+
+    auto perm_idxs_view =
+        gko::array<index_type>(exec, gs->get_permutation_idxs());
+
+    const auto rhs_rand_perm =
+        gko::as<const Vec>(lend(rhs_rand)->row_permute(&perm_idxs_view));
+
+    gs->apply(lend(rhs_rand), lend(x));
+    ref_ltrs->apply(lend(rhs_rand_perm), lend(ref_x));
+
+    auto ref_ans = Vec::create(exec);
+    ref_ans->copy_from(
+        std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs_view))));
+
+    // auto colors = gs->get_color_ptrs();
+    // std::cout << "sum of colors = "
+    //           << gko::reduce_add(gs->get_vertex_colors(), index_type{0})
+    //           << "\nmax color = " << colors.get_num_elems() - 2 << std::endl;
+
+    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<value_type>::value);
+}
+
+TYPED_TEST(GaussSeidel, SimpleApplyDiagonalMatrix)
+{
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+    using Diagonal = typename TestFixture::Diagonal;
+
+    auto diag_vals =
+        gko::array<value_type>(this->exec, I<value_type>({1, 2, 3, 4, 5}));
+
+    auto diag_mat = share(
+        Diagonal::create(this->exec, diag_vals.get_num_elems(), diag_vals));
+
+    auto ans = Vec::create_with_config_of(lend(this->rhs_4));
+    ans->fill(value_type{0});
+    auto gs = this->gs_factory->generate(diag_mat);
+    gs->apply(lend(this->rhs_4), lend(ans));
+
+
+    GKO_ASSERT_MTX_NEAR(ans,
+                        l({value_type{6.0 / 1.0}, value_type{25.0 / 2.0},
+                           value_type{-11.0 / 3.0}, value_type{15.0 / 4.0},
+                           value_type{-3.0 / 5.0}}),
+                        r<value_type>::value);
+}
+
+TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
 {
     using Vec = typename TestFixture::Vec;
     using value_type = typename TestFixture::value_type;
 
-    auto ans = Vec::create_with_config_of(lend(this->rhs_3));
-    auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_3);
-    ref_gs->apply(lend(this->rhs_3), lend(ans));
+    auto mtx = this->mtx_csr_4;
+    auto rhs = gko::initialize<Vec>(
+        {I<value_type>{6.0, 3.0}, I<value_type>{25.0, 12.5},
+         I<value_type>{-11.0, -5.5}, I<value_type>{15.0, 7.5},
+         I<value_type>{-3.0, -1.5}},
+        this->exec);
+    auto ans = Vec::create_with_config_of(gko::lend(rhs));
+    ans->fill(value_type{0});
+    auto gs = this->gs_factory->generate(mtx);
 
-    // this->print_csr(lend(ref_gs->get_ltr_matrix()));
+    // auto v_colors = gs->get_vertex_colors();
+    // auto p_idxs = gs->get_permutation_idxs();
+    // auto col_ptrs = gs->get_color_ptrs();
 
-    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_3, r<value_type>::value);
+    // this->print_array(v_colors);
+    // this->print_array(p_idxs);
+    // this->print_array(col_ptrs);
+    // this->print_csr(lend(gs->get_ltr_matrix()));
+
+    gs->apply(gko::lend(rhs), gko::lend(ans));
+
+    GKO_ASSERT_MTX_NEAR(
+        ans,
+        l({{value_type{6.0 / 10.0}, value_type{3.0 / 10.0}},
+           {value_type{3598.0 / 1760.0}, value_type{1799.0 / 1760.0}},
+           {value_type{-116.0 / 100.0}, value_type{-58.0 / 100.0}},
+           {value_type{15.0 / 8.0}, value_type{7.5 / 8.0}},
+           {value_type{-1807.0 / 2800.0}, value_type{-903.5 / 2800.0}}}),
+        r<value_type>::value);
 }
 
-
-TYPED_TEST(GaussSeidel, SystemSolveReferenceApply)
+TYPED_TEST(GaussSeidel, SystemSolveIRGS)
 {
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
@@ -337,23 +505,19 @@ TYPED_TEST(GaussSeidel, SystemSolveReferenceApply)
     using value_type = typename TestFixture::value_type;
 
     auto exec = this->exec;
-    auto ir_ref_gs_factory =
-        Ir::build()
-            .with_solver(this->ref_gs_factory)
-            .with_criteria(
-                gko::stop::Iteration::build().with_max_iters(50u).on(exec),
-                gko::stop::ResidualNorm<value_type>::build()
-                    .with_reduction_factor(r<value_type>::value)
-                    .on(exec))
-            .on(exec);
-    auto irs = ir_ref_gs_factory->generate(this->mtx_csr_4);
+    auto ir_gs_factory = Ir::build()
+                             .with_solver(this->gs_factory)
+                             .with_criteria(this->iter_criterion_factory,
+                                            this->res_norm_criterion_factory)
+                             .on(exec);
+    auto irs = ir_gs_factory->generate(this->mtx_csr_3);
 
-    auto result = Vec::create_with_config_of(lend(this->rhs_4));
+    auto result = share(Vec::create_with_config_of(lend(this->rhs_3)));
     result->fill(0.0);
 
-    irs->apply(lend(this->rhs_4), result.get());
+    irs->apply(lend(this->rhs_3), lend(result));
 
-    GKO_ASSERT_MTX_NEAR(result, this->ans_4, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<value_type>::value);
 }
 
 TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
@@ -431,6 +595,7 @@ TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
     // std::cout << std::endl;
 
     // this->print_csr(lend(gs->get_ltr_matrix()));
+    GKO_ASSERT_EQ(0, 1);
 }
 
 }  // namespace
