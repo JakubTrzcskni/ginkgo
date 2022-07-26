@@ -145,7 +145,7 @@ protected:
                 std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
                                                                           1.0),
                 rand_engine);
-        gko::utils::make_spd(rand_mat_data, 2.0);
+        gko::utils::make_hpd(rand_mat_data, 2.0);
         rand_mat_data.ensure_row_major_order();
         mtx_rand->read(rand_mat_data);
     }

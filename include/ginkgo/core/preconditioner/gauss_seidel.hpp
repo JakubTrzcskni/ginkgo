@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef GKO_PUBLIC_CORE_PRECONDITIONER_GAUSS_SEIDEL_HPP_
 #define GKO_PUBLIC_CORE_PRECONDITIONER_GAUSS_SEIDEL_HPP_
 
+#include <vector>
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/device_matrix_data.hpp>
@@ -118,7 +119,10 @@ protected:
     // empty GS preconditioner
     explicit GaussSeidel(std::shared_ptr<const Executor> exec)
         : EnableLinOp<GaussSeidel>(exec),
-          relaxation_factor_{parameters_.relaxation_factor}
+          relaxation_factor_{parameters_.relaxation_factor},
+          symmetric_preconditioner_{parameters_.symmetric_preconditioner},
+          use_reference_{parameters_.use_reference},
+          use_coloring_{parameters_.use_coloring}
     {}
 
     // GS preconditioner from a factory
@@ -149,7 +153,9 @@ protected:
     IndexType get_coloring(matrix_data<ValueType, IndexType>& mat_data,
                            bool is_symmetric = false);
 
-    void reorder_with_colors(index_type max_color);
+    void compute_permutation_idxs(index_type max_color);
+
+    void initialize_blocks();
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
@@ -169,6 +175,7 @@ private:
                                     // a span [0,max_color], i.e., there are no
                                     // gaps in the assigned color numbers
     array<index_type> permutation_idxs_;
+    std::vector<std::unique_ptr<LinOp>> block_ptrs_;
     double relaxation_factor_;
     bool symmetric_preconditioner_;
     bool use_reference_;
