@@ -51,6 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace gko {
 namespace preconditioner {
 
+enum struct gs_parallel_strategy { mc, hbmc, race };
+
 template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
                     // public ConvertibleTo<matrix::Dense<ValueType>>,
@@ -87,6 +89,8 @@ public:
 
     std::shared_ptr<Csr> get_ltr_matrix() { return lower_triangular_matrix_; }
 
+    void update_system(value_type* values);
+
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
     {
         // TODO
@@ -95,6 +99,8 @@ public:
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
 
         bool GKO_FACTORY_PARAMETER_SCALAR(use_coloring, true);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_RACE, false);
 
         // matrix should be assumed to NOT Be lower triangular as its not a real
         // world scenario
@@ -144,11 +150,22 @@ protected:
           use_reference_{parameters_.use_reference},
           use_coloring_{parameters_.use_coloring}
     {
-        this->generate(system_matrix, parameters_.skip_sorting);
+        if (parameters_.use_RACE == true) {
+            this->generate_RACE(system_matrix, parameters_.skip_sorting);
+        } else {
+            this->generate(system_matrix, parameters_.skip_sorting);
+        }
     }
 
     void generate(std::shared_ptr<const LinOp> system_matrix,
                   bool skip_sorting);
+
+    void generate_RACE(std::shared_ptr<const LinOp> system_matrix,
+                       bool skip_sorting);
+
+    std::unique_ptr<matrix::SparsityCsr<value_type, index_type>>
+    get_adjacency_matrix(matrix_data<value_type, index_type>& mat_data,
+                         bool is_symmetric = false);
 
     IndexType get_coloring(matrix_data<ValueType, IndexType>& mat_data,
                            bool is_symmetric = false);
@@ -176,6 +193,7 @@ private:
                                     // gaps in the assigned color numbers
     array<index_type> permutation_idxs_;
     std::vector<std::unique_ptr<LinOp>> block_ptrs_;
+    std::vector<index_type> level_ptrs;
     double relaxation_factor_;
     bool symmetric_preconditioner_;
     bool use_reference_;

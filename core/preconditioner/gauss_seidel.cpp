@@ -32,16 +32,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
+#include <vector>
+
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
+#include <ginkgo/core/reorder/rcm.hpp>
 
 #include "core/base/utils.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/jacobi_kernels.hpp"
+#include "core/reorder/rcm_kernels.hpp"
 #include "core/utils/matrix_utils.hpp"
 
 namespace gko {
@@ -54,9 +58,11 @@ GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
+GKO_REGISTER_OPERATION(get_degree_of_nodes, rcm::get_degree_of_nodes);
 }  // namespace
 }  // namespace gauss_seidel
 
+// TODO
 template <typename ValueType, typename IndexType>
 GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
     const GaussSeidel& other)
@@ -71,6 +77,7 @@ GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
 }
 
 
+// TODO
 template <typename ValueType, typename IndexType>
 GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
     GaussSeidel&& other)
@@ -99,6 +106,10 @@ GaussSeidel<ValueType, IndexType>::GaussSeidel(GaussSeidel&& other)
 {
     *this = std::move(other);
 }
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::update_system(ValueType* values)
+{}
 
 template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
@@ -151,25 +162,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                                                x_perm->get_size()[1]])),
                     x_perm->get_size()[1]);
 
-                // auto curr_diag_block =
-                //     lower_triangular_matrix_->create_submatrix(
-                //         gko::span(block_start, block_end),
-                //         gko::span(block_start, block_end));
-
-                // auto diag = gko::make_array_view(exec, block_size,
-                //                                  curr_diag_block->get_values());
-
-                // auto curr_inv_diag_block = Diagonal::create(exec,
-                // block_size); auto inv_diag_view = gko::make_array_view(
-                //     exec, block_size, curr_inv_diag_block->get_values());
-                // exec->run(
-                //     gauss_seidel::make_invert_diagonal(diag, inv_diag_view));
-
-
-                // curr_inv_diag_block->apply(lend(tmp_rhs_block),
-                //                            lend(curr_x_block));
-
-                GKO_ASSERT(2 * color_block < block_ptrs_.size());
                 block_ptrs_[2 * color_block]->apply(lend(tmp_rhs_block),
                                                     lend(curr_x_block));
 
@@ -178,11 +170,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                     dim_type next_block_end = block_ptrs[color_block + 2];
                     dim_type next_block_size =
                         next_block_end - next_block_start;
-
-                    // auto curr_under_diag_block =
-                    //     lower_triangular_matrix_->create_submatrix(
-                    //         gko::span(next_block_start, next_block_end),
-                    //         gko::span(0, next_block_start));
 
                     const auto next_b_block = Dense::create_const(
                         exec, dim<2>{next_block_size, b_perm->get_size()[1]},
@@ -204,10 +191,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
 
                     auto one = gko::initialize<Dense>({1.0}, exec);
                     auto neg_one = gko::initialize<Dense>({-1.0}, exec);
-                    // curr_under_diag_block->apply(
-                    //     lend(neg_one), lend(up_to_curr_x_block), lend(one),
-                    //     lend(tmp_rhs_block));
-                    GKO_ASSERT(2 * color_block + 1 < block_ptrs_.size());
                     block_ptrs_[2 * color_block + 1]->apply(
                         lend(neg_one), lend(up_to_curr_x_block), lend(one),
                         lend(tmp_rhs_block));
@@ -221,7 +204,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
             exec->run(gauss_seidel::make_ref_simple_apply(
                 lend(lower_trs_), as<const Dense>(b), as<Dense>(x)));
         } else {
-            // whole point is to color and reorder
             GKO_NOT_SUPPORTED(this);
         }
     }
@@ -241,44 +223,12 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
 
     if (use_reference_) {
         if (permuted) {
-            // const auto b_perm = as<const Dense>(
-            //     as<const Dense>(b)->row_permute(&permutation_idxs_));
-            // auto x_perm =
-            //     as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_));
-
-            // bool alpha_scalar = false;
-            // bool beta_scalar = false;
-
-            // if (alpha->get_size()[0] == 1) alpha_scalar = true;
-
-            // if (beta->get_size()[0] == 1) beta_scalar = true;
-
-
-            // exec->run(gauss_seidel::make_ref_apply(
-            //     lend(lower_trs_),
-            //     alpha_scalar
-            //         ? as<const Dense>(alpha)
-            //         : lend(as<const Dense>(as<const
-            //         Dense>(alpha)->row_permute(
-            //               &permutation_idxs_))),
-            //     lend(b_perm),
-            //     beta_scalar
-            //         ? as<const Dense>(beta)
-            //         : lend(as<const Dense>(as<const
-            //         Dense>(beta)->row_permute(
-            //               &permutation_idxs_))),
-            //     lend(x_perm)));
-
-            // as<Dense>(x)->copy_from(
-            //     std::move(as<Dense>(x_perm->row_permute(&permutation_idxs_))));
             GKO_NOT_SUPPORTED(this);
         } else {
             exec->run(gauss_seidel::make_ref_apply(
                 lend(lower_trs_), as<const Dense>(alpha), as<const Dense>(b),
                 as<const Dense>(beta), as<Dense>(x)));
         }
-
-
     } else {
         // TODO
         auto alpha_b = Dense::create(exec, b->get_size());
@@ -302,7 +252,8 @@ std::unique_ptr<LinOp> GaussSeidel<ValueType, IndexType>::conj_transpose() const
     GKO_NOT_IMPLEMENTED;
 
 template <typename ValueType, typename IndexType>
-IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
+std::unique_ptr<matrix::SparsityCsr<ValueType, IndexType>>
+GaussSeidel<ValueType, IndexType>::get_adjacency_matrix(
     matrix_data<ValueType, IndexType>& mat_data, bool is_symmetric)
 {
     using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
@@ -312,13 +263,25 @@ IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
 
     auto tmp = SparsityMatrix::create(exec);
 
-    auto adjacency_matrix = SparsityMatrix::create(exec);
-
     if (!is_symmetric) {
         utils::make_symmetric(mat_data);
     }
     tmp->read(mat_data);
-    adjacency_matrix = std::move(tmp->to_adjacency_matrix());
+
+    return give(tmp->to_adjacency_matrix());
+}
+
+template <typename ValueType, typename IndexType>
+IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
+    matrix_data<ValueType, IndexType>& mat_data, bool is_symmetric)
+{
+    using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
+    using MatData = matrix_data<ValueType, IndexType>;
+
+    auto exec = this->get_executor();
+
+    auto adjacency_matrix = SparsityMatrix::create(exec);
+    adjacency_matrix = get_adjacency_matrix(mat_data, is_symmetric);
 
     vertex_colors_.fill(IndexType{-1});
     IndexType max_color{0};
@@ -446,6 +409,71 @@ void GaussSeidel<ValueType, IndexType>::generate(
         }
     } else
         GKO_NOT_IMPLEMENTED;
+}
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::generate_RACE(
+    std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
+{
+    GKO_NOT_IMPLEMENTED;
+    auto exec = this->get_executor();
+    auto csr_matrix =
+        convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
+
+    matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
+    csr_matrix->write(mat_data);
+    auto adjacency_matrix =
+        matrix::SparsityCsr<ValueType, IndexType>::create(exec);
+    adjacency_matrix = get_adjacency_matrix(mat_data);
+
+
+    // generate levels
+    // Algorithm 3 from
+    // https://arxiv.org/pdf/1907.06487.pdf
+    // find starting node as in reorder/rcm
+    IndexType num_rows = adjacency_matrix->get_size()[0];
+    array<IndexType> degrees(exec, num_rows);
+    exec->run(gauss_seidel::make_get_degree_of_nodes(
+        num_rows, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
+
+    std::vector<bool> visited;
+    visited.resize(num_rows, false);
+    IndexType index_min_node = 0;
+    IndexType min_node_degree = std::numeric_limits<IndexType>::max();
+    for (IndexType i = 0; i < num_rows; ++i) {
+        if (!visited[i]) {
+            if (degrees.get_data()[i] < min_node_degree) {
+                index_min_node = i;
+                min_node_degree = degrees.get_data()[i];
+            }
+        }
+    }
+    IndexType* row_ptrs = adjacency_matrix->get_row_ptrs();
+    IndexType* col_idxs = adjacency_matrix->get_col_idxs();
+    auto root = min_node_degree;  // starting node;
+    bool marked_all = false;
+    array<IndexType> distFromRoot(exec, num_rows);
+    distFromRoot.fill(-1);
+    std::vector<IndexType> curr_children;
+    curr_children.push_back(root);
+    auto curr_lvl = 0;
+    while (!marked_all) {
+        marked_all = true;
+        std::vector<IndexType> next_children;
+        for (auto i = 1; i < curr_children.size(); i++) {
+            if (distFromRoot.get_data()[curr_children.at(i)] == -1) {
+                distFromRoot.get_data()[curr_children.at(i)] = curr_lvl;
+                for (auto j = row_ptrs[curr_children.at(i)];
+                     j < row_ptrs[curr_children.at(i) + 1]; j++) {
+                    if (distFromRoot.get_data()[col_idxs[j]] == -1) {
+                        next_children.push_back(col_idxs[j]);
+                    }
+                }
+            }
+        }
+        curr_children = next_children;
+        curr_lvl++;
+    }
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \
