@@ -89,6 +89,8 @@ public:
 
     std::shared_ptr<Csr> get_ltr_matrix() { return lower_triangular_matrix_; }
 
+    std::vector<index_type> get_level_ptrs() { return level_ptrs_; }
+
     void update_system(value_type* values);
 
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
@@ -193,7 +195,7 @@ private:
                                     // gaps in the assigned color numbers
     array<index_type> permutation_idxs_;
     std::vector<std::unique_ptr<LinOp>> block_ptrs_;
-    std::vector<index_type> level_ptrs;
+    std::vector<index_type> level_ptrs_;
     double relaxation_factor_;
     bool symmetric_preconditioner_;
     bool use_reference_;

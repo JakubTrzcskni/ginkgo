@@ -415,7 +415,7 @@ template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::generate_RACE(
     std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
 {
-    GKO_NOT_IMPLEMENTED;
+    using Csr = matrix::Csr<ValueType, IndexType>;
     auto exec = this->get_executor();
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
@@ -436,33 +436,37 @@ void GaussSeidel<ValueType, IndexType>::generate_RACE(
     exec->run(gauss_seidel::make_get_degree_of_nodes(
         num_rows, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
 
-    std::vector<bool> visited;
-    visited.resize(num_rows, false);
     IndexType index_min_node = 0;
     IndexType min_node_degree = std::numeric_limits<IndexType>::max();
     for (IndexType i = 0; i < num_rows; ++i) {
-        if (!visited[i]) {
-            if (degrees.get_data()[i] < min_node_degree) {
-                index_min_node = i;
-                min_node_degree = degrees.get_data()[i];
-            }
+        if (degrees.get_data()[i] < min_node_degree) {
+            index_min_node = i;
+            min_node_degree = degrees.get_data()[i];
         }
     }
     IndexType* row_ptrs = adjacency_matrix->get_row_ptrs();
     IndexType* col_idxs = adjacency_matrix->get_col_idxs();
-    auto root = min_node_degree;  // starting node;
+    auto root = index_min_node;  // starting node;
     bool marked_all = false;
     array<IndexType> distFromRoot(exec, num_rows);
     distFromRoot.fill(-1);
     std::vector<IndexType> curr_children;
     curr_children.push_back(root);
+    permutation_idxs_.resize_and_reset(num_rows);
+
+    level_ptrs_.push_back(0);
     auto curr_lvl = 0;
+    auto curr_node = 0;
     while (!marked_all) {
         marked_all = true;
         std::vector<IndexType> next_children;
-        for (auto i = 1; i < curr_children.size(); i++) {
+        for (auto i = 0; i < curr_children.size(); i++) {
             if (distFromRoot.get_data()[curr_children.at(i)] == -1) {
                 distFromRoot.get_data()[curr_children.at(i)] = curr_lvl;
+                permutation_idxs_.get_data()[curr_node] = curr_children.at(i);
+                curr_node++;
+                // TODO not sure if correct i.e., if equivalent to "for j in
+                // graph[curr children[i]].children do"
                 for (auto j = row_ptrs[curr_children.at(i)];
                      j < row_ptrs[curr_children.at(i) + 1]; j++) {
                     if (distFromRoot.get_data()[col_idxs[j]] == -1) {
@@ -471,9 +475,16 @@ void GaussSeidel<ValueType, IndexType>::generate_RACE(
                 }
             }
         }
+        level_ptrs_.push_back(curr_node);
         curr_children = next_children;
+        if (!curr_children.empty()) marked_all = false;
         curr_lvl++;
     }
+    GKO_ASSERT(curr_node == num_rows);
+    GKO_ASSERT(curr_lvl + 1 == level_ptrs_.size());
+
+
+    // load-balancing
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \

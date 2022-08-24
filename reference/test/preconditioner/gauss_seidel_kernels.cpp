@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <random>
 #include <type_traits>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
+#include <ginkgo/core/solver/cg.hpp>
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
 #include <ginkgo/core/stop/combined.hpp>
@@ -70,6 +72,7 @@ protected:
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
     using Ir = gko::solver::Ir<value_type>;
+    using CG = gko::solver::Cg<value_type>;
     using Iter = gko::stop::Iteration;
     using ResNorm = gko::stop::ResidualNorm<value_type>;
     using Csr = gko::matrix::Csr<value_type, index_type>;
@@ -141,13 +144,36 @@ protected:
         auto rand_mat_data =
             gko::test::generate_random_matrix_data<value_type, index_type>(
                 mtx_rand->get_size()[0], mtx_rand->get_size()[1],
-                std::uniform_int_distribution<index_type>(10, 50),
+                std::uniform_int_distribution<index_type>(5, 15),
                 std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
                                                                           1.0),
                 rand_engine);
         gko::utils::make_hpd(rand_mat_data, 2.0);
         rand_mat_data.ensure_row_major_order();
         mtx_rand->read(rand_mat_data);
+    }
+
+    template <typename value_type, typename index_type>
+    std::unique_ptr<gko::matrix::Csr<value_type, index_type>>
+    generate_rand_matrix(index_type size, index_type num_elems_lo,
+                         index_type num_elems_hi, value_type deduction_help)
+    {
+        auto mtx = gko::matrix::Csr<value_type, index_type>::create(
+            exec, gko::dim<2>(size));
+        auto mat_data =
+            gko::test::generate_random_matrix_data<value_type, index_type>(
+                mtx->get_size()[0], mtx->get_size()[1],
+                std::uniform_int_distribution<index_type>(num_elems_lo,
+                                                          num_elems_hi),
+                std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
+                                                                          1.0),
+                rand_engine);
+
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        mtx->read(mat_data);
+
+        return give(mtx);
     }
 
     // Source: jacobi_kernels.cpp (test)
@@ -542,6 +568,22 @@ TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
     GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<value_type>::value);
 }
 
+// TODO
+TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
+{
+    using CG = typename TestFixture::CG;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using GS = typename TestFixture::GS;
+    using value_type = typename TestFixture::value_type;
+    using index_type = typename TestFixture::index_type;
+
+    auto mtx = this->mtx_rand;
+    auto rhs = this->rhs_rand;
+
+    // auto cg_factory =
+}
+
 TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 {
     using index_type = typename TestFixture::index_type;
@@ -575,27 +617,48 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
     GKO_ASSERT_ARRAY_EQ(vertex_colors, ans);
 }
 
-TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
+// TODO
+// TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
+// {
+//     using index_type = typename TestFixture::index_type;
+//     using value_type = typename TestFixture::value_type;
+//     auto exec = this->exec;
+//     size_t grid_size = 3;
+//     auto regular_grid_matrix =
+//         share(this->generate_2D_regular_grid_matrix(grid_size,
+//         value_type{0}));
+//     auto gs = this->gs_factory->generate(regular_grid_matrix);
+//     auto perm_arr = gs->get_permutation_idxs();
+//     GKO_ASSERT_EQ(0, 1);
+// }
+
+TYPED_TEST(GaussSeidel, RACE_1)
 {
-    using index_type = typename TestFixture::index_type;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using GS = typename TestFixture::GS;
     using value_type = typename TestFixture::value_type;
+    using index_type = typename TestFixture::index_type;
+
     auto exec = this->exec;
-    size_t grid_size = 3;
+    auto gs_race_factory = GS::build().with_use_RACE(true).on(exec);
 
-    auto regular_grid_matrix =
-        share(this->generate_2D_regular_grid_matrix(grid_size, value_type{0}));
+    // auto grid_mtx =
+    //     gko::share(this->generate_2D_regular_grid_matrix(100,
+    //     value_type{0}));
+    // auto gs_race = gs_race_factory->generate(grid_mtx);
+    // auto gs = this->gs_factory->generate(grid_mtx);
+    auto mtx = gko::share(this->generate_rand_matrix(
+        index_type{20000}, index_type{10}, index_type{20},
+        value_type{0}));  // initial random matrix has the selected nnz per
+                          //     row,
+                          // after turning the matrix hpd -> around 2x more
+    auto gs_race = gs_race_factory->generate(mtx);
+    auto gs = this->gs_factory->generate(mtx);
 
-    auto gs = this->gs_factory->generate(regular_grid_matrix);
-
-    auto perm_arr = gs->get_permutation_idxs();
-
-    // for (auto i = 0; i < grid_size * grid_size; i++) {
-    //     std::cout << perm_arr.get_data()[i] << " ";
-    // }
-    // std::cout << std::endl;
-
-    // this->print_csr(lend(gs->get_ltr_matrix()));
-    GKO_ASSERT_EQ(0, 1);
+    auto lvl_ptrs = gs_race->get_level_ptrs();
+    std::cout << lvl_ptrs.size() << std::endl;
+    auto color_ptrs = gs->get_color_ptrs();
+    std::cout << color_ptrs.get_num_elems() - 1 << std::endl;
 }
-
 }  // namespace
