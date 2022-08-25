@@ -47,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
 #include <ginkgo/core/base/polymorphic_object.hpp>
+#include <ginkgo/core/log/convergence.hpp>
+#include <ginkgo/core/log/logger.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
@@ -58,6 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/stop/residual_norm.hpp>
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
+#include "core/preconditioner/sparse_display.hpp"
 #include "core/test/utils.hpp"
 #include "core/utils/matrix_utils.hpp"
 #include "matrices/config.hpp"
@@ -79,11 +82,13 @@ protected:
     using Vec = gko::matrix::Dense<value_type>;
     using Diagonal = gko::matrix::Diagonal<value_type>;
     using MatData = gko::matrix_data<value_type, index_type>;
+    using Log = gko::log::Convergence<value_type>;
 
 
     GaussSeidel()
         : exec{gko::ReferenceExecutor::create()},
           rand_engine{15},
+          iter_logger(Log::create(Log::iteration_complete_mask)),
           gs_factory(GS::build().with_use_coloring(true).on(exec)),
           ref_gs_factory(
               GS::build().with_use_reference(true).with_use_coloring(false).on(
@@ -262,8 +267,20 @@ protected:
         std::cout << std::endl;
     }
 
+    template <typename ValueType, typename IndexType>
+    void visualize(gko::matrix::Csr<ValueType, IndexType>* csr_mat,
+                   std::string plot_label)
+    {
+        auto dense_mat = Vec::create(exec);
+        csr_mat->convert_to(lend(dense_mat));
+        auto num_rows = dense_mat->get_size()[0];
+        gko::preconditioner::visualize::spy_ge(
+            num_rows, num_rows, dense_mat->get_values(), plot_label);
+    }
+
     std::shared_ptr<const gko::ReferenceExecutor> exec;
     std::default_random_engine rand_engine;
+    std::shared_ptr<Log> iter_logger;
     std::shared_ptr<typename GS::Factory> gs_factory;
     std::shared_ptr<typename GS::Factory> ref_gs_factory;
     std::shared_ptr<typename Iter::Factory> iter_criterion_factory;
@@ -418,6 +435,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
 
     auto mtx_rand = this->mtx_rand;
 
+
     auto rhs_rand = this->rhs_rand;
 
     auto x = Vec::create_with_config_of(lend(rhs_rand));
@@ -429,6 +447,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     // auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
     // comparing to ref_gs yields a small error every time ->effect of
     // reordering on the system?
+    // mtx_rand isnt row_major sorted after gs_factory generation
     auto ltrs_factory =
         gko::solver::LowerTrs<value_type, index_type>::build().on(exec);
 
@@ -484,6 +503,27 @@ TYPED_TEST(GaussSeidel, SimpleApplyDiagonalMatrix)
                            value_type{-11.0 / 3.0}, value_type{15.0 / 4.0},
                            value_type{-3.0 / 5.0}}),
                         r<value_type>::value);
+}
+
+TYPED_TEST(GaussSeidel, TryVisualize)
+{
+    using Vec = typename TestFixture::Vec;
+    using value_type = typename TestFixture::value_type;
+    using index_type = typename TestFixture::index_type;
+
+    auto mtx = this->mtx_csr_4;
+
+    this->visualize(lend(mtx), std::string("mtxCsr4"));
+    auto gs = this->gs_factory->generate(gko::as<gko::LinOp>(mtx));
+    this->visualize(gko::lend(gs->get_ltr_matrix()), std::string("mtxCsr4LTR"));
+
+    // auto mtx_rand = gko::share(this->generate_rand_matrix(
+    //     index_type{20000}, index_type{5}, index_type{10}, value_type{0}));
+
+    // this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
+    // auto gs_rand = this->gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+    // this->visualize(gko::lend(gs_rand->get_ltr_matrix()),
+    //                 std::string("mtxRandLTR"));
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
@@ -578,10 +618,20 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
     using value_type = typename TestFixture::value_type;
     using index_type = typename TestFixture::index_type;
 
+    auto exec = this->exec;
+
     auto mtx = this->mtx_rand;
     auto rhs = this->rhs_rand;
 
-    // auto cg_factory =
+    auto cg_factory = CG::build()
+                          .with_criteria(this->iter_criterion_factory,
+                                         this->res_norm_criterion_factory)
+                          .on(exec);
+    auto pcg_factory = CG::build()
+                           .with_criteria(this->iter_criterion_factory,
+                                          this->res_norm_criterion_factory)
+                           .with_preconditioner()
+                           .on(exec);
 }
 
 TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
@@ -632,33 +682,33 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     GKO_ASSERT_EQ(0, 1);
 // }
 
-TYPED_TEST(GaussSeidel, RACE_1)
-{
-    using Csr = typename TestFixture::Csr;
-    using Vec = typename TestFixture::Vec;
-    using GS = typename TestFixture::GS;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
+// TYPED_TEST(GaussSeidel, RACE_1)
+// {
+//     using Csr = typename TestFixture::Csr;
+//     using Vec = typename TestFixture::Vec;
+//     using GS = typename TestFixture::GS;
+//     using value_type = typename TestFixture::value_type;
+//     using index_type = typename TestFixture::index_type;
 
-    auto exec = this->exec;
-    auto gs_race_factory = GS::build().with_use_RACE(true).on(exec);
+//     auto exec = this->exec;
+//     auto gs_race_factory = GS::build().with_use_RACE(true).on(exec);
 
-    // auto grid_mtx =
-    //     gko::share(this->generate_2D_regular_grid_matrix(100,
-    //     value_type{0}));
-    // auto gs_race = gs_race_factory->generate(grid_mtx);
-    // auto gs = this->gs_factory->generate(grid_mtx);
-    auto mtx = gko::share(this->generate_rand_matrix(
-        index_type{20000}, index_type{10}, index_type{20},
-        value_type{0}));  // initial random matrix has the selected nnz per
-                          //     row,
-                          // after turning the matrix hpd -> around 2x more
-    auto gs_race = gs_race_factory->generate(mtx);
-    auto gs = this->gs_factory->generate(mtx);
+//     // auto grid_mtx =
+//     //     gko::share(this->generate_2D_regular_grid_matrix(100,
+//     //     value_type{0}));
+//     // auto gs_race = gs_race_factory->generate(grid_mtx);
+//     // auto gs = this->gs_factory->generate(grid_mtx);
+//     auto mtx = gko::share(this->generate_rand_matrix(
+//         index_type{20000}, index_type{10}, index_type{20},
+//         value_type{0}));  // initial random matrix has the selected nnz per
+//                           //     row,
+//                           // after turning the matrix hpd -> around 2x more
+//     auto gs_race = gs_race_factory->generate(mtx);
+//     auto gs = this->gs_factory->generate(mtx);
 
-    auto lvl_ptrs = gs_race->get_level_ptrs();
-    std::cout << lvl_ptrs.size() << std::endl;
-    auto color_ptrs = gs->get_color_ptrs();
-    std::cout << color_ptrs.get_num_elems() - 1 << std::endl;
-}
+//     auto lvl_ptrs = gs_race->get_level_ptrs();
+//     std::cout << lvl_ptrs.size() << std::endl;
+//     auto color_ptrs = gs->get_color_ptrs();
+//     std::cout << color_ptrs.get_num_elems() - 1 << std::endl;
+// }
 }  // namespace
