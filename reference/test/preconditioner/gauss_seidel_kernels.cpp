@@ -60,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/stop/residual_norm.hpp>
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
-#include "core/preconditioner/sparse_display.hpp"
+// #include "core/preconditioner/sparse_display.hpp"
 #include "core/test/utils.hpp"
 #include "core/utils/matrix_utils.hpp"
 #include "matrices/config.hpp"
@@ -88,12 +88,12 @@ protected:
     GaussSeidel()
         : exec{gko::ReferenceExecutor::create()},
           rand_engine{15},
-          iter_logger(Log::create(Log::iteration_complete_mask)),
+          iter_logger(Log::create()),
           gs_factory(GS::build().with_use_coloring(true).on(exec)),
           ref_gs_factory(
               GS::build().with_use_reference(true).with_use_coloring(false).on(
                   exec)),
-          iter_criterion_factory(Iter::build().with_max_iters(20u).on(exec)),
+          iter_criterion_factory(Iter::build().with_max_iters(1000u).on(exec)),
           res_norm_criterion_factory(
               ResNorm::build()
                   .with_reduction_factor(r<value_type>::value)
@@ -158,20 +158,22 @@ protected:
         mtx_rand->read(rand_mat_data);
     }
 
-    template <typename value_type, typename index_type>
-    std::unique_ptr<gko::matrix::Csr<value_type, index_type>>
-    generate_rand_matrix(index_type size, index_type num_elems_lo,
-                         index_type num_elems_hi, value_type deduction_help)
+    template <typename ValueType, typename IndexType>
+    std::unique_ptr<gko::matrix::Csr<ValueType, IndexType>>
+    generate_rand_matrix(IndexType size, IndexType num_elems_lo,
+                         IndexType num_elems_hi, ValueType deduction_help,
+                         gko::remove_complex<ValueType> values_lo = -1.0,
+                         gko::remove_complex<ValueType> values_hi = 1.0)
     {
-        auto mtx = gko::matrix::Csr<value_type, index_type>::create(
+        auto mtx = gko::matrix::Csr<ValueType, IndexType>::create(
             exec, gko::dim<2>(size));
         auto mat_data =
-            gko::test::generate_random_matrix_data<value_type, index_type>(
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
                 mtx->get_size()[0], mtx->get_size()[1],
-                std::uniform_int_distribution<index_type>(num_elems_lo,
-                                                          num_elems_hi),
-                std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
-                                                                          1.0),
+                std::uniform_int_distribution<IndexType>(num_elems_lo,
+                                                         num_elems_hi),
+                std::normal_distribution<gko::remove_complex<ValueType>>(
+                    values_lo, values_hi),
                 rand_engine);
 
         gko::utils::make_hpd(mat_data, 2.0);
@@ -179,6 +181,22 @@ protected:
         mtx->read(mat_data);
 
         return give(mtx);
+    }
+    template <typename ValueType>
+    std::unique_ptr<gko::matrix::Dense<ValueType>> generate_rand_dense(
+        ValueType deduction_help, size_t num_rows, size_t num_cols = 1,
+        gko::remove_complex<ValueType> values_lo = -1.0,
+        gko::remove_complex<ValueType> values_hi = 1.0)
+    {
+        auto rhs_rand{
+            gko::test::generate_random_matrix<gko::matrix::Dense<ValueType>>(
+                num_rows, num_cols,
+                std::uniform_int_distribution<size_t>(num_rows, num_rows),
+                std::normal_distribution<gko::remove_complex<ValueType>>(
+                    values_lo, values_hi),
+                rand_engine, exec)};
+
+        return give(rhs_rand);
     }
 
     // Source: jacobi_kernels.cpp (test)
@@ -190,12 +208,12 @@ protected:
         }
     }
 
-    template <typename value_type, typename index_type>
-    void print_csr(const gko::matrix::Csr<value_type, index_type>* matrix)
+    template <typename ValueType, typename IndexType>
+    void print_csr(const gko::matrix::Csr<ValueType, IndexType>* matrix)
     {
-        const index_type* row_ptrs = matrix->get_const_row_ptrs();
-        const index_type* col_idxs = matrix->get_const_col_idxs();
-        const value_type* values = matrix->get_const_values();
+        const IndexType* row_ptrs = matrix->get_const_row_ptrs();
+        const IndexType* col_idxs = matrix->get_const_col_idxs();
+        const ValueType* values = matrix->get_const_values();
         for (auto row = 0; row < matrix->get_size()[0]; row++) {
             for (auto j = row_ptrs[row]; j < row_ptrs[row + 1]; j++) {
                 auto col = col_idxs[j];
@@ -207,9 +225,9 @@ protected:
     }
 
     // represents a 5/9-point stencil on a regular grid
-    template <typename value_type, typename size_type>
+    template <typename ValueType, typename size_type>
     std::unique_ptr<Csr> generate_2D_regular_grid_matrix(
-        size_type size, value_type deduction_help, bool nine_point = false)
+        size_type size, ValueType deduction_help, bool nine_point = false)
     {
         gko::dim<2>::dimension_type grid_points = size * size;
         MatData data(gko::dim<2>{grid_points});
@@ -267,16 +285,16 @@ protected:
         std::cout << std::endl;
     }
 
-    template <typename ValueType, typename IndexType>
-    void visualize(gko::matrix::Csr<ValueType, IndexType>* csr_mat,
-                   std::string plot_label)
-    {
-        auto dense_mat = Vec::create(exec);
-        csr_mat->convert_to(lend(dense_mat));
-        auto num_rows = dense_mat->get_size()[0];
-        gko::preconditioner::visualize::spy_ge(
-            num_rows, num_rows, dense_mat->get_values(), plot_label);
-    }
+    // template <typename ValueType, typename IndexType>
+    // void visualize(gko::matrix::Csr<ValueType, IndexType>* csr_mat,
+    //                std::string plot_label)
+    // {
+    //     auto dense_mat = Vec::create(exec);
+    //     csr_mat->convert_to(lend(dense_mat));
+    //     auto num_rows = dense_mat->get_size()[0];
+    //     gko::preconditioner::visualize::spy_ge(
+    //         num_rows, num_rows, dense_mat->get_values(), plot_label);
+    // }
 
     std::shared_ptr<const gko::ReferenceExecutor> exec;
     std::default_random_engine rand_engine;
@@ -318,39 +336,39 @@ TYPED_TEST(GaussSeidel, CanBeGenerated)
 TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
-    ans->fill(value_type{0});
+    ans->fill(ValueType{0});
     auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_4);
     ref_gs->apply(lend(this->rhs_4), lend(ans));
 
-    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_4, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_4, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, ReferenceSimpleApply_2)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_3));
     auto ref_gs = this->ref_gs_factory->generate(this->mtx_csr_3);
     ref_gs->apply(lend(this->rhs_3), lend(ans));
 
-    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_3, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(ans, this->ltr_ans_3, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel_rand_mat_spd)
 {
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
     auto exec = this->exec;
 
     auto mtx_rand = this->mtx_rand;
     auto ref_mtx_rand = share(Csr::create(exec));
-    gko::matrix_data<value_type, index_type> rand_mat_data;
+    gko::matrix_data<ValueType, IndexType> rand_mat_data;
     mtx_rand->write(rand_mat_data);
     gko::utils::make_lower_triangular(rand_mat_data);
     ref_mtx_rand->read(rand_mat_data);
@@ -358,28 +376,28 @@ TYPED_TEST(GaussSeidel, ReferenceSimpleApplyKernel_rand_mat_spd)
     auto rhs_rand = this->rhs_rand;
 
     auto x = Vec::create_with_config_of(lend(rhs_rand));
-    x->fill(value_type{0});
+    x->fill(ValueType{0});
     auto ref_x = Vec::create_with_config_of(lend(rhs_rand));
-    ref_x->fill(value_type{0});
+    ref_x->fill(ValueType{0});
 
     auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
     auto ltrs_factory =
-        gko::solver::LowerTrs<value_type, index_type>::build().on(exec);
+        gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
     auto ref_ltrs = ltrs_factory->generate(ref_mtx_rand);
 
     ref_gs->apply(lend(rhs_rand), lend(x));
     ref_ltrs->apply(lend(rhs_rand), lend(ref_x));
 
-    GKO_ASSERT_MTX_NEAR(x, ref_x, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
-    ans->fill(value_type{0});
+    ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_4);
 
     // auto v_colors = gs->get_vertex_colors();
@@ -394,19 +412,19 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel)
     gs->apply(lend(this->rhs_4), lend(ans));
 
     GKO_ASSERT_MTX_NEAR(ans,
-                        l({value_type{6.0 / 10.0}, value_type{3598.0 / 1760.0},
-                           value_type{-116.0 / 100.0}, value_type{15.0 / 8.0},
-                           value_type{-1807.0 / 2800.0}}),
-                        r<value_type>::value);
+                        l({ValueType{6.0 / 10.0}, ValueType{3598.0 / 1760.0},
+                           ValueType{-116.0 / 100.0}, ValueType{15.0 / 8.0},
+                           ValueType{-1807.0 / 2800.0}}),
+                        r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_3));
-    ans->fill(value_type{0});
+    ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_3);
     gs->apply(lend(this->rhs_3), lend(ans));
 
@@ -418,19 +436,18 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
 
     // this->print_csr(lend(gs->get_ltr_matrix()));
 
-    GKO_ASSERT_MTX_NEAR(
-        ans,
-        l({value_type{6.0 / 10.0}, value_type{799.0 / 440.0},
-           value_type{-3744.0 / 4400.0}, value_type{15.0 / 8.0}}),
-        r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(ans,
+                        l({ValueType{6.0 / 10.0}, ValueType{799.0 / 440.0},
+                           ValueType{-3744.0 / 4400.0}, ValueType{15.0 / 8.0}}),
+                        r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
 {
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
     auto exec = this->exec;
 
     auto mtx_rand = this->mtx_rand;
@@ -439,9 +456,9 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     auto rhs_rand = this->rhs_rand;
 
     auto x = Vec::create_with_config_of(lend(rhs_rand));
-    x->fill(value_type{0});
+    x->fill(ValueType{0});
     auto ref_x = Vec::create_with_config_of(lend(rhs_rand));
-    ref_x->fill(value_type{0});
+    ref_x->fill(ValueType{0});
 
     auto gs = this->gs_factory->generate(mtx_rand);
     // auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
@@ -449,9 +466,9 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     // reordering on the system?
     // mtx_rand isnt row_major sorted after gs_factory generation
     auto ltrs_factory =
-        gko::solver::LowerTrs<value_type, index_type>::build().on(exec);
+        gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
 
-    gko::matrix_data<value_type, index_type> ref_data;
+    gko::matrix_data<ValueType, IndexType> ref_data;
     gs->get_ltr_matrix()->write(ref_data);
     ref_data.ensure_row_major_order();  // without row major order ltrs won't
                                         // work correctly
@@ -460,7 +477,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     auto ref_ltrs = ltrs_factory->generate(ref_mtx);
 
     auto perm_idxs_view =
-        gko::array<index_type>(exec, gs->get_permutation_idxs());
+        gko::array<IndexType>(exec, gs->get_permutation_idxs());
 
     const auto rhs_rand_perm =
         gko::as<const Vec>(lend(rhs_rand)->row_permute(&perm_idxs_view));
@@ -474,71 +491,51 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
 
     // auto colors = gs->get_color_ptrs();
     // std::cout << "sum of colors = "
-    //           << gko::reduce_add(gs->get_vertex_colors(), index_type{0})
+    //           << gko::reduce_add(gs->get_vertex_colors(), IndexType{0})
     //           << "\nmax color = " << colors.get_num_elems() - 2 << std::endl;
 
-    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SimpleApplyDiagonalMatrix)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
     using Diagonal = typename TestFixture::Diagonal;
 
     auto diag_vals =
-        gko::array<value_type>(this->exec, I<value_type>({1, 2, 3, 4, 5}));
+        gko::array<ValueType>(this->exec, I<ValueType>({1, 2, 3, 4, 5}));
 
     auto diag_mat = share(
         Diagonal::create(this->exec, diag_vals.get_num_elems(), diag_vals));
 
     auto ans = Vec::create_with_config_of(lend(this->rhs_4));
-    ans->fill(value_type{0});
+    ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(diag_mat);
     gs->apply(lend(this->rhs_4), lend(ans));
 
 
-    GKO_ASSERT_MTX_NEAR(ans,
-                        l({value_type{6.0 / 1.0}, value_type{25.0 / 2.0},
-                           value_type{-11.0 / 3.0}, value_type{15.0 / 4.0},
-                           value_type{-3.0 / 5.0}}),
-                        r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(
+        ans,
+        l({ValueType{6.0 / 1.0}, ValueType{25.0 / 2.0}, ValueType{-11.0 / 3.0},
+           ValueType{15.0 / 4.0}, ValueType{-3.0 / 5.0}}),
+        r<ValueType>::value);
 }
 
-TYPED_TEST(GaussSeidel, TryVisualize)
-{
-    using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
-
-    auto mtx = this->mtx_csr_4;
-
-    this->visualize(lend(mtx), std::string("mtxCsr4"));
-    auto gs = this->gs_factory->generate(gko::as<gko::LinOp>(mtx));
-    this->visualize(gko::lend(gs->get_ltr_matrix()), std::string("mtxCsr4LTR"));
-
-    // auto mtx_rand = gko::share(this->generate_rand_matrix(
-    //     index_type{20000}, index_type{5}, index_type{10}, value_type{0}));
-
-    // this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
-    // auto gs_rand = this->gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
-    // this->visualize(gko::lend(gs_rand->get_ltr_matrix()),
-    //                 std::string("mtxRandLTR"));
-}
 
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
 {
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto mtx = this->mtx_csr_4;
     auto rhs = gko::initialize<Vec>(
-        {I<value_type>{6.0, 3.0}, I<value_type>{25.0, 12.5},
-         I<value_type>{-11.0, -5.5}, I<value_type>{15.0, 7.5},
-         I<value_type>{-3.0, -1.5}},
+        {I<ValueType>{6.0, 3.0}, I<ValueType>{25.0, 12.5},
+         I<ValueType>{-11.0, -5.5}, I<ValueType>{15.0, 7.5},
+         I<ValueType>{-3.0, -1.5}},
         this->exec);
     auto ans = Vec::create_with_config_of(gko::lend(rhs));
-    ans->fill(value_type{0});
+    ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(mtx);
 
     // auto v_colors = gs->get_vertex_colors();
@@ -554,12 +551,12 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
 
     GKO_ASSERT_MTX_NEAR(
         ans,
-        l({{value_type{6.0 / 10.0}, value_type{3.0 / 10.0}},
-           {value_type{3598.0 / 1760.0}, value_type{1799.0 / 1760.0}},
-           {value_type{-116.0 / 100.0}, value_type{-58.0 / 100.0}},
-           {value_type{15.0 / 8.0}, value_type{7.5 / 8.0}},
-           {value_type{-1807.0 / 2800.0}, value_type{-903.5 / 2800.0}}}),
-        r<value_type>::value);
+        l({{ValueType{6.0 / 10.0}, ValueType{3.0 / 10.0}},
+           {ValueType{3598.0 / 1760.0}, ValueType{1799.0 / 1760.0}},
+           {ValueType{-116.0 / 100.0}, ValueType{-58.0 / 100.0}},
+           {ValueType{15.0 / 8.0}, ValueType{7.5 / 8.0}},
+           {ValueType{-1807.0 / 2800.0}, ValueType{-903.5 / 2800.0}}}),
+        r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SystemSolveIRGS)
@@ -568,7 +565,7 @@ TYPED_TEST(GaussSeidel, SystemSolveIRGS)
     using Vec = typename TestFixture::Vec;
     using GS = typename TestFixture::GS;
     using Ir = typename TestFixture::Ir;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
 
     auto exec = this->exec;
     auto ir_gs_factory = Ir::build()
@@ -583,7 +580,7 @@ TYPED_TEST(GaussSeidel, SystemSolveIRGS)
 
     irs->apply(lend(this->rhs_3), lend(result));
 
-    GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
@@ -591,7 +588,7 @@ TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
     using Ir = typename TestFixture::Ir;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-    using value_type = typename TestFixture::value_type;
+    using ValueType = typename TestFixture::value_type;
     auto exec = this->exec;
 
     auto result = Vec::create_with_config_of(lend(this->rhs_3));
@@ -605,7 +602,7 @@ TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
     auto irs = ir_factory->generate(this->mtx_csr_3);
     irs->apply(lend(this->rhs_3), result.get());
 
-    GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<value_type>::value);
+    GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<ValueType>::value);
 }
 
 // TODO
@@ -615,40 +612,59 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
     using GS = typename TestFixture::GS;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using Log = typename TestFixture::Log;
+    using namespace gko;
 
     auto exec = this->exec;
 
-    auto mtx = this->mtx_rand;
-    auto rhs = this->rhs_rand;
+    auto mtx = share(this->generate_rand_matrix(IndexType{10000}, IndexType{5},
+                                                IndexType{15}, ValueType{0}));
+    auto rhs =
+        share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+    auto x = Vec::create_with_config_of(lend(rhs));
+    x->fill(0.0);
+    auto x_clone = clone(exec, x);
+    auto rhs_clone = clone(exec, rhs);
 
-    auto cg_factory = CG::build()
-                          .with_criteria(this->iter_criterion_factory,
-                                         this->res_norm_criterion_factory)
-                          .on(exec);
+    auto iter_crit = this->iter_criterion_factory;
+    iter_crit->add_logger(this->iter_logger);
+    auto res_norm = this->res_norm_criterion_factory;
+    res_norm->add_logger(this->iter_logger);
+
+    auto cg_factory = CG::build().with_criteria(iter_crit, res_norm).on(exec);
+    auto cg = cg_factory->generate(mtx);
+    cg->apply(lend(rhs), lend(x));
+    auto cg_num_iters = this->iter_logger->get_num_iterations();
+
     auto pcg_factory = CG::build()
-                           .with_criteria(this->iter_criterion_factory,
-                                          this->res_norm_criterion_factory)
-                           .with_preconditioner()
+                           .with_criteria(iter_crit, res_norm)
+                           .with_preconditioner(this->gs_factory)
                            .on(exec);
+    auto pcg = pcg_factory->generate(mtx);
+    pcg->apply(lend(rhs_clone), lend(x_clone));
+
+    auto pcg_num_iters = this->iter_logger->get_num_iterations();
+
+    GKO_ASSERT_EQ(pcg_num_iters, cg_num_iters);
+    // GKO_ASSERT_MTX_NEAR(x, x_clone, r<ValueType>::value);
 }
 
 TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 {
-    using index_type = typename TestFixture::index_type;
-    using value_type = typename TestFixture::value_type;
-    using SparsityCsr =
-        typename gko::matrix::SparsityCsr<value_type, index_type>;
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using SparsityCsr = typename gko::matrix::SparsityCsr<ValueType, IndexType>;
     using Csr = typename TestFixture::Csr;
     auto exec = this->exec;
     size_t grid_size = 10;
     auto regular_grid_matrix =
-        share(this->generate_2D_regular_grid_matrix(grid_size, value_type{0}));
+        share(this->generate_2D_regular_grid_matrix(grid_size, ValueType{0}));
 
-    gko::array<index_type> vertex_colors{exec, grid_size * grid_size};
-    vertex_colors.fill(index_type{-1});
-    gko::array<index_type> ans{exec, vertex_colors};
+    gko::array<IndexType> vertex_colors{exec, grid_size * grid_size};
+    vertex_colors.fill(IndexType{-1});
+    gko::array<IndexType> ans{exec, vertex_colors};
     for (auto i = 0; i < ans.get_num_elems(); i++) {
         if (grid_size % 2 == 1) {
             ans.get_data()[i] = i % 2;
@@ -660,7 +676,7 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
     auto tmp = gko::copy_and_convert_to<SparsityCsr>(exec, regular_grid_matrix);
     auto adjacency_matrix = SparsityCsr::create(exec);
     adjacency_matrix = std::move(tmp->to_adjacency_matrix());
-    index_type max_color{0};
+    IndexType max_color{0};
     gko::kernels::reference::gauss_seidel::get_coloring(
         exec, lend(adjacency_matrix), vertex_colors, &max_color);
 
@@ -670,13 +686,13 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 // TODO
 // TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
 // {
-//     using index_type = typename TestFixture::index_type;
-//     using value_type = typename TestFixture::value_type;
+//     using IndexType = typename TestFixture::index_type;
+//     using ValueType = typename TestFixture::value_type;
 //     auto exec = this->exec;
 //     size_t grid_size = 3;
 //     auto regular_grid_matrix =
 //         share(this->generate_2D_regular_grid_matrix(grid_size,
-//         value_type{0}));
+//         ValueType{0}));
 //     auto gs = this->gs_factory->generate(regular_grid_matrix);
 //     auto perm_arr = gs->get_permutation_idxs();
 //     GKO_ASSERT_EQ(0, 1);
@@ -687,20 +703,20 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     using Csr = typename TestFixture::Csr;
 //     using Vec = typename TestFixture::Vec;
 //     using GS = typename TestFixture::GS;
-//     using value_type = typename TestFixture::value_type;
-//     using index_type = typename TestFixture::index_type;
+//     using ValueType = typename TestFixture::value_type;
+//     using IndexType = typename TestFixture::index_type;
 
 //     auto exec = this->exec;
 //     auto gs_race_factory = GS::build().with_use_RACE(true).on(exec);
 
 //     // auto grid_mtx =
 //     //     gko::share(this->generate_2D_regular_grid_matrix(100,
-//     //     value_type{0}));
+//     //     ValueType{0}));
 //     // auto gs_race = gs_race_factory->generate(grid_mtx);
 //     // auto gs = this->gs_factory->generate(grid_mtx);
 //     auto mtx = gko::share(this->generate_rand_matrix(
-//         index_type{20000}, index_type{10}, index_type{20},
-//         value_type{0}));  // initial random matrix has the selected nnz per
+//         IndexType{20000}, IndexType{10}, IndexType{20},
+//         ValueType{0}));  // initial random matrix has the selected nnz per
 //                           //     row,
 //                           // after turning the matrix hpd -> around 2x more
 //     auto gs_race = gs_race_factory->generate(mtx);
@@ -711,4 +727,27 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     auto color_ptrs = gs->get_color_ptrs();
 //     std::cout << color_ptrs.get_num_elems() - 1 << std::endl;
 // }
+
+// TYPED_TEST(GaussSeidel, TryVisualize)
+// {
+//     using Vec = typename TestFixture::Vec;
+//     using ValueType = typename TestFixture::value_type;
+//     using IndexType = typename TestFixture::index_type;
+
+//     auto mtx = this->mtx_csr_4;
+
+//     this->visualize(lend(mtx), std::string("mtxCsr4"));
+//     auto gs = this->gs_factory->generate(gko::as<gko::LinOp>(mtx));
+//     this->visualize(gko::lend(gs->get_ltr_matrix()),
+//     std::string("mtxCsr4LTR"));
+
+//     auto mtx_rand = gko::share(this->generate_rand_matrix(
+//         IndexType{20000}, IndexType{5}, IndexType{10}, ValueType{0}));
+
+//     this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
+//     auto gs_rand = this->gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+//     this->visualize(gko::lend(gs_rand->get_ltr_matrix()),
+//                     std::string("mtxRandLTR"));
+// }
+
 }  // namespace

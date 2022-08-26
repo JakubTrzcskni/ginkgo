@@ -485,6 +485,23 @@ void GaussSeidel<ValueType, IndexType>::generate_RACE(
 
 
     // load-balancing
+    //...
+}
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::generate_HBMC(
+    std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
+{
+    using Csr = matrix::Csr<ValueType, IndexType>;
+    auto exec = this->get_executor();
+    auto csr_matrix =
+        convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
+
+    matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
+    csr_matrix->write(mat_data);
+    auto adjacency_matrix =
+        matrix::SparsityCsr<ValueType, IndexType>::create(exec);
+    adjacency_matrix = get_adjacency_matrix(mat_data);
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \

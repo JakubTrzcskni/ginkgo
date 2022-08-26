@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include <ginkgo/core/base/abstract_factory.hpp>
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/device_matrix_data.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
@@ -102,7 +103,13 @@ public:
 
         bool GKO_FACTORY_PARAMETER_SCALAR(use_coloring, true);
 
+        // RACE strategy can create levels but nothing more
+        // It seems not quite suitable for the task so for now it won't be
+        // pursued further
         bool GKO_FACTORY_PARAMETER_SCALAR(use_RACE, false);
+
+        // hierarchical algebraic block coloring strategy
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, false);
 
         // matrix should be assumed to NOT Be lower triangular as its not a real
         // world scenario
@@ -154,6 +161,8 @@ protected:
     {
         if (parameters_.use_RACE == true) {
             this->generate_RACE(system_matrix, parameters_.skip_sorting);
+        } else if (parameters_.use_HBMC == true) {
+            this->generate_HBMC(system_matrix, parameters_.skip_sorting);
         } else {
             this->generate(system_matrix, parameters_.skip_sorting);
         }
@@ -165,12 +174,15 @@ protected:
     void generate_RACE(std::shared_ptr<const LinOp> system_matrix,
                        bool skip_sorting);
 
+    void generate_HBMC(std::shared_ptr<const LinOp> system_matrix,
+                       bool skip_sorting);
+
     std::unique_ptr<matrix::SparsityCsr<value_type, index_type>>
     get_adjacency_matrix(matrix_data<value_type, index_type>& mat_data,
                          bool is_symmetric = false);
 
-    IndexType get_coloring(matrix_data<ValueType, IndexType>& mat_data,
-                           bool is_symmetric = false);
+    index_type get_coloring(matrix_data<value_type, index_type>& mat_data,
+                            bool is_symmetric = false);
 
     void compute_permutation_idxs(index_type max_color);
 
@@ -185,6 +197,7 @@ protected:
 private:
     std::shared_ptr<Csr>
         lower_triangular_matrix_{};  // aka matrix used in the preconditioner
+    std::shared_ptr<Csr> upper_triangular_matrix_{};
     // array<index_type> diag_idxs_;
     std::shared_ptr<const LinOp> lower_trs_{};
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
