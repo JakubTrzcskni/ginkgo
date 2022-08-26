@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -485,6 +486,51 @@ void GaussSeidel<ValueType, IndexType>::generate_RACE(
 
 
     // load-balancing
+}
+
+//TODO 
+//there must be already a fast parallel version of this?(or something similar)
+template <typename IndexType>
+IndexType get_id_min_node(IndexType* degrees, size_t num_nodes, bool* visited){
+IndexType index_min_node = 0;
+    IndexType min_node_degree = std::numeric_limits<IndexType>::max();
+    for (size_t i = 0; i < num_nodes; ++i) {
+        if (degrees[i] < min_node_degree && visited[i] == false) {
+            visited[i] = true;
+            index_min_node = i;
+            min_node_degree = degrees[i];
+        }
+    }
+    return index_min_node;
+}
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::generate_block_structure(matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, size_t block_size, size_t lvl_2_block_size){
+    
+    auto exec = this->get_executor()->get_master();
+    auto num_nodes = adjacency_matrix->get_size()[0];
+    auto num_base_blocks = ceildiv(num_nodes, block_size);
+    array<std::vector<IndexType>> block_pointers(exec, num_base_blocks);
+    array<IndexType> degrees(exec, num_nodes);
+    array<bool> visited(exec, num_nodes);
+    visited->fill(false);
+    exec->run(gauss_seidel::make_get_degree_of_nodes(
+        num_nodes, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
+    
+    //loop over the blocks
+    for(auto k = 0; k < num_base_blocks; k++){
+        std::vector<IndexType> candidates;
+        auto curr_block = block_pointers.get_data()[k];
+        for(auto i = 0; i < block_size; i++){
+            if(candidates.empty()){
+                auto seed_node_id = get_id_min_node(degrees.get_data(), num_nodes, visited.get_data());
+            }else{
+                
+            }
+        }
+    }
+    
+
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \
