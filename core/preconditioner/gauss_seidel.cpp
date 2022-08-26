@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
 #include <ginkgo/core/reorder/rcm.hpp>
 
+#include "core/base/allocator.hpp"
 #include "core/base/utils.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/jacobi_kernels.hpp"
@@ -505,11 +506,13 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     adjacency_matrix = get_adjacency_matrix(mat_data);
 }
 
-//TODO 
-//there must be already a fast parallel version of this?(or something similar)
+// TODO
+// there must be already a fast parallel version of this?(or something similar)
 template <typename IndexType>
-IndexType get_id_min_node(IndexType* degrees, size_t num_nodes, bool* visited){
-IndexType index_min_node = 0;
+IndexType get_id_min_node(IndexType* degrees, size_t num_nodes,
+                          gko::vector<bool>& visited)
+{
+    IndexType index_min_node = -1;
     IndexType min_node_degree = std::numeric_limits<IndexType>::max();
     for (size_t i = 0; i < num_nodes; ++i) {
         if (degrees[i] < min_node_degree && visited[i] == false) {
@@ -520,34 +523,128 @@ IndexType index_min_node = 0;
     }
     return index_min_node;
 }
+enum struct nodeSelectionPolicy { fifo, maxNumEdges, score };
 
-template <typename ValueType, typename IndexType>
-void GaussSeidel<ValueType, IndexType>::generate_block_structure(matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, size_t block_size, size_t lvl_2_block_size){
-    
-    auto exec = this->get_executor()->get_master();
-    auto num_nodes = adjacency_matrix->get_size()[0];
-    auto num_base_blocks = ceildiv(num_nodes, block_size);
-    array<std::vector<IndexType>> block_pointers(exec, num_base_blocks);
-    array<IndexType> degrees(exec, num_nodes);
-    array<bool> visited(exec, num_nodes);
-    visited->fill(false);
-    exec->run(gauss_seidel::make_get_degree_of_nodes(
-        num_nodes, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
-    
-    //loop over the blocks
-    for(auto k = 0; k < num_base_blocks; k++){
-        std::vector<IndexType> candidates;
-        auto curr_block = block_pointers.get_data()[k];
-        for(auto i = 0; i < block_size; i++){
-            if(candidates.empty()){
-                auto seed_node_id = get_id_min_node(degrees.get_data(), num_nodes, visited.get_data());
-            }else{
-                
+template <typename IndexType>
+IndexType find_next_candidate(
+    std::vector<IndexType> curr_block, std::vector<IndexType>& candidates,
+    gko::vector<bool>& visited, const IndexType* row_ptrs,
+    const IndexType* col_idxs,
+    nodeSelectionPolicy policy = nodeSelectionPolicy::fifo)
+{
+    switch (policy) {
+    case nodeSelectionPolicy::fifo: {
+        IndexType next_candidate;
+        for (auto candidate : candidates) {
+            if (visited[candidate] == false) {
+                next_candidate = candidate;
+                visited[candidate] = true;
+                candidates.erase(candidates.begin() + candidate,
+                                 candidates.begin() + candidate + 1);
+                for (auto i = row_ptrs[next_candidate];
+                     i < row_ptrs[next_candidate + 1]; i++) {
+                    if (visited[col_idxs[i]] == false)
+                        candidates.push_back(col_idxs[i]);
+                }
+                return next_candidate;  // return first candidate in the list
+                                        // (if found)
+            } else {
+                candidates.erase(candidates.begin() + candidate,
+                                 candidates.begin() + candidate +
+                                     1);  // delete already visited nodes
             }
         }
+        return -1;  // return -1 if all candidates have been visited
+        break;
     }
-    
+    case nodeSelectionPolicy::score: {
+        GKO_NOT_IMPLEMENTED;
+        break;
+    }
+    case nodeSelectionPolicy::maxNumEdges: {
+        auto best_joint_edges = -1;
+        auto best_candidate = -1;
+        for (auto candidate : candidates) {
+            if (visited[candidate] == false) {
+                auto curr_joint_edges = 0;
+                for (auto i = row_ptrs[candidate]; i < row_ptrs[candidate + 1];
+                     i++) {
+                    auto candidate_neighbour = col_idxs[i];
+                    for (auto node : curr_block) {
+                        if (candidate_neighbour == node) curr_joint_edges++;
+                    }
+                }
+                if (curr_joint_edges > best_joint_edges) {
+                    best_joint_edges = curr_joint_edges;
+                    best_candidate = candidate;
+                }
+            } else {
+                candidates.erase(candidates.begin() + candidate,
+                                 candidates.begin() + candidate +
+                                     1);  // delete already visited nodes
+            }
+        }
+        if (best_candidate >= 0) {
+            visited[best_candidate] = true;
+            candidates.erase(candidates.begin() + best_candidate,
+                             candidates.begin() + best_candidate + 1);
+            for (auto i = row_ptrs[best_candidate];
+                 i < row_ptrs[best_candidate + 1]; i++) {
+                if (visited[col_idxs[i]] == false)
+                    candidates.push_back(col_idxs[i]);
+            }
+        }
+        return best_candidate;
+        break;
+    }
+    default:
+        GKO_NOT_SUPPORTED(policy);
+        break;
+    }
+}
+template <typename IndexType>
+void color_blocks(std::vector<IndexType>* block_pointers)
+{}
 
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::generate_block_structure(
+    matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    size_t block_size, size_t lvl_2_block_size)
+{
+    auto exec = this->get_executor()->get_master();
+    const IndexType num_nodes = adjacency_matrix->get_size()[0];
+    auto num_base_blocks = ceildiv(num_nodes, block_size);
+
+    array<std::vector<IndexType>> block_pointers(exec, num_base_blocks);
+    array<IndexType> degrees(exec, num_nodes);
+    gko::vector<bool> visited(num_nodes, false, exec);
+
+    exec->run(gauss_seidel::make_get_degree_of_nodes(
+        num_nodes, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
+
+    // loop over the blocks
+    for (auto k = 0; k < num_base_blocks; k++) {
+        std::vector<IndexType> candidates;
+        auto curr_block = block_pointers.get_data()[k];
+        for (auto i = 0; i < block_size; i++) {
+            auto next_node = 0;
+            if (candidates.empty()) {
+                next_node =
+                    get_id_min_node(degrees.get_data(), num_nodes, visited);
+            } else {
+                next_node =
+                    find_next_candidate(curr_block, candidates, visited,
+                                        adjacency_matrix->get_const_row_ptrs(),
+                                        adjacency_matrix->get_const_col_idxs(),
+                                        nodeSelectionPolicy::fifo);
+            }
+            if (next_node >= 0)
+                curr_block.push_back(next_node);
+            else
+                break;  // last block which cannot be filled fully (i <
+                        // block_size, but all nodes already visited)
+        }
+    }
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \
