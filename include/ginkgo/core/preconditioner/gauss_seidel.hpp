@@ -193,6 +193,7 @@ protected:
     void apply_impl(const LinOp* alpha, const LinOp* b, const LinOp* beta,
                     LinOp* x) const override;
 
+void generate_block_structure(matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, size_t block_size, size_t lvl_2_block_size);
 
 private:
     std::shared_ptr<Csr>
