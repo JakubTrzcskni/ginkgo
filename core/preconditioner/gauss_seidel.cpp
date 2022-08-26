@@ -602,9 +602,28 @@ IndexType find_next_candidate(
         break;
     }
 }
+
 template <typename IndexType>
 void color_blocks(std::vector<IndexType>* block_pointers)
-{}
+{
+    /*
+    for each block iterate over the included nodes and check their color
+    ->possible if i save colors of the vertices and not blocks - block colors
+    would be implicit disadvantage: for each node separately - same color will
+    be added to the neighbour_colors multiple times
+
+    as in the get_coloring kernel, but with a loop over the blocks -> loop over
+    the nodes in the block -> search for the best color that sattisfies all
+    dependencies afterwards color all nodes in the block with the same color.
+
+    naive, sequential algorithm
+
+    function:parallel check for dependencies between blocks?
+
+    Another possibility is to create a dependency graph for the created blocks
+    (sounds like too expensive)
+    */
+}
 
 template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::generate_block_structure(
