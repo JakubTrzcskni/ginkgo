@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
+#include <list>
 #include <vector>
 
 #include <ginkgo/core/base/array.hpp>
@@ -295,7 +296,7 @@ IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
 
 template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::compute_permutation_idxs(
-    IndexType max_color)
+    IndexType max_color, const IndexType* block_ordering)
 {
     auto num_rows = vertex_colors_.get_num_elems();
     const auto coloring = vertex_colors_.get_const_data();
@@ -303,15 +304,29 @@ void GaussSeidel<ValueType, IndexType>::compute_permutation_idxs(
     auto permutation = permutation_idxs_.get_data();
     auto block_ptrs = color_ptrs_.get_data();
     IndexType tmp{0};
-
-    for (auto color = 0; color <= max_color; color++) {
-        for (auto i = 0; i < num_rows; i++) {
-            if (i == 0) {
-                block_ptrs[color] = tmp;
+    if (!block_ordering) {
+        for (auto color = 0; color <= max_color; color++) {
+            for (auto i = 0; i < num_rows; i++) {
+                if (i == 0) {
+                    block_ptrs[color] = tmp;
+                }
+                if (coloring[i] == color) {
+                    permutation[tmp] = i;
+                    tmp++;
+                }
             }
-            if (coloring[i] == color) {
-                permutation[tmp] = i;
-                tmp++;
+        }
+    } else {
+        for (auto color = 0; color <= max_color; color++) {
+            for (auto i = 0; i < num_rows; i++) {
+                auto node = block_ordering[i];
+                if (i == 0) {
+                    block_ptrs[color] = tmp;
+                }
+                if (coloring[node] == color) {
+                    permutation[tmp] = node;
+                    tmp++;
+                }
             }
         }
     }
@@ -504,6 +519,15 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     auto adjacency_matrix =
         matrix::SparsityCsr<ValueType, IndexType>::create(exec);
     adjacency_matrix = get_adjacency_matrix(mat_data);
+
+    auto block_ordering =
+        generate_block_structure(lend(adjacency_matrix), base_block_size_);
+
+    // for testing only
+    lower_triangular_matrix_->copy_from(
+        give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
+
+    // for testing only
 }
 
 // TODO
@@ -524,146 +548,252 @@ IndexType get_id_min_node(IndexType* degrees, size_t num_nodes,
     return index_min_node;
 }
 enum struct nodeSelectionPolicy { fifo, maxNumEdges, score };
+enum struct seedSelectionPolicy { noPolicy, minDegree };
 
 template <typename IndexType>
 IndexType find_next_candidate(
-    std::vector<IndexType> curr_block, std::vector<IndexType>& candidates,
+    const IndexType* block_ordering, const IndexType curr_block,
+    std::list<IndexType>& candidates, const IndexType num_nodes,
+    const IndexType block_size, const IndexType* degrees,
     gko::vector<bool>& visited, const IndexType* row_ptrs,
     const IndexType* col_idxs,
-    nodeSelectionPolicy policy = nodeSelectionPolicy::fifo)
+    nodeSelectionPolicy policy = nodeSelectionPolicy::fifo,
+    seedSelectionPolicy seed_policy = seedSelectionPolicy::minDegree)
 {
-    switch (policy) {
-    case nodeSelectionPolicy::fifo: {
-        IndexType next_candidate;
-        for (auto candidate : candidates) {
-            if (visited[candidate] == false) {
-                next_candidate = candidate;
-                visited[candidate] = true;
-                candidates.erase(candidates.begin() + candidate,
-                                 candidates.begin() + candidate + 1);
-                for (auto i = row_ptrs[next_candidate];
-                     i < row_ptrs[next_candidate + 1]; i++) {
+    if (candidates.empty()) {
+        switch (seed_policy) {
+        case seedSelectionPolicy::minDegree: {
+            IndexType index_min_node = -1;
+            IndexType min_node_degree = std::numeric_limits<IndexType>::max();
+            for (auto i = 0; i < num_nodes; ++i) {
+                if (degrees[i] < min_node_degree && visited[i] == false) {
+                    index_min_node = i;
+                    min_node_degree = degrees[i];
+                }
+            }
+            if (index_min_node >= 0) {
+                visited[index_min_node] = true;
+                for (auto i = row_ptrs[index_min_node];
+                     i < row_ptrs[index_min_node + 1]; i++) {
                     if (visited[col_idxs[i]] == false)
                         candidates.push_back(col_idxs[i]);
                 }
-                return next_candidate;  // return first candidate in the list
-                                        // (if found)
-            } else {
-                candidates.erase(candidates.begin() + candidate,
-                                 candidates.begin() + candidate +
-                                     1);  // delete already visited nodes
             }
+            return index_min_node;
+            break;
         }
-        return -1;  // return -1 if all candidates have been visited
-        break;
-    }
-    case nodeSelectionPolicy::score: {
-        GKO_NOT_IMPLEMENTED;
-        break;
-    }
-    case nodeSelectionPolicy::maxNumEdges: {
-        auto best_joint_edges = -1;
-        auto best_candidate = -1;
-        for (auto candidate : candidates) {
-            if (visited[candidate] == false) {
-                auto curr_joint_edges = 0;
-                for (auto i = row_ptrs[candidate]; i < row_ptrs[candidate + 1];
-                     i++) {
-                    auto candidate_neighbour = col_idxs[i];
-                    for (auto node : curr_block) {
-                        if (candidate_neighbour == node) curr_joint_edges++;
+        case seedSelectionPolicy::noPolicy: {
+            IndexType seed = -1;
+            for (auto i = 0; i < num_nodes; ++i) {
+                if (visited[i] == false) {
+                    seed = i;
+                    visited[i] = true;
+                    return seed;
+                }
+            }
+            return seed;  // if no node found return -1
+            break;
+        }
+        default:
+            GKO_NOT_SUPPORTED(seed_policy);
+            break;
+        }
+
+    } else {
+        switch (policy) {
+        case nodeSelectionPolicy::fifo: {
+            IndexType next_candidate;
+            for (IndexType candidate : candidates) {
+                if (visited[candidate] == false) {
+                    next_candidate = candidate;
+                    visited[candidate] = true;
+                    candidates.remove(candidate);
+                    for (auto i = row_ptrs[next_candidate];
+                         i < row_ptrs[next_candidate + 1]; i++) {
+                        if (visited[col_idxs[i]] == false)
+                            candidates.push_back(col_idxs[i]);
                     }
+                    return next_candidate;  // return first candidate in the
+                                            // list (if found)
+                } else {
+                    candidates.remove(
+                        candidate);  // delete already visited nodes
                 }
-                if (curr_joint_edges > best_joint_edges) {
-                    best_joint_edges = curr_joint_edges;
-                    best_candidate = candidate;
+            }
+            return -1;  // return -1 if all candidates have been visited
+            break;
+        }
+        case nodeSelectionPolicy::score: {
+            GKO_NOT_IMPLEMENTED;
+            break;
+        }
+        case nodeSelectionPolicy::maxNumEdges: {
+            auto best_joint_edges = -1;
+            auto best_candidate = -1;
+            for (IndexType candidate : candidates) {
+                if (visited[candidate] == false) {
+                    auto curr_joint_edges = 0;
+                    for (auto i = row_ptrs[candidate];
+                         i < row_ptrs[candidate + 1]; i++) {
+                        auto candidate_neighbour = col_idxs[i];
+                        for (auto node = curr_block;
+                             node < curr_block + block_size && node < num_nodes;
+                             node++) {
+                            if (candidate_neighbour == node) curr_joint_edges++;
+                        }
+                    }
+                    if (curr_joint_edges > best_joint_edges) {
+                        best_joint_edges = curr_joint_edges;
+                        best_candidate = candidate;
+                    }
+                } else {
+                    candidates.remove(
+                        candidate);  // delete already visited nodes
                 }
-            } else {
-                candidates.erase(candidates.begin() + candidate,
-                                 candidates.begin() + candidate +
-                                     1);  // delete already visited nodes
             }
-        }
-        if (best_candidate >= 0) {
-            visited[best_candidate] = true;
-            candidates.erase(candidates.begin() + best_candidate,
-                             candidates.begin() + best_candidate + 1);
-            for (auto i = row_ptrs[best_candidate];
-                 i < row_ptrs[best_candidate + 1]; i++) {
-                if (visited[col_idxs[i]] == false)
-                    candidates.push_back(col_idxs[i]);
+            if (best_candidate >= 0) {
+                visited[best_candidate] = true;
+                candidates.remove(best_candidate);
+                for (auto i = row_ptrs[best_candidate];
+                     i < row_ptrs[best_candidate + 1]; i++) {
+                    if (visited[col_idxs[i]] == false)
+                        candidates.push_back(col_idxs[i]);
+                }
             }
+            return best_candidate;
+            break;
         }
-        return best_candidate;
-        break;
-    }
-    default:
-        GKO_NOT_SUPPORTED(policy);
-        break;
+        default:
+            GKO_NOT_SUPPORTED(policy);
+            break;
+        }
     }
 }
 
-template <typename IndexType>
-void color_blocks(std::vector<IndexType>* block_pointers)
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::get_block_coloring(
+    const IndexType* block_ordering, const IndexType num_nodes,
+    const IndexType block_size, const IndexType* row_ptrs,
+    const IndexType* col_idxs, IndexType* max_color)
 {
     /*
     for each block iterate over the included nodes and check their color
     ->possible if i save colors of the vertices and not blocks - block colors
-    would be implicit disadvantage: for each node separately - same color will
-    be added to the neighbour_colors multiple times
+    would be implicit
+
+    disadvantage: for each node separately - same color will
+    be added to the neighbour_colors muliple times
 
     as in the get_coloring kernel, but with a loop over the blocks -> loop over
     the nodes in the block -> search for the best color that sattisfies all
     dependencies afterwards color all nodes in the block with the same color.
+    in each block, for each node check its neighbourhood -> nnz, no extra memory
+    requirements
 
-    naive, sequential algorithm
-
-    function:parallel check for dependencies between blocks?
+    function: parallel check for dependencies between blocks?
 
     Another possibility is to create a dependency graph for the created blocks
     (sounds like too expensive)
+    but maybe its the same as the cost of the naive algorithm above?
+    in each block, for each node check against every other (every adjacent would
+    suffice if the node would know to which block it belongs(not the case)) node
+    -> num_nodes², memory requirement: num_blocks² advantage (maybe): dependency
+    structure could be used in a more advanced coloring algorithm
     */
+
+    vertex_colors_.fill(IndexType{-1});
+    IndexType highest_color = 0;
+    const auto colors = vertex_colors_.get_const_data();
+    for (auto k = 0; k < num_nodes; k += block_size) {
+        typename std::set<IndexType>
+            neighbour_colors;  // colors of all neighbours of nodes in the block
+        auto curr_block = &block_ordering[k];
+        for (auto i = 0; i < block_size && k + i < num_nodes; i++) {
+            auto curr_node = curr_block[i];
+            for (auto j = row_ptrs[curr_node]; j < row_ptrs[curr_node + 1];
+                 j++) {
+                auto col = col_idxs[j];
+                auto adjacent_vertex_color = colors[col];
+                neighbour_colors.insert(adjacent_vertex_color);
+                if (adjacent_vertex_color > highest_color)
+                    highest_color = adjacent_vertex_color;
+            }
+        }
+        bool color_found = false;
+        IndexType best_color_found = 0;
+        for (auto color = 0; !color_found && color <= highest_color; color++) {
+            typename std::set<IndexType>::iterator it;
+            it = neighbour_colors.find(color);
+            if (it == neighbour_colors.end()) {
+                best_color_found = color;
+                color_found = true;
+            }
+        }
+        if (!color_found) {
+            highest_color++;
+            best_color_found = highest_color;
+        }
+        for (auto i = 0; i < block_size && k + i < num_nodes; i++) {
+            auto curr_node = curr_block[i];
+            vertex_colors_.get_data()[curr_node] = best_color_found;
+        }
+    }
+    *max_color = highest_color;
 }
 
 template <typename ValueType, typename IndexType>
-void GaussSeidel<ValueType, IndexType>::generate_block_structure(
+array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
-    size_t block_size, size_t lvl_2_block_size)
+    IndexType block_size, IndexType lvl_2_block_size)
 {
-    auto exec = this->get_executor()->get_master();
+    auto exec = this->get_executor();
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
-    auto num_base_blocks = ceildiv(num_nodes, block_size);
+    const IndexType num_base_blocks = ceildiv(num_nodes, block_size);
 
-    array<std::vector<IndexType>> block_pointers(exec, num_base_blocks);
+    array<IndexType> block_ordering(exec, num_nodes);
     array<IndexType> degrees(exec, num_nodes);
     gko::vector<bool> visited(num_nodes, false, exec);
 
     exec->run(gauss_seidel::make_get_degree_of_nodes(
         num_nodes, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
 
-    // loop over the blocks
-    for (auto k = 0; k < num_base_blocks; k++) {
-        std::vector<IndexType> candidates;
-        auto curr_block = block_pointers.get_data()[k];
-        for (auto i = 0; i < block_size; i++) {
-            auto next_node = 0;
-            if (candidates.empty()) {
-                next_node =
-                    get_id_min_node(degrees.get_data(), num_nodes, visited);
-            } else {
-                next_node =
-                    find_next_candidate(curr_block, candidates, visited,
-                                        adjacency_matrix->get_const_row_ptrs(),
-                                        adjacency_matrix->get_const_col_idxs(),
-                                        nodeSelectionPolicy::fifo);
-            }
+
+    for (IndexType k = 0; k < num_nodes; k += block_size) {
+        std::list<IndexType>
+            candidates;  // not sure if std::list is the right one
+        auto curr_block = &(block_ordering.get_data()[k]);
+        for (auto i = 0; i < block_size && i + k < num_nodes; i++) {
+            auto next_node = find_next_candidate(
+                block_ordering.get_const_data(), k, candidates, num_nodes,
+                block_size, degrees.get_const_data(), visited,
+                adjacency_matrix->get_const_row_ptrs(),
+                adjacency_matrix->get_const_col_idxs(),
+                nodeSelectionPolicy::maxNumEdges,
+                seedSelectionPolicy::minDegree);
+
             if (next_node >= 0)
-                curr_block.push_back(next_node);
+
+                curr_block[i] = next_node;
             else
                 break;  // last block which cannot be filled fully (i <
                         // block_size, but all nodes already visited)
+                        // second check, loop bounds are the first
         }
     }
+
+    // TODO move to generate_HBMC / to gs kernels
+    IndexType max_color = 0;
+    get_block_coloring(block_ordering.get_const_data(), num_nodes, block_size,
+                       adjacency_matrix->get_const_row_ptrs(),
+                       adjacency_matrix->get_const_col_idxs(), &max_color);
+
+    color_ptrs_.resize_and_reset(max_color + 2);
+    compute_permutation_idxs(max_color, block_ordering.get_const_data());
+
+    if (lvl_2_block_size > 0)
+        GKO_NOT_IMPLEMENTED;  // hierarchical structure not implemented yet.
+
+    return block_ordering;
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \

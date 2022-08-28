@@ -60,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/stop/residual_norm.hpp>
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
-// #include "core/preconditioner/sparse_display.hpp"
+#include "core/preconditioner/sparse_display.hpp"
 #include "core/test/utils.hpp"
 #include "core/utils/matrix_utils.hpp"
 #include "matrices/config.hpp"
@@ -93,7 +93,7 @@ protected:
           ref_gs_factory(
               GS::build().with_use_reference(true).with_use_coloring(false).on(
                   exec)),
-          iter_criterion_factory(Iter::build().with_max_iters(1000u).on(exec)),
+          iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
           res_norm_criterion_factory(
               ResNorm::build()
                   .with_reduction_factor(r<value_type>::value)
@@ -285,16 +285,16 @@ protected:
         std::cout << std::endl;
     }
 
-    // template <typename ValueType, typename IndexType>
-    // void visualize(gko::matrix::Csr<ValueType, IndexType>* csr_mat,
-    //                std::string plot_label)
-    // {
-    //     auto dense_mat = Vec::create(exec);
-    //     csr_mat->convert_to(lend(dense_mat));
-    //     auto num_rows = dense_mat->get_size()[0];
-    //     gko::preconditioner::visualize::spy_ge(
-    //         num_rows, num_rows, dense_mat->get_values(), plot_label);
-    // }
+    template <typename ValueType, typename IndexType>
+    void visualize(gko::matrix::Csr<ValueType, IndexType>* csr_mat,
+                   std::string plot_label)
+    {
+        auto dense_mat = Vec::create(exec);
+        csr_mat->convert_to(lend(dense_mat));
+        auto num_rows = dense_mat->get_size()[0];
+        gko::preconditioner::visualize::spy_ge(
+            num_rows, num_rows, dense_mat->get_values(), plot_label);
+    }
 
     std::shared_ptr<const gko::ReferenceExecutor> exec;
     std::default_random_engine rand_engine;
@@ -619,7 +619,7 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
 
     auto exec = this->exec;
 
-    auto mtx = share(this->generate_rand_matrix(IndexType{10000}, IndexType{5},
+    auto mtx = share(this->generate_rand_matrix(IndexType{1000}, IndexType{5},
                                                 IndexType{15}, ValueType{0}));
     auto rhs =
         share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
@@ -733,21 +733,28 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     using Vec = typename TestFixture::Vec;
 //     using ValueType = typename TestFixture::value_type;
 //     using IndexType = typename TestFixture::index_type;
+//     using GS = typename TestFixture::GS;
+//     if (std::is_same<ValueType, double>::value &&
+//         std::is_same<IndexType, long>::value) {
+//         // auto mtx_rand = gko::share(this->generate_rand_matrix(
+//         // IndexType{30000}, IndexType{5}, IndexType{10}, ValueType{0}));
+//         auto mtx_rand = gko::share(this->generate_2D_regular_grid_matrix(
+//             size_t{100}, ValueType{}, true));
 
-//     auto mtx = this->mtx_csr_4;
+//         this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
+//         for (auto i = 1; i <= 128; i *= 9) {
+//             auto HBMC_gs_factory =
+//                 GS::build().with_use_HBMC(true).with_base_block_size(i).on(
+//                     this->exec);
 
-//     this->visualize(lend(mtx), std::string("mtxCsr4"));
-//     auto gs = this->gs_factory->generate(gko::as<gko::LinOp>(mtx));
-//     this->visualize(gko::lend(gs->get_ltr_matrix()),
-//     std::string("mtxCsr4LTR"));
 
-//     auto mtx_rand = gko::share(this->generate_rand_matrix(
-//         IndexType{20000}, IndexType{5}, IndexType{10}, ValueType{0}));
-
-//     this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
-//     auto gs_rand = this->gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
-//     this->visualize(gko::lend(gs_rand->get_ltr_matrix()),
-//                     std::string("mtxRandLTR"));
+//             auto gs_rand =
+//                 HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+//             auto label = std::string("mtxRandLTR_");
+//             label += std::to_string(i);
+//             this->visualize(gko::lend(gs_rand->get_ltr_matrix()), label);
+//         }
+//     }
 // }
 
 }  // namespace
