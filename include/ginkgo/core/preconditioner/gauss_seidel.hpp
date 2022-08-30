@@ -96,28 +96,14 @@ public:
 
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
     {
-        // TODO
-        // sorted matrix is assumed
-        // sorting path not implemented
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
 
         bool GKO_FACTORY_PARAMETER_SCALAR(use_coloring, true);
-
-        // RACE strategy can create levels but nothing more
-        // It seems not quite suitable for the task so for now it won't be
-        // pursued further
-        bool GKO_FACTORY_PARAMETER_SCALAR(use_RACE, false);
 
         // hierarchical algebraic block coloring strategy
         bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, false);
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
-
-        // matrix should be assumed to NOT Be lower triangular as its not a real
-        // world scenario
-        //  if the system matrix is known to be lower triangular this parameter
-        //  can be set to false
-        // bool GKO_FACTORY_PARAMETER_SCALAR(convert_to_lower_triangular, true);
 
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
@@ -149,8 +135,6 @@ protected:
                                    gko::transpose(system_matrix->get_size())),
           parameters_{factory->get_parameters()},
           lower_triangular_matrix_{Csr::create(factory->get_executor())},
-          //   diag_idxs_{factory->get_executor(),
-          //   system_matrix->get_size()[0]},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{array<index_type>(factory->get_executor(),
                                            system_matrix->get_size()[0])},
@@ -162,9 +146,7 @@ protected:
           use_reference_{parameters_.use_reference},
           use_coloring_{parameters_.use_coloring}
     {
-        if (parameters_.use_RACE == true) {
-            this->generate_RACE(system_matrix, parameters_.skip_sorting);
-        } else if (parameters_.use_HBMC == true) {
+        if (parameters_.use_HBMC == true) {
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
         } else {
             this->generate(system_matrix, parameters_.skip_sorting);
@@ -173,9 +155,6 @@ protected:
 
     void generate(std::shared_ptr<const LinOp> system_matrix,
                   bool skip_sorting);
-
-    void generate_RACE(std::shared_ptr<const LinOp> system_matrix,
-                       bool skip_sorting);
 
     void generate_HBMC(std::shared_ptr<const LinOp> system_matrix,
                        bool skip_sorting);
@@ -201,21 +180,14 @@ protected:
         matrix::SparsityCsr<value_type, index_type>* adjacency_matrix,
         index_type block_size, index_type lvl_2_block_size = 0);
 
-    void get_block_coloring(const index_type* block_pointers,
-                            const index_type num_nodes,
-                            const index_type block_size,
-                            const index_type* row_ptrs,
-                            const index_type* col_idxs, index_type* max_color);
-
 
 private:
     std::shared_ptr<Csr>
         lower_triangular_matrix_{};  // aka matrix used in the preconditioner
     std::shared_ptr<Csr> upper_triangular_matrix_{};
-    // array<index_type> diag_idxs_;
     std::shared_ptr<const LinOp> lower_trs_{};
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
-    // std::shared_ptr<const LinOp> upper_trs_{};
+    std::shared_ptr<const LinOp> upper_trs_{};
     array<index_type> vertex_colors_;
     array<index_type> color_ptrs_;  // assuming that the colors found constitute
                                     // a span [0,max_color], i.e., there are no

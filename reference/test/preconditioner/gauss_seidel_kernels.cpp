@@ -647,7 +647,7 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
 
     auto pcg_num_iters = this->iter_logger->get_num_iterations();
 
-    GKO_ASSERT_EQ(pcg_num_iters, cg_num_iters);
+    GKO_ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
     // GKO_ASSERT_MTX_NEAR(x, x_clone, r<ValueType>::value);
 }
 
@@ -698,63 +698,32 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     GKO_ASSERT_EQ(0, 1);
 // }
 
-// TYPED_TEST(GaussSeidel, RACE_1)
-// {
-//     using Csr = typename TestFixture::Csr;
-//     using Vec = typename TestFixture::Vec;
-//     using GS = typename TestFixture::GS;
-//     using ValueType = typename TestFixture::value_type;
-//     using IndexType = typename TestFixture::index_type;
+TYPED_TEST(GaussSeidel, TryVisualize)
+{
+    using Vec = typename TestFixture::Vec;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using GS = typename TestFixture::GS;
 
-//     auto exec = this->exec;
-//     auto gs_race_factory = GS::build().with_use_RACE(true).on(exec);
+    // auto mtx_rand = gko::share(this->generate_rand_matrix(
+    // IndexType{30000}, IndexType{5}, IndexType{10}, ValueType{0}));
+    auto mtx_rand = gko::share(
+        this->generate_2D_regular_grid_matrix(size_t{100}, ValueType{}, true));
 
-//     // auto grid_mtx =
-//     //     gko::share(this->generate_2D_regular_grid_matrix(100,
-//     //     ValueType{0}));
-//     // auto gs_race = gs_race_factory->generate(grid_mtx);
-//     // auto gs = this->gs_factory->generate(grid_mtx);
-//     auto mtx = gko::share(this->generate_rand_matrix(
-//         IndexType{20000}, IndexType{10}, IndexType{20},
-//         ValueType{0}));  // initial random matrix has the selected nnz per
-//                           //     row,
-//                           // after turning the matrix hpd -> around 2x more
-//     auto gs_race = gs_race_factory->generate(mtx);
-//     auto gs = this->gs_factory->generate(mtx);
-
-//     auto lvl_ptrs = gs_race->get_level_ptrs();
-//     std::cout << lvl_ptrs.size() << std::endl;
-//     auto color_ptrs = gs->get_color_ptrs();
-//     std::cout << color_ptrs.get_num_elems() - 1 << std::endl;
-// }
-
-// TYPED_TEST(GaussSeidel, TryVisualize)
-// {
-//     using Vec = typename TestFixture::Vec;
-//     using ValueType = typename TestFixture::value_type;
-//     using IndexType = typename TestFixture::index_type;
-//     using GS = typename TestFixture::GS;
-//     if (std::is_same<ValueType, double>::value &&
-//         std::is_same<IndexType, long>::value) {
-//         // auto mtx_rand = gko::share(this->generate_rand_matrix(
-//         // IndexType{30000}, IndexType{5}, IndexType{10}, ValueType{0}));
-//         auto mtx_rand = gko::share(this->generate_2D_regular_grid_matrix(
-//             size_t{100}, ValueType{}, true));
-
-//         this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
-//         for (auto i = 1; i <= 128; i *= 9) {
-//             auto HBMC_gs_factory =
-//                 GS::build().with_use_HBMC(true).with_base_block_size(i).on(
-//                     this->exec);
+    this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
+    for (auto i = 1; i <= 128; i *= 2) {
+        auto HBMC_gs_factory =
+            GS::build().with_use_HBMC(true).with_base_block_size(i).on(
+                this->exec);
 
 
-//             auto gs_rand =
-//                 HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
-//             auto label = std::string("mtxRandLTR_");
-//             label += std::to_string(i);
-//             this->visualize(gko::lend(gs_rand->get_ltr_matrix()), label);
-//         }
-//     }
-// }
+        auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+        auto label = std::string("mtxRandLTR-");
+        label += typeid(ValueType).name() + std::string("-") +
+                 typeid(IndexType).name() + std::string("-") +
+                 std::to_string(i);
+        this->visualize(gko::lend(gs_rand->get_ltr_matrix()), label);
+    }
+}
 
 }  // namespace

@@ -80,17 +80,36 @@ namespace kernels {
         const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, \
         array<IndexType>& vertex_colors, IndexType* max_color)
 
-#define GKO_DECLARE_ALL_AS_TEMPLATES                                    \
-    template <typename ValueType, typename IndexType>                   \
-    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType);        \
-    template <typename ValueType>                                       \
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType);         \
-    template <typename ValueType, typename IndexType>                   \
-    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType); \
-    template <typename ValueType>                                       \
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType);  \
-    template <typename ValueType, typename IndexType>                   \
-    GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType)
+#define GKO_DECLARE_GAUSS_SEIDEL_GET_BLOCK_COLORING_KERNEL(ValueType,      \
+                                                           IndexType)      \
+    void get_block_coloring(                                               \
+        std::shared_ptr<const DefaultExecutor> exec,                       \
+        const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix, \
+        const IndexType* block_ordering, const IndexType block_size,       \
+        IndexType* vertex_colors, IndexType* max_color)
+
+#define GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL(ValueType, IndexType) \
+    void assign_to_blocks(                                                     \
+        std::shared_ptr<const DefaultExecutor> exec,                           \
+        const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,     \
+        IndexType* block_ordering, const IndexType* degrees, int8* visited,    \
+        const IndexType block_size, const IndexType lvl_2_block_size)
+
+#define GKO_DECLARE_ALL_AS_TEMPLATES                                          \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType);              \
+    template <typename ValueType>                                             \
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType);               \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType);       \
+    template <typename ValueType>                                             \
+    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType);        \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType);       \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_GET_BLOCK_COLORING_KERNEL(ValueType, IndexType); \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL(ValueType, IndexType)
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(gauss_seidel,
                                         GKO_DECLARE_ALL_AS_TEMPLATES);

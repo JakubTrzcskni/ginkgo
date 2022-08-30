@@ -92,6 +92,25 @@ void get_coloring(
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void get_block_coloring(
+    std::shared_ptr<const CudaExecutor> exec,
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    const IndexType* block_ordering, const IndexType block_size,
+    IndexType* vertex_colors, IndexType* max_color) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_BLOCK_COLORING_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void assign_to_blocks(
+    std::shared_ptr<const CudaExecutor> exec,
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    IndexType* block_ordering, const IndexType* degrees, int8* visited,
+    const IndexType block_size,
+    const IndexType lvl_2_block_size) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL);
+
 
 }  // namespace gauss_seidel
 }  // namespace cuda
