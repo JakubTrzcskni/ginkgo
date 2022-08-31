@@ -272,7 +272,7 @@ void spy_ge(int m, int n, ValueType a[], string header)
     command_unit << "#\n";
     command_unit << "unset key\n";
 
-    auto png_size = m / 5 < 10000 ? (m / 5 > 1000 ? m / 5 : 1000) : 10000;
+    auto png_size = m * 5 < 10000 ? (m * 5 > 1000 ? m * 5 : 1000) : 10000;
     command_unit << "set term png size " << png_size << ", " << png_size
                  << "\n ";
 
@@ -285,7 +285,7 @@ void spy_ge(int m, int n, ValueType a[], string header)
                  << "\"'\n";
     command_unit << "set timestamp\n";
     command_unit << "plot [y=0:" << n - 1 << "] [x=" << m - 1 << ":0] '"
-                 << data_filename << "' with points pt 1\n";
+                 << data_filename << "' with points pt 2\n";
 
     command_unit.close();
     cout << "  Created graphics command file '" << command_filename << "'\n";

@@ -705,16 +705,19 @@ TYPED_TEST(GaussSeidel, TryVisualize)
     using IndexType = typename TestFixture::index_type;
     using GS = typename TestFixture::GS;
 
-    // auto mtx_rand = gko::share(this->generate_rand_matrix(
-    // IndexType{30000}, IndexType{5}, IndexType{10}, ValueType{0}));
-    auto mtx_rand = gko::share(
-        this->generate_2D_regular_grid_matrix(size_t{100}, ValueType{}, true));
+    auto mtx_rand = gko::share(this->generate_rand_matrix(
+        IndexType{100}, IndexType{1}, IndexType{5}, ValueType{0}));
+    // auto mtx_rand = gko::share(
+    //     this->generate_2D_regular_grid_matrix(size_t{10}, ValueType{},
+    //     false));
 
     this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
-    for (auto i = 1; i <= 128; i *= 2) {
-        auto HBMC_gs_factory =
-            GS::build().with_use_HBMC(true).with_base_block_size(i).on(
-                this->exec);
+    for (auto i = 2; i <= 8; i *= 2) {
+        auto HBMC_gs_factory = GS::build()
+                                   .with_use_HBMC(true)
+                                   .with_base_block_size(i)
+                                   .with_lvl2_block_size(4)
+                                   .on(this->exec);
 
 
         auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
@@ -724,6 +727,57 @@ TYPED_TEST(GaussSeidel, TryVisualize)
                  std::to_string(i);
         this->visualize(gko::lend(gs_rand->get_ltr_matrix()), label);
     }
+}
+
+TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
+{
+    using Vec = typename TestFixture::Vec;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using Csr = typename TestFixture::Csr;
+    auto exec = this->exec;
+    auto mtx = Csr::create(exec, gko::dim<2>{8}, 16);
+
+
+    this->template init_array<IndexType>(mtx->get_row_ptrs(),
+                                         {0, 2, 4, 6, 8, 10, 12, 14, 16});
+    this->template init_array<IndexType>(
+        mtx->get_col_idxs(), {0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5, 6, 7, 6, 7});
+    this->template init_array<ValueType>(
+        mtx->get_values(), {1.0, 12.0, 12.0, 2., 3., 34., 34., 4., 5., 56., 56.,
+                            6., 7., 78., 78., 8.});
+
+    gko::array<IndexType> color_ptrs(exec, 2);
+    this->template init_array<IndexType>(
+        color_ptrs.get_data(), {0, 8});  // all nodes have the same color
+
+    gko::array<IndexType> block_ordering(exec, 8);
+    this->template init_array<IndexType>(block_ordering.get_data(),
+                                         {0, 1, 2, 3, 4, 5, 6, 7});
+
+
+    const IndexType base_block_size = 2;
+    const IndexType lvl_2_block_size = 4;
+    const IndexType max_color = 0;
+
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, block_ordering.get_data(), base_block_size, lvl_2_block_size,
+        color_ptrs.get_const_data(), max_color);
+
+    // auto standard_label = std::string("withoutOrdering-");
+    // standard_label += typeid(ValueType).name() + std::string("-") +
+    //                   typeid(IndexType).name() + std::string("-");
+    // this->visualize(gko::lend(mtx), standard_label);
+
+    // auto perm_mtx = Csr::create(exec);
+    // perm_mtx->copy_from(gko::give(gko::as<Csr>(mtx->permute(&block_ordering))));
+
+    // auto label = std::string("SecondaryOrdering-");
+    // label += typeid(ValueType).name() + std::string("-") +
+    //          typeid(IndexType).name() + std::string("-");
+    // this->visualize(gko::lend(perm_mtx), label);
+
+    GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
 }
 
 }  // namespace

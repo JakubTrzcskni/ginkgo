@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <list>
@@ -336,6 +337,97 @@ void assign_to_blocks(
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL);
+
+template <typename IndexType>
+void get_permutation_from_coloring(
+    std::shared_ptr<const ReferenceExecutor> exec, const IndexType num_nodes,
+    const IndexType* coloring, const IndexType max_color, IndexType* color_ptrs,
+    IndexType* permutation_idxs, const IndexType* block_ordering)
+{
+    IndexType tmp{0};
+    if (!block_ordering) {
+        for (auto color = 0; color <= max_color; color++) {
+            for (auto i = 0; i < num_nodes; i++) {
+                if (i == 0) {
+                    color_ptrs[color] = tmp;
+                }
+                if (coloring[i] == color) {
+                    permutation_idxs[tmp] = i;
+                    tmp++;
+                }
+            }
+        }
+    } else {
+        for (auto color = 0; color <= max_color; color++) {
+            for (auto i = 0; i < num_nodes; i++) {
+                auto node = block_ordering[i];
+                if (i == 0) {
+                    color_ptrs[color] = tmp;
+                }
+                if (coloring[node] == color) {
+                    permutation_idxs[tmp] = node;
+                    tmp++;
+                }
+            }
+        }
+    }
+    GKO_ASSERT_EQ(tmp, num_nodes);
+    color_ptrs[max_color + 1] = num_nodes;
+}
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL);
+
+template <typename IndexType>
+void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
+                            IndexType* block_ordering,
+                            const IndexType base_block_size,
+                            const IndexType lvl_2_block_size,
+                            const IndexType* color_block_ptrs,
+                            const IndexType max_color)
+{
+    auto lvl_1_block_size = lvl_2_block_size * base_block_size;
+    for (auto color = 0; color <= max_color; color++) {
+        const auto nodes_in_curr_color =
+            color_block_ptrs[color + 1] - color_block_ptrs[color];
+        const auto curr_color_offset = color_block_ptrs[color];
+        const auto full_lvl_1_blocks_in_curr_color =
+            nodes_in_curr_color / lvl_1_block_size;
+        for (auto curr_lvl_1_block_id = 0;
+             curr_lvl_1_block_id < full_lvl_1_blocks_in_curr_color;
+             curr_lvl_1_block_id++) {
+            const auto curr_lvl_1_block_offset =
+                curr_lvl_1_block_id * lvl_1_block_size;
+            array<IndexType> new_lvl_1_block_ordering(exec, lvl_1_block_size);
+            auto lvl_1_reordering = new_lvl_1_block_ordering.get_data();
+            for (auto curr_node_base_lvl_block = 0;
+                 curr_node_base_lvl_block < base_block_size;
+                 curr_node_base_lvl_block++) {
+                for (auto curr_node_lvl_2_block = 0;
+                     curr_node_lvl_2_block < lvl_2_block_size;
+                     curr_node_lvl_2_block++) {
+                    const auto curr_id =
+                        curr_node_base_lvl_block * lvl_2_block_size +
+                        curr_node_lvl_2_block;
+
+                    const auto id_to_swap =
+                        curr_color_offset + curr_lvl_1_block_offset +
+                        curr_node_lvl_2_block * base_block_size +
+                        curr_node_base_lvl_block;
+
+                    lvl_1_reordering[curr_id] = block_ordering[id_to_swap];
+                }
+            }
+            auto dest =
+                &(block_ordering[curr_color_offset + curr_lvl_1_block_offset]);
+            const auto source = new_lvl_1_block_ordering.get_const_data();
+            auto count = sizeof(IndexType) * lvl_1_block_size;
+            std::memcpy(dest, source, count);
+        }
+    }
+}
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
+
 
 }  // namespace gauss_seidel
 }  // namespace reference

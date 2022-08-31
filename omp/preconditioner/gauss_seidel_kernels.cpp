@@ -111,6 +111,25 @@ void assign_to_blocks(
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL);
 
+template <typename IndexType>
+void get_permutation_from_coloring(
+    std::shared_ptr<const OmpExecutor> exec, const IndexType num_nodes,
+    const IndexType* coloring, const IndexType max_color, IndexType* color_ptrs,
+    IndexType* permutation_idxs,
+    const IndexType* block_ordering) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL);
+
+template <typename IndexType>
+void get_secondary_ordering(std::shared_ptr<const OmpExecutor> exec,
+                            IndexType* block_ordering,
+                            const IndexType base_block_size,
+                            const IndexType lvl_2_block_size,
+                            const IndexType* color_block_ptrs,
+                            const IndexType max_color) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
+
 }  // namespace gauss_seidel
 }  // namespace omp
 }  // namespace kernels

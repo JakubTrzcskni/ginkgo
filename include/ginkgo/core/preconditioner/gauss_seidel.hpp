@@ -90,6 +90,8 @@ public:
 
     std::shared_ptr<Csr> get_ltr_matrix() { return lower_triangular_matrix_; }
 
+    std::shared_ptr<Csr> get_utr_matrix() { return upper_triangular_matrix_; }
+
     std::vector<index_type> get_level_ptrs() { return level_ptrs_; }
 
     void update_system(value_type* values);
@@ -103,7 +105,10 @@ public:
         // hierarchical algebraic block coloring strategy
         bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, false);
 
-        size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
+        // TODO change to uint
+        size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4);
+
+        size_t GKO_FACTORY_PARAMETER_SCALAR(lvl2_block_size, 32);
 
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
@@ -135,12 +140,14 @@ protected:
                                    gko::transpose(system_matrix->get_size())),
           parameters_{factory->get_parameters()},
           lower_triangular_matrix_{Csr::create(factory->get_executor())},
+          upper_triangular_matrix_{Csr::create(factory->get_executor())},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{array<index_type>(factory->get_executor(),
                                            system_matrix->get_size()[0])},
           color_ptrs_{array<index_type>(factory->get_executor())},
           permutation_idxs_{array<index_type>(factory->get_executor())},
           base_block_size_{parameters_.base_block_size},
+          lvl2_block_size_{parameters_.lvl2_block_size},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
@@ -166,9 +173,6 @@ protected:
     index_type get_coloring(matrix_data<value_type, index_type>& mat_data,
                             bool is_symmetric = false);
 
-    void compute_permutation_idxs(index_type max_color,
-                                  const index_type* block_ordering = nullptr);
-
     void initialize_blocks();
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
@@ -177,8 +181,8 @@ protected:
                     LinOp* x) const override;
 
     array<index_type> generate_block_structure(
-        matrix::SparsityCsr<value_type, index_type>* adjacency_matrix,
-        index_type block_size, index_type lvl_2_block_size = 0);
+        const matrix::SparsityCsr<value_type, index_type>* adjacency_matrix,
+        const index_type block_size, const index_type lvl_2_block_size = 0);
 
 
 private:
@@ -196,6 +200,7 @@ private:
     std::vector<std::unique_ptr<LinOp>> block_ptrs_;
     std::vector<index_type> level_ptrs_;
     size_t base_block_size_;
+    size_t lvl2_block_size_;
     double relaxation_factor_;
     bool symmetric_preconditioner_;
     bool use_reference_;

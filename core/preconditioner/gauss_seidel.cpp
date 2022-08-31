@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
+#include <cstring>
 #include <list>
 #include <vector>
 
@@ -62,6 +63,10 @@ GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(get_block_coloring, gauss_seidel::get_block_coloring);
 GKO_REGISTER_OPERATION(assign_to_blocks, gauss_seidel::assign_to_blocks);
+GKO_REGISTER_OPERATION(get_permutation_from_coloring,
+                       gauss_seidel::get_permutation_from_coloring);
+GKO_REGISTER_OPERATION(get_secondary_ordering,
+                       gauss_seidel::get_secondary_ordering);
 GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 GKO_REGISTER_OPERATION(get_degree_of_nodes, rcm::get_degree_of_nodes);
 }  // namespace
@@ -296,46 +301,6 @@ IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
     return max_color;
 }
 
-template <typename ValueType, typename IndexType>
-void GaussSeidel<ValueType, IndexType>::compute_permutation_idxs(
-    IndexType max_color, const IndexType* block_ordering)
-{
-    auto num_rows = vertex_colors_.get_num_elems();
-    const auto coloring = vertex_colors_.get_const_data();
-    permutation_idxs_.resize_and_reset(num_rows);
-    auto permutation = permutation_idxs_.get_data();
-    auto block_ptrs = color_ptrs_.get_data();
-    IndexType tmp{0};
-    if (!block_ordering) {
-        for (auto color = 0; color <= max_color; color++) {
-            for (auto i = 0; i < num_rows; i++) {
-                if (i == 0) {
-                    block_ptrs[color] = tmp;
-                }
-                if (coloring[i] == color) {
-                    permutation[tmp] = i;
-                    tmp++;
-                }
-            }
-        }
-    } else {
-        for (auto color = 0; color <= max_color; color++) {
-            for (auto i = 0; i < num_rows; i++) {
-                auto node = block_ordering[i];
-                if (i == 0) {
-                    block_ptrs[color] = tmp;
-                }
-                if (coloring[node] == color) {
-                    permutation[tmp] = node;
-                    tmp++;
-                }
-            }
-        }
-    }
-    GKO_ASSERT_EQ(tmp, num_rows);
-    block_ptrs[max_color + 1] = num_rows;
-}
-
 // TODO not finished
 template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::initialize_blocks()
@@ -391,7 +356,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
 
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
-
+    const IndexType num_nodes = csr_matrix->get_size()[0];
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
     csr_matrix->write(mat_data);
 
@@ -400,7 +365,11 @@ void GaussSeidel<ValueType, IndexType>::generate(
                           // different colors
             get_coloring(mat_data);  // matrix data is made symmetric here
         color_ptrs_.resize_and_reset(max_color + 2);
-        compute_permutation_idxs(max_color);
+        permutation_idxs_.resize_and_reset(num_nodes);
+        exec->run(gauss_seidel::make_get_permutation_from_coloring(
+            num_nodes, vertex_colors_.get_const_data(), max_color,
+            color_ptrs_.get_data(), permutation_idxs_.get_data(),
+            static_cast<IndexType*>(nullptr)));
     }
 
     if (!symmetric_preconditioner_) {
@@ -440,14 +409,17 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         matrix::SparsityCsr<ValueType, IndexType>::create(exec);
     adjacency_matrix = get_adjacency_matrix(mat_data);
 
-    auto block_ordering =
-        generate_block_structure(lend(adjacency_matrix), base_block_size_);
+    auto block_ordering = generate_block_structure(
+        lend(adjacency_matrix), base_block_size_, lvl2_block_size_);
 
     // for testing only
     lower_triangular_matrix_->copy_from(
         give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
 
     // for testing only
+    upper_triangular_matrix_->copy_from(
+        give(as<Csr>(as<Csr>(csr_matrix->inverse_permute(&permutation_idxs_))
+                         ->permute(&block_ordering))));
 }
 
 // TODO
@@ -471,9 +443,10 @@ IndexType get_id_min_node(IndexType* degrees, size_t num_nodes,
 
 template <typename ValueType, typename IndexType>
 array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
-    matrix::SparsityCsr<ValueType, IndexType>*
-        adjacency_matrix,                              // this can be const
-    IndexType block_size, IndexType lvl_2_block_size)  // these can be const too
+    const matrix::SparsityCsr<ValueType, IndexType>*
+        adjacency_matrix,  // this can be const
+    const IndexType block_size,
+    const IndexType lvl_2_block_size)  // these can be const too
 {
     auto exec = this->get_executor();
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
@@ -499,10 +472,18 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         vertex_colors_.get_data(), &max_color));
 
     color_ptrs_.resize_and_reset(max_color + 2);
-    compute_permutation_idxs(max_color, block_ordering.get_const_data());
+    permutation_idxs_.resize_and_reset(num_nodes);
+    exec->run(gauss_seidel::make_get_permutation_from_coloring(
+        num_nodes, vertex_colors_.get_const_data(), max_color,
+        color_ptrs_.get_data(), permutation_idxs_.get_data(),
+        block_ordering.get_data()));
 
-    if (lvl_2_block_size > 0)
-        GKO_NOT_IMPLEMENTED;  // hierarchical structure not implemented yet.
+    if (lvl_2_block_size > 0) {
+        // secondary ordering
+        exec->run(gauss_seidel::make_get_secondary_ordering(
+            block_ordering.get_data(), block_size, lvl_2_block_size,
+            color_ptrs_.get_const_data(), max_color));
+    }
 
     return block_ordering;
 }
