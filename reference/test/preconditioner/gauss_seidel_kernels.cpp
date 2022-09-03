@@ -698,36 +698,6 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     GKO_ASSERT_EQ(0, 1);
 // }
 
-TYPED_TEST(GaussSeidel, TryVisualize)
-{
-    using Vec = typename TestFixture::Vec;
-    using ValueType = typename TestFixture::value_type;
-    using IndexType = typename TestFixture::index_type;
-    using GS = typename TestFixture::GS;
-
-    auto mtx_rand = gko::share(this->generate_rand_matrix(
-        IndexType{100}, IndexType{1}, IndexType{5}, ValueType{0}));
-    // auto mtx_rand = gko::share(
-    //     this->generate_2D_regular_grid_matrix(size_t{10}, ValueType{},
-    //     false));
-
-    this->visualize(gko::lend(mtx_rand), std::string("mtxRand"));
-    for (auto i = 2; i <= 8; i *= 2) {
-        auto HBMC_gs_factory = GS::build()
-                                   .with_use_HBMC(true)
-                                   .with_base_block_size(i)
-                                   .with_lvl2_block_size(4)
-                                   .on(this->exec);
-
-
-        auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
-        auto label = std::string("mtxRandLTR-");
-        label += typeid(ValueType).name() + std::string("-") +
-                 typeid(IndexType).name() + std::string("-") +
-                 std::to_string(i);
-        this->visualize(gko::lend(gs_rand->get_ltr_matrix()), label);
-    }
-}
 
 TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
 {

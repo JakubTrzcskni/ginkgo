@@ -106,9 +106,16 @@ namespace kernels {
     IndexType)                                                         \
     void get_permutation_from_coloring(                                \
         std::shared_ptr<const DefaultExecutor> exec,                   \
-        const IndexType num_nodes, const IndexType* coloring,          \
+        const IndexType num_nodes, IndexType* coloring,                \
         const IndexType max_color, IndexType* color_ptrs,              \
         IndexType* permutation_idxs, const IndexType* block_ordering)
+
+#define GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL(IndexType)    \
+    void get_degree_of_nodes(std::shared_ptr<const DefaultExecutor> exec, \
+                             const IndexType num_vertices,                \
+                             const IndexType* const row_ptrs,             \
+                             IndexType* const degrees)
+
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                          \
     template <typename ValueType, typename IndexType>                         \
@@ -128,7 +135,9 @@ namespace kernels {
     template <typename IndexType>                                             \
     GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL(IndexType); \
     template <typename IndexType>                                             \
-    GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL(IndexType)
+    GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL(IndexType);        \
+    template <typename IndexType>                                             \
+    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL(IndexType)
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(gauss_seidel,
                                         GKO_DECLARE_ALL_AS_TEMPLATES);

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <memory>
 #include <random>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -133,10 +134,27 @@ int main(int argc, char* argv[])
     }
 
     const auto executor_string = argc >= 2 ? argv[1] : "reference";
+    const auto base_block_size_arg = argc >= 3 ? argv[2] : "1";
+    const auto lvl_2_block_size_arg = argc >= 4 ? argv[3] : "0";
+    const auto rand_size_arg = argc >= 5 ? argv[4] : "100";
+    const auto rand_nnz_row_lo_arg = argc >= 6 ? argv[5] : "1";
+    const auto rand_nnz_row_hi_arg = argc >= 7 ? argv[6] : "10";
+    IndexType base_block_size;
+    std::stringstream ss_1(base_block_size_arg);
+    if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
+    IndexType lvl_2_block_size;
+    std::stringstream ss_2(lvl_2_block_size_arg);
+    if (!(ss_2 >> lvl_2_block_size)) GKO_NOT_SUPPORTED(lvl_2_block_size_arg);
+    IndexType rand_size;
+    IndexType rand_nnz_row_lo;
+    IndexType rand_nnz_row_hi;
+    std::stringstream ss_3(rand_size_arg);
+    std::stringstream ss_4(rand_nnz_row_lo_arg);
+    std::stringstream ss_5(rand_nnz_row_hi_arg);
+    if (!(ss_3 >> rand_size)) GKO_NOT_SUPPORTED(rand_size_arg);
+    if (!(ss_4 >> rand_nnz_row_lo)) GKO_NOT_SUPPORTED(rand_nnz_row_lo_arg);
+    if (!(ss_5 >> rand_nnz_row_hi)) GKO_NOT_SUPPORTED(rand_nnz_row_hi_arg);
 
-    const IndexType base_block_size = 2;  // argc >= 3 ? IndexType(argv[2]) : 1;
-    const IndexType lvl_2_block_size = 4;  // argc == 4 ? IndexType(argv[3]) :
-                                           // 0;
 
     // Figure out where to run the code
     std::map<std::string, std::function<std::shared_ptr<gko::Executor>()>>
@@ -163,7 +181,7 @@ int main(int argc, char* argv[])
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
     auto mtx_rand = gko::share(generate_rand_matrix(
-        exec, IndexType{100}, IndexType{1}, IndexType{5}, ValueType{0}));
+        exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
     // auto mtx_rand = gko::share(
     //     this->generate_2D_regular_grid_matrix(size_t{10}, ValueType{},
     //     false));
@@ -179,12 +197,12 @@ int main(int argc, char* argv[])
 
     auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
     auto label = std::string("mtxRandPermuted-");
-    label += std::to_string(base_block_size) + std::string("-") +
-             std::to_string(lvl_2_block_size);
+    // label += std::to_string(base_block_size) + std::string("-") +
+    //          std::to_string(lvl_2_block_size);
     visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
 
     auto label2 = std::string("mtxRandBlockOrdering-");
-    label2 += std::to_string(base_block_size) + std::string("-") +
-              std::to_string(lvl_2_block_size);
+    // label2 += std::to_string(base_block_size) + std::string("-") +
+    //           std::to_string(lvl_2_block_size);
     visualize(exec, gko::lend(gs_rand->get_utr_matrix()), label2);
 }

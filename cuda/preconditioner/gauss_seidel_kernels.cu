@@ -32,16 +32,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
+#include <thrust/copy.h>
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+#include <thrust/iterator/permutation_iterator.h>
+#include <thrust/sequence.h>
+#include <thrust/sort.h>
+
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 
 #include "core/base/allocator.hpp"
+#include "cuda/base/config.hpp"
+#include "cuda/base/types.hpp"
+#include "cuda/components/thread_ids.cuh"
 
 namespace gko {
 namespace kernels {
 namespace cuda {
 namespace gauss_seidel {
+namespace {
+
+// source: jacobi_kernels.cu
+//  a total of 32 warps (1024 threads)
+constexpr int default_num_warps = 32;
+// with current architectures, at most 32 warps can be scheduled per SM (and
+// current GPUs have at most 84 SMs)
+constexpr int default_grid_size = 32 * 32 * 128;
+
+
+}  // namespace
+#include "common/cuda_hip/preconditioner/gauss_seidel_kernels.hpp.inc"
+
+template <typename IndexType>
+void get_degree_of_nodes(std::shared_ptr<const CudaExecutor> exec,
+                         const IndexType num_vertices,
+                         const IndexType* const row_ptrs,
+                         IndexType* const degrees)
+{
+    const auto block_size = config::max_block_size;
+    const auto grid_size = ceildiv(num_vertices, block_size);
+    get_degree_of_nodes_kernel<<<grid_size, block_size>>>(num_vertices,
+                                                          row_ptrs, degrees);
+}
+
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
 
 template <typename ValueType>
 void ref_apply(std::shared_ptr<const CudaExecutor> exec, const LinOp* solver,
@@ -110,15 +147,6 @@ void assign_to_blocks(
     const IndexType lvl_2_block_size) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL);
-
-template <typename IndexType>
-void get_permutation_from_coloring(
-    std::shared_ptr<const CudaExecutor> exec, const IndexType num_nodes,
-    const IndexType* coloring, const IndexType max_color, IndexType* color_ptrs,
-    IndexType* permutation_idxs,
-    const IndexType* block_ordering) GKO_NOT_IMPLEMENTED;
-GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL);
 
 template <typename IndexType>
 void get_secondary_ordering(std::shared_ptr<const CudaExecutor> exec,

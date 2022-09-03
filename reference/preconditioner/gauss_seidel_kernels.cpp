@@ -179,6 +179,20 @@ IndexType find_next_candidate(
 
 }  // namespace
 
+template <typename IndexType>
+void get_degree_of_nodes(std::shared_ptr<const ReferenceExecutor> exec,
+                         const IndexType num_vertices,
+                         const IndexType* const row_ptrs,
+                         IndexType* const degrees)
+{
+    for (IndexType i = 0; i < num_vertices; ++i) {
+        degrees[i] = row_ptrs[i + 1] - row_ptrs[i];
+    }
+}
+
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
+
 template <typename ValueType>
 void ref_apply(std::shared_ptr<const ReferenceExecutor> exec,
                const LinOp* solver, const matrix::Dense<ValueType>* alpha,
@@ -341,7 +355,7 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 template <typename IndexType>
 void get_permutation_from_coloring(
     std::shared_ptr<const ReferenceExecutor> exec, const IndexType num_nodes,
-    const IndexType* coloring, const IndexType max_color, IndexType* color_ptrs,
+    IndexType* coloring, const IndexType max_color, IndexType* color_ptrs,
     IndexType* permutation_idxs, const IndexType* block_ordering)
 {
     IndexType tmp{0};

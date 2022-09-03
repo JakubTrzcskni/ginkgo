@@ -49,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/base/utils.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/jacobi_kernels.hpp"
-#include "core/reorder/rcm_kernels.hpp"
 #include "core/utils/matrix_utils.hpp"
 
 namespace gko {
@@ -68,7 +67,7 @@ GKO_REGISTER_OPERATION(get_permutation_from_coloring,
 GKO_REGISTER_OPERATION(get_secondary_ordering,
                        gauss_seidel::get_secondary_ordering);
 GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
-GKO_REGISTER_OPERATION(get_degree_of_nodes, rcm::get_degree_of_nodes);
+GKO_REGISTER_OPERATION(get_degree_of_nodes, gauss_seidel::get_degree_of_nodes);
 }  // namespace
 }  // namespace gauss_seidel
 
@@ -367,7 +366,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
         color_ptrs_.resize_and_reset(max_color + 2);
         permutation_idxs_.resize_and_reset(num_nodes);
         exec->run(gauss_seidel::make_get_permutation_from_coloring(
-            num_nodes, vertex_colors_.get_const_data(), max_color,
+            num_nodes, vertex_colors_.get_data(), max_color,
             color_ptrs_.get_data(), permutation_idxs_.get_data(),
             static_cast<IndexType*>(nullptr)));
     }
@@ -422,25 +421,6 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
                          ->permute(&block_ordering))));
 }
 
-// TODO
-// there must be already a fast parallel version of this?(or something similar)
-template <typename IndexType>
-IndexType get_id_min_node(IndexType* degrees, size_t num_nodes,
-                          gko::vector<bool>& visited)
-{
-    IndexType index_min_node = -1;
-    IndexType min_node_degree = std::numeric_limits<IndexType>::max();
-    for (size_t i = 0; i < num_nodes; ++i) {
-        if (degrees[i] < min_node_degree && visited[i] == false) {
-            visited[i] = true;
-            index_min_node = i;
-            min_node_degree = degrees[i];
-        }
-    }
-    return index_min_node;
-}
-
-
 template <typename ValueType, typename IndexType>
 array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     const matrix::SparsityCsr<ValueType, IndexType>*
@@ -474,14 +454,14 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     color_ptrs_.resize_and_reset(max_color + 2);
     permutation_idxs_.resize_and_reset(num_nodes);
     exec->run(gauss_seidel::make_get_permutation_from_coloring(
-        num_nodes, vertex_colors_.get_const_data(), max_color,
-        color_ptrs_.get_data(), permutation_idxs_.get_data(),
-        block_ordering.get_data()));
+        num_nodes, vertex_colors_.get_data(), max_color, color_ptrs_.get_data(),
+        permutation_idxs_.get_data(), block_ordering.get_const_data()));
 
     if (lvl_2_block_size > 0) {
         // secondary ordering
         exec->run(gauss_seidel::make_get_secondary_ordering(
-            block_ordering.get_data(), block_size, lvl_2_block_size,
+            permutation_idxs_.get_data(), block_size,
+            lvl_2_block_size,  // changed from block_order to perm_idxs
             color_ptrs_.get_const_data(), max_color));
     }
 
