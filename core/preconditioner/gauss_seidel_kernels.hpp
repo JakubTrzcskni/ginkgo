@@ -100,7 +100,7 @@ namespace kernels {
         std::shared_ptr<const DefaultExecutor> exec,                           \
         const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,     \
         IndexType* block_ordering, const IndexType* degrees, int8* visited,    \
-        const IndexType block_size, const IndexType lvl_2_block_size)
+        const IndexType block_size)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL( \
     IndexType)                                                         \

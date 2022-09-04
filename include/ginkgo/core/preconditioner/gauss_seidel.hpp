@@ -54,6 +54,63 @@ namespace preconditioner {
 
 enum struct gs_parallel_strategy { mc, hbmc, race };
 
+struct storage_scheme {
+    // list of blocks in order of execution
+
+    // row_ptr array
+
+    // col_idxs array
+
+    // vals array
+};
+
+struct general_block {
+    uint32 start_row_ptrs_id;
+    uint32 start_val_col_id;
+    virtual void fill_with_vals() = 0;
+    virtual void apply() = 0;
+    std::shared_ptr<general_block> next_block;
+};
+
+struct spmv_block : general_block {
+    uint32 start_row_global;
+    uint32 end_row_global;
+    uint32 start_col_global;
+    uint32 end_col_global;
+    void fill_with_vals() {}
+    void apply() {}
+}
+
+struct parallel_block : general_block {
+    uint32 degree_of_parallelism;
+    std::vector<std::shared_ptr<parallel_block>> parallel_blocks;
+    void fill_with_vals()
+    {
+        // in parallel
+        for (block : parallel_blocks) {
+            block.get()->fill_with_vals();
+        }
+    }
+    void apply()
+    {
+        // in parallel
+        for (block : parallel_blocks) {
+            block.get()->apply();
+        }
+    }
+
+}
+
+struct lvl_1_block : parallel_block {
+    void fill_with_vals() {}
+    void apply() {}
+}
+
+struct base_block_aggregation : parallel_block {
+    void fill_with_vals() {}
+    void apply() {}
+}
+
 template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
                     // public ConvertibleTo<matrix::Dense<ValueType>>,

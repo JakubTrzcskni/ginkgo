@@ -321,12 +321,13 @@ void get_block_coloring(
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_BLOCK_COLORING_KERNEL);
 
+// TODO include the selection policies in the template params
 template <typename ValueType, typename IndexType>
 void assign_to_blocks(
     std::shared_ptr<const ReferenceExecutor> exec,
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
     IndexType* block_ordering, const IndexType* degrees, int8* visited,
-    const IndexType block_size, const IndexType lvl_2_block_size)
+    const IndexType block_size)
 {
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
     const auto row_ptrs = adjacency_matrix->get_const_row_ptrs();

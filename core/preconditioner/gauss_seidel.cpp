@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
+#include <ginkgo/core/base/utils.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
@@ -406,10 +407,16 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     csr_matrix->write(mat_data);
     auto adjacency_matrix =
         matrix::SparsityCsr<ValueType, IndexType>::create(exec);
-    adjacency_matrix = get_adjacency_matrix(mat_data);
+    adjacency_matrix = get_adjacency_matrix(
+        mat_data);  // this assumes that the matrix is not symmetric
 
-    auto block_ordering = generate_block_structure(
-        lend(adjacency_matrix), base_block_size_, lvl2_block_size_);
+    csr_matrix->write(mat_data);  // if matrix is not symmetric
+    utils::make_lower_triangular
+
+        auto block_ordering = generate_block_structure(
+            lend(adjacency_matrix), base_block_size_,
+            lvl2_block_size_);  // TODO a lot of functionality in this
+                                // function, split up needed ?
 
     // for testing only
     lower_triangular_matrix_->copy_from(
@@ -419,6 +426,16 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     upper_triangular_matrix_->copy_from(
         give(as<Csr>(as<Csr>(csr_matrix->inverse_permute(&permutation_idxs_))
                          ->permute(&block_ordering))));
+}
+
+template <typename ValueType, typename IndexType>
+void save_block_structure_to_memory(
+    const matrix::Csr<ValueType, IndexType>* system_matrix)
+{
+    const auto num_nodes = system_matrix->get_size()[0];
+    const auto val_mem_req =
+        (system_matrix->get_num_stored_elements() - num_nodes) / 2 +
+        num_nodes;  // should work if matrix is symmetric
 }
 
 template <typename ValueType, typename IndexType>
@@ -442,7 +459,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     std::fill_n(visited.get_data(), num_nodes, int8{0});
     exec->run(gauss_seidel::make_assign_to_blocks(
         adjacency_matrix, block_ordering.get_data(), degrees.get_const_data(),
-        visited.get_data(), block_size, lvl_2_block_size));
+        visited.get_data(), block_size));
 
     // TODO move to generate_HBMC / to gs kernels
     IndexType max_color = 0;

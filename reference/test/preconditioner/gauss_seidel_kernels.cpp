@@ -750,4 +750,42 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
 }
 
+TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using SparsityCsr = typename gko::matrix::SparsityCsr<ValueType, IndexType>;
+
+    auto exec = this->exec;
+
+    auto adjacency_mtx =
+        gko::initialize<SparsityCsr>({{0., 0., 0., 1., 0., 0.},
+                                      {0., 0., 1., 1., 1., 0.},
+                                      {0., 1., 0., 1., 0., 0.},
+                                      {1., 1., 1., 0., 1., 0.},
+                                      {0., 1., 0., 1., 0., 0.},
+                                      {0., 0., 0., 0., 0., 0.}},
+                                     exec);
+    auto num_nodes = adjacency_mtx->get_size()[0];
+    gko::array<IndexType> block_ordering(exec, num_nodes);
+    gko::array<IndexType> degrees(exec, I<IndexType>({1, 3, 2, 4, 2, 0}));
+    gko::array<int8> visited(exec, num_nodes);
+    std::fill_n(visited.get_data(), num_nodes, int8{0});
+    const IndexType block_size = 2;
+
+    gko::kernels::reference::gauss_seidel::assign_to_blocks(
+        exec, gko::lend(adjacency_mtx), block_ordering.get_data(),
+        degrees.get_const_data(), visited.get_data(), block_size);
+
+    // for minDegree seedPolicy & maxNumEdges policy
+    GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({5, 0, 2, 1, 4, 3}));
+
+    // Test for size == 3?
+}
+
+// TODO
+// Test if nodes within blocks are contigous after permuting (similar
+// formulation)
+
+
 }  // namespace
