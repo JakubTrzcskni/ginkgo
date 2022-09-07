@@ -52,64 +52,71 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace gko {
 namespace preconditioner {
 
-enum struct gs_parallel_strategy { mc, hbmc, race };
-
-struct storage_scheme {
-    // list of blocks in order of execution
-
-    // row_ptr array
-
-    // col_idxs array
-
-    // vals array
-};
 
 struct general_block {
-    uint32 start_row_ptrs_id;
-    uint32 start_val_col_id;
-    virtual void fill_with_vals() = 0;
-    virtual void apply() = 0;
-    std::shared_ptr<general_block> next_block;
+    general_block(uint32 start_row_ptrs_id, uint32 start_val_col_id)
+        : start_row_ptrs_id_{start_row_ptrs_id},
+          start_val_col_id_{start_val_col_id}
+    {}
+    uint32 start_row_ptrs_id_;
+    uint32 start_val_col_id_;
+};
+
+
+struct storage_scheme {
+    storage_scheme() = default;
+    storage_scheme(uint32 num_blocks)
+
+    {
+        blocks_in_execution_order_.reserve(num_blocks);
+    }
+
+    std::vector<std::shared_ptr<general_block>> blocks_in_execution_order_;
 };
 
 struct spmv_block : general_block {
-    uint32 start_row_global;
-    uint32 end_row_global;
-    uint32 start_col_global;
-    uint32 end_col_global;
-    void fill_with_vals() {}
-    void apply() {}
-}
+    spmv_block(uint32 start_row_ptrs_id, uint32 start_val_col_id,
+               uint32 start_row_global, uint32 end_row_global,
+               uint32 end_col_global)
+        : general_block(start_row_ptrs_id, start_val_col_id),
+          start_row_global_{start_row_global},
+          end_row_global_{end_col_global},
+          end_col_global_{end_col_global}
+    {}
+    uint32 start_row_global_;
+    uint32 end_row_global_;
+    uint32 start_col_global_;  // it is always 0...
+    uint32 end_col_global_;
+};
 
 struct parallel_block : general_block {
-    uint32 degree_of_parallelism;
-    std::vector<std::shared_ptr<parallel_block>> parallel_blocks;
-    void fill_with_vals()
+    parallel_block(uint32 start_row_ptrs_id, uint32 start_val_col_id,
+                   uint32 degree_of_parallelism)
+        : general_block(start_row_ptrs_id, start_val_col_id),
+          degree_of_parallelism_{degree_of_parallelism}
     {
-        // in parallel
-        for (block : parallel_blocks) {
-            block.get()->fill_with_vals();
-        }
+        parallel_blocks_.reserve(degree_of_parallelism);
     }
-    void apply()
-    {
-        // in parallel
-        for (block : parallel_blocks) {
-            block.get()->apply();
-        }
-    }
+    uint32 degree_of_parallelism_;
+    std::vector<std::shared_ptr<general_block>> parallel_blocks_;
+};
 
-}
+// template <int base_block_size, int lvl_2_block_size>
+struct lvl_1_block : general_block {
+    lvl_1_block(uint32 start_row_ptrs_id, uint32 start_val_col_id)
+        : general_block(start_row_ptrs_id, start_val_col_id)
+    {}
+};
 
-struct lvl_1_block : parallel_block {
-    void fill_with_vals() {}
-    void apply() {}
-}
-
-struct base_block_aggregation : parallel_block {
-    void fill_with_vals() {}
-    void apply() {}
-}
+// template <int base_block_size>
+struct base_block_aggregation : general_block {
+    base_block_aggregation(uint32 start_row_ptrs_id, uint32 start_val_col_id,
+                           uint32 num_base_blocks)
+        : general_block(start_row_ptrs_id, start_val_col_id),
+          num_base_blocks_{num_base_blocks}
+    {}
+    uint32 num_base_blocks_;
+};
 
 template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
@@ -208,7 +215,10 @@ protected:
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
-          use_coloring_{parameters_.use_coloring}
+          use_coloring_{parameters_.use_coloring},
+          diag_row_ptrs_{array<index_type>(factory->get_executor())},
+          diag_col_idxs_{array<index_type>(factory->get_executor())},
+          diag_values_{array<value_type>(factory->get_executor())}
     {
         if (parameters_.use_HBMC == true) {
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
@@ -231,6 +241,11 @@ protected:
                             bool is_symmetric = false);
 
     void initialize_blocks();
+
+    void reserve_mem_for_block_structure(
+        const matrix::SparsityCsr<value_type, index_type>* system_matrix,
+        const index_type num_base_blocks, const index_type base_block_size,
+        const index_type num_colors);
 
     void apply_impl(const LinOp* b, LinOp* x) const override;
 
@@ -262,6 +277,10 @@ private:
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_coloring_;
+    storage_scheme forward_solve_{};
+    array<index_type> diag_row_ptrs_;
+    array<index_type> diag_col_idxs_;
+    array<value_type> diag_values_;
 };
 }  // namespace preconditioner
 }  // namespace gko

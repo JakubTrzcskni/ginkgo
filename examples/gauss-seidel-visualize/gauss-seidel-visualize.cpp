@@ -133,6 +133,9 @@ int main(int argc, char* argv[])
         std::exit(-1);
     }
 
+    // TODO benchmark measure the time to solution + time to generate against
+    // reference
+
     const auto executor_string = argc >= 2 ? argv[1] : "reference";
     const auto base_block_size_arg = argc >= 3 ? argv[2] : "1";
     const auto lvl_2_block_size_arg = argc >= 4 ? argv[3] : "0";

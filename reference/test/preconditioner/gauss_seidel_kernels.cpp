@@ -730,9 +730,14 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     const IndexType lvl_2_block_size = 4;
     const IndexType max_color = 0;
 
+    auto dummy_storage = gko::preconditioner::storage_scheme(10);
+    auto dummy_row_ptrs = gko::array<IndexType>(exec);
+    auto dummy_col_idxs = gko::array<IndexType>(exec);
+
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
-        exec, block_ordering.get_data(), base_block_size, lvl_2_block_size,
-        color_ptrs.get_const_data(), max_color);
+        exec, block_ordering.get_data(), dummy_storage,
+        dummy_row_ptrs.get_data(), dummy_col_idxs.get_data(), base_block_size,
+        lvl_2_block_size, color_ptrs.get_const_data(), max_color);
 
     // auto standard_label = std::string("withoutOrdering-");
     // standard_label += typeid(ValueType).name() + std::string("-") +
@@ -769,8 +774,8 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
     auto num_nodes = adjacency_mtx->get_size()[0];
     gko::array<IndexType> block_ordering(exec, num_nodes);
     gko::array<IndexType> degrees(exec, I<IndexType>({1, 3, 2, 4, 2, 0}));
-    gko::array<int8> visited(exec, num_nodes);
-    std::fill_n(visited.get_data(), num_nodes, int8{0});
+    gko::array<gko::int8> visited(exec, num_nodes);
+    std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
     const IndexType block_size = 2;
 
     gko::kernels::reference::gauss_seidel::assign_to_blocks(

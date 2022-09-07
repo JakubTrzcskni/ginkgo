@@ -410,13 +410,13 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     adjacency_matrix = get_adjacency_matrix(
         mat_data);  // this assumes that the matrix is not symmetric
 
-    csr_matrix->write(mat_data);  // if matrix is not symmetric
-    utils::make_lower_triangular
+    // csr_matrix->write(mat_data);  // if matrix is not symmetric
+    // utils::make_lower_triangular
 
-        auto block_ordering = generate_block_structure(
-            lend(adjacency_matrix), base_block_size_,
-            lvl2_block_size_);  // TODO a lot of functionality in this
-                                // function, split up needed ?
+    auto block_ordering = generate_block_structure(
+        lend(adjacency_matrix), base_block_size_,
+        lvl2_block_size_);  // TODO a lot of functionality in this
+                            // function, split up needed ?
 
     // for testing only
     lower_triangular_matrix_->copy_from(
@@ -429,21 +429,41 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
 }
 
 template <typename ValueType, typename IndexType>
-void save_block_structure_to_memory(
-    const matrix::Csr<ValueType, IndexType>* system_matrix)
+void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    const IndexType num_base_blocks, const IndexType base_block_size,
+    const IndexType num_colors)
 {
-    const auto num_nodes = system_matrix->get_size()[0];
-    const auto val_mem_req =
-        (system_matrix->get_num_stored_elements() - num_nodes) / 2 +
-        num_nodes;  // should work if matrix is symmetric
+    auto exec = this->get_executor();
+    const auto num_nodes = adjacency_matrix->get_size()[0];
+    const auto nnz_triangle = adjacency_matrix->get_num_nonzeros() / 2 +
+                              num_nodes;  // should work if matrix is symmetric
+
+    // best case all blocks are dense
+    const auto diag_val_col_mem_requirement =
+        num_base_blocks * base_block_size * base_block_size;
+    const auto diag_row_mem_requirement =
+        diag_val_col_mem_requirement;  // diagonal blocks will be COO style
+
+    // worst case all diag blocks are only a diagonal
+    const auto spmv_val_col_mem_requirement = nnz_triangle - num_nodes;
+    const auto spmv_row_mem_requirement = num_nodes -
+                                          color_ptrs_.get_const_data()[1] +
+                                          color_ptrs_.get_num_elems() - 2;
+
+    diag_row_ptrs_.resize_and_reset(diag_row_mem_requirement);
+    diag_col_idxs_.resize_and_reset(diag_val_col_mem_requirement);
+    diag_values_.resize_and_reset(diag_val_col_mem_requirement);
+
+    const auto num_blocks = num_colors * 2 - 1;
+
+    forward_solve_ = storage_scheme(num_blocks);
 }
 
 template <typename ValueType, typename IndexType>
 array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
-    const matrix::SparsityCsr<ValueType, IndexType>*
-        adjacency_matrix,  // this can be const
-    const IndexType block_size,
-    const IndexType lvl_2_block_size)  // these can be const too
+    const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
+    const IndexType block_size, const IndexType lvl_2_block_size)
 {
     auto exec = this->get_executor();
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
@@ -475,14 +495,18 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         permutation_idxs_.get_data(), block_ordering.get_const_data()));
 
     if (lvl_2_block_size > 0) {
+        reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
+                                        block_size, max_color + 1);
+
         // secondary ordering
         exec->run(gauss_seidel::make_get_secondary_ordering(
-            permutation_idxs_.get_data(), block_size,
-            lvl_2_block_size,  // changed from block_order to perm_idxs
-            color_ptrs_.get_const_data(), max_color));
+            permutation_idxs_.get_data(), forward_solve_,
+            diag_row_ptrs_.get_data(), diag_col_idxs_.get_data(), block_size,
+            lvl_2_block_size, color_ptrs_.get_const_data(), max_color));
     }
 
-    return block_ordering;
+    return block_ordering;  // won't be needed at all
+    // return storage scheme maybe? or nothing
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \

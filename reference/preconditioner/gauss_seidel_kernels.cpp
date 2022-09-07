@@ -31,6 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************<GINKGO LICENSE>*******************************/
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
+// for testing LUTs
+#include <array>
+#include <cstddef>
+#include <utility>
 
 #include <cstring>
 #include <iterator>
@@ -392,14 +396,129 @@ void get_permutation_from_coloring(
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL);
 
+namespace {
+template <typename IndexType>
+IndexType get_curr_storage_offset(const IndexType curr_node,
+                                  const IndexType base_block_size)
+{
+    return static_cast<IndexType>(
+        static_cast<float>(curr_node) *
+        (static_cast<float>(base_block_size + 1) / 2));
+}
+template <typename IndexType>
+constexpr IndexType get_nz_block(const IndexType block_size)
+{
+    return (block_size * block_size - block_size) / 2 + block_size;
+}
+// Source: https://joelfilho.com/blog/2020/compile_time_lookup_tables_in_cpp/
+template <std::size_t Length, typename Generator, std::size_t... Indexes>
+constexpr auto lut_impl(Generator&& f, std::index_sequence<Indexes...>)
+{
+    using content_type = decltype(f(std::size_t{0}));
+    return std::array<content_type, Length>{{f(Indexes)...}};
+}
+
+template <std::size_t Length, typename Generator>
+constexpr auto lut(Generator&& f)
+{
+    return lut_impl<Length>(std::forward<Generator>(f),
+                            std::make_index_sequence<Length>{});
+}
+constexpr auto max_block_size = 8;
+constexpr auto max_nz_block = get_nz_block(max_block_size);
+constexpr unsigned diag(unsigned n)
+{
+    unsigned result = 0;
+    for (unsigned i = 0; i <= n; i++) {
+        result += i;
+    }
+    return result - 1;
+}
+constexpr auto diag_lut = lut<max_block_size + 1>(diag);
+constexpr unsigned sub_block(unsigned n)
+{
+    unsigned result = 0;
+    for (unsigned i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1; i++) {
+        result = i;
+    }
+    unsigned tmp = n - diag_lut[result + 1];
+    return tmp == 0 ? result : tmp - 1;
+}
+
+constexpr auto sub_block_lut = lut<max_nz_block + 1>(sub_block);
+unsigned precomputed_block(unsigned n) { return sub_block_lut[n]; }
+unsigned precomputed_diag(unsigned n) { return diag_lut[n + 1]; }
+
+template <typename IndexType>
+void save_block(preconditioner::spmv_block& block,
+                const IndexType* permutation_idxs)
+{}
+
+// template <typename IndexType>
+// void save_block(preconditioner::parallel_block& block,
+//                 const IndexType* permutation_idxs)
+// {
+//     for (auto sub_block_ptr : block.parallel_blocks_) {
+//         auto sub_block = sub_block_ptr.get();
+//         save_block(sub_block, permutation_idxs);
+//     }
+// }
+
+template <typename IndexType>
+void save_block(preconditioner::lvl_1_block& block, IndexType* diag_row_ptrs,
+                IndexType* diag_col_idxs, const IndexType* permutation_idxs,
+                const IndexType base_block_size,
+                const IndexType lvl_2_block_size)
+{
+    const auto base_offset = block.start_row_ptrs_id_;
+    const auto num_sub_blocks = get_nz_block(base_block_size);
+
+    for (auto sub_block_id = 0; sub_block_id < num_sub_blocks; sub_block_id++) {
+        const auto sub_block_offset =
+            base_offset + sub_block_id * lvl_2_block_size;
+        const auto id_offset =
+            base_offset + precomputed_diag(precomputed_block(sub_block_id)) *
+                              lvl_2_block_size;
+        for (auto i = 0; i < lvl_2_block_size; i++) {
+            diag_row_ptrs[sub_block_offset + i] =
+                permutation_idxs[id_offset + i];
+        }
+    }
+}
+
+template <typename IndexType>
+void save_block(preconditioner::base_block_aggregation& block,
+                IndexType* diag_row_ptrs, IndexType* diag_col_idxs,
+                const IndexType* permutation_idxs,
+                const IndexType base_block_size)
+{
+    const auto base_offset = block.start_row_ptrs_id_;
+    const auto nz_per_block = get_nz_block(base_block_size);
+    for (auto block_id = 0; block_id < block.num_base_blocks_; block_id++) {
+        const auto block_offset = base_offset + block_id * nz_per_block;
+        for (auto id = 0; id < nz_per_block; id++) {
+            auto id_offset = precomputed_diag(precomputed_block(id));
+            diag_row_ptrs[id] = permutation_idxs[block_offset + id_offset];
+        }
+    }
+}
+
+
+}  // namespace
+
 template <typename IndexType>
 void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
-                            IndexType* block_ordering,
+                            IndexType* permutation_idxs,
+                            preconditioner::storage_scheme& storage_scheme,
+                            IndexType* diag_row_ptrs, IndexType* diag_col_idxs,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
                             const IndexType max_color)
 {
+    using namespace preconditioner;
+
+
     auto lvl_1_block_size = lvl_2_block_size * base_block_size;
     for (auto color = 0; color <= max_color; color++) {
         const auto nodes_in_curr_color =
@@ -407,12 +526,30 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
         const auto curr_color_offset = color_block_ptrs[color];
         const auto full_lvl_1_blocks_in_curr_color =
             nodes_in_curr_color / lvl_1_block_size;
+        const auto base_block_residual = nodes_in_curr_color % lvl_1_block_size;
+
+        const auto curr_color_diag_storage_offset =
+            get_curr_storage_offset(curr_color_offset, base_block_size);
+        auto curr_parallel_block = parallel_block(
+            curr_color_offset, curr_color_diag_storage_offset,
+            full_lvl_1_blocks_in_curr_color + base_block_residual);
+
+
         for (auto curr_lvl_1_block_id = 0;
              curr_lvl_1_block_id < full_lvl_1_blocks_in_curr_color;
              curr_lvl_1_block_id++) {
             const auto curr_lvl_1_block_offset =
                 curr_lvl_1_block_id * lvl_1_block_size;
             array<IndexType> new_lvl_1_block_ordering(exec, lvl_1_block_size);
+
+            const auto curr_diag_storage_offset = get_curr_storage_offset(
+                curr_color_offset + curr_lvl_1_block_offset, base_block_size);
+            auto new_lvl_1_block =
+                lvl_1_block(curr_color_offset + curr_lvl_1_block_offset,
+                            curr_diag_storage_offset);
+            curr_parallel_block.parallel_blocks_[curr_lvl_1_block_id] =
+                std::make_shared<lvl_1_block>(new_lvl_1_block);
+
             auto lvl_1_reordering = new_lvl_1_block_ordering.get_data();
             for (auto curr_node_base_lvl_block = 0;
                  curr_node_base_lvl_block < base_block_size;
@@ -429,15 +566,34 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                         curr_node_lvl_2_block * base_block_size +
                         curr_node_base_lvl_block;
 
-                    lvl_1_reordering[curr_id] = block_ordering[id_to_swap];
+                    lvl_1_reordering[curr_id] = permutation_idxs[id_to_swap];
                 }
             }
-            auto dest =
-                &(block_ordering[curr_color_offset + curr_lvl_1_block_offset]);
+            auto dest = &(
+                permutation_idxs[curr_color_offset + curr_lvl_1_block_offset]);
             const auto source = new_lvl_1_block_ordering.get_const_data();
             auto count = sizeof(IndexType) * lvl_1_block_size;
             std::memcpy(dest, source, count);
         }
+        if (base_block_residual) {
+            const auto row_storage_offset =
+                curr_color_offset +
+                full_lvl_1_blocks_in_curr_color * lvl_1_block_size;
+            const auto num_residual_blocks =
+                nodes_in_curr_color -
+                full_lvl_1_blocks_in_curr_color * lvl_1_block_size;
+            curr_parallel_block
+                .parallel_blocks_[full_lvl_1_blocks_in_curr_color] =
+                std::make_shared<base_block_aggregation>(base_block_aggregation(
+                    row_storage_offset,
+                    get_curr_storage_offset(row_storage_offset,
+                                            base_block_size),
+                    num_residual_blocks));
+        }
+        storage_scheme.blocks_in_execution_order_[2 * color] =
+            std::make_shared<parallel_block>(curr_parallel_block);
+        // storage_scheme.blocks_in_execution_order_[2 * color + 1] =
+        //     std::make_shared<spmv_block>(spmv_block());
     }
 }
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(

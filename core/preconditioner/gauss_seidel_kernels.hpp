@@ -88,12 +88,14 @@ namespace kernels {
         const IndexType* block_ordering, const IndexType block_size,       \
         IndexType* vertex_colors, IndexType* max_color)
 
-#define GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL(IndexType)    \
-    void get_secondary_ordering(                                             \
-        std::shared_ptr<const DefaultExecutor> exec,                         \
-        IndexType* block_ordering, const IndexType base_block_size,          \
-        const IndexType lvl_2_block_size, const IndexType* color_block_ptrs, \
-        const IndexType max_color)
+#define GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL(IndexType)  \
+    void get_secondary_ordering(                                           \
+        std::shared_ptr<const DefaultExecutor> exec,                       \
+        IndexType* permutation_idxs,                                       \
+        preconditioner::storage_scheme& storage_scheme,                    \
+        IndexType* diag_row_ptrs, IndexType* diag_col_idxs,                \
+        const IndexType base_block_size, const IndexType lvl_2_block_size, \
+        const IndexType* color_block_ptrs, const IndexType max_color)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL(ValueType, IndexType) \
     void assign_to_blocks(                                                     \

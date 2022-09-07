@@ -149,7 +149,9 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 template <typename IndexType>
 void get_secondary_ordering(std::shared_ptr<const CudaExecutor> exec,
-                            IndexType* block_ordering,
+                            IndexType* permutation_idxs,
+                            preconditioner::storage_scheme& storage_scheme,
+                            IndexType* diag_row_ptrs, IndexType* diag_col_idxs,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
