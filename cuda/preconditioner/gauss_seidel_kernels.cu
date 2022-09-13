@@ -175,6 +175,23 @@ void setup_blocks(std::shared_ptr<const CudaExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void fill_with_vals(
+    std::shared_ptr<const CudaExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    const IndexType* permutation_idxs,
+    preconditioner::storage_scheme& storage_scheme,
+    const IndexType diag_num_elems, const IndexType* l_diag_rows,
+    const IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,
+    const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
+    const IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals,
+    const IndexType* u_diag_rows, const IndexType* u_diag_mtx_col_idxs,
+    ValueType* u_diag_vals, const IndexType* u_spmv_row_ptrs,
+    const IndexType* u_spmv_col_idxs, const IndexType* u_spmv_mtx_col_idxs,
+    ValueType* u_spmv_vals) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_FILL_WITH_VALS_KERNEL);
+
 }  // namespace gauss_seidel
 }  // namespace cuda
 }  // namespace kernels

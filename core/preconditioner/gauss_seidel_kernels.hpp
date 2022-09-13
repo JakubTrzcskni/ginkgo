@@ -132,6 +132,21 @@ namespace kernels {
                       IndexType* u_spmv_col_idxs,                             \
                       IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals)
 
+#define GKO_DECLARE_GAUSS_SEIDEL_FILL_WITH_VALS_KERNEL(ValueType, IndexType) \
+    void fill_with_vals(                                                     \
+        std::shared_ptr<const DefaultExecutor> exec,                         \
+        const matrix::Csr<ValueType, IndexType>* system_matrix,              \
+        const IndexType* permutation_idxs,                                   \
+        preconditioner::storage_scheme& storage_scheme,                      \
+        const IndexType diag_num_elems, const IndexType* l_diag_rows,        \
+        const IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,        \
+        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,  \
+        const IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals,        \
+        const IndexType* u_diag_rows, const IndexType* u_diag_mtx_col_idxs,  \
+        ValueType* u_diag_vals, const IndexType* u_spmv_row_ptrs,            \
+        const IndexType* u_spmv_col_idxs,                                    \
+        const IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals)
+
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                          \
     template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType);              \
@@ -154,7 +169,9 @@ namespace kernels {
     template <typename IndexType>                                             \
     GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL(IndexType);           \
     template <typename ValueType, typename IndexType>                         \
-    GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType)
+    GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType);       \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_FILL_WITH_VALS_KERNEL(ValueType, IndexType)
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(gauss_seidel,
                                         GKO_DECLARE_ALL_AS_TEMPLATES);

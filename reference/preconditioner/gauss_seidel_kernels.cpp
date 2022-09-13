@@ -509,19 +509,69 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     }
 }
 
-template <typename ValueType, typename IndexType>
-void fill_with_vals(std::shared_ptr<const ReferenceExecutor> exec,
-                    const matrix::Csr<ValueType, IndexType>* system_matrix,
-                    preconditioner::storage_scheme& storage_scheme,
-                    const IndexType* diag_row_ptrs, ValueType* diag_vals,
-                    const IndexType* spmv_row_ptrs,
-                    const IndexType* spmv_col_idxs,
-                    const IndexType base_block_size,
-                    const IndexType lvl_2_block_size)
-{}
-
 
 }  // namespace
+
+template <typename ValueType, typename IndexType>
+void fill_with_vals(
+    std::shared_ptr<const ReferenceExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    const IndexType* permutation_idxs,
+    preconditioner::storage_scheme& storage_scheme,
+    const IndexType diag_num_elems, const IndexType* l_diag_rows,
+    const IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,
+    const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
+    const IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals,
+    const IndexType* u_diag_rows, const IndexType* u_diag_mtx_col_idxs,
+    ValueType* u_diag_vals, const IndexType* u_spmv_row_ptrs,
+    const IndexType* u_spmv_col_idxs, const IndexType* u_spmv_mtx_col_idxs,
+    ValueType* u_spmv_vals)
+{
+    const auto mtx_row_ptrs = system_matrix->get_const_row_ptrs();
+    const auto mtx_col_idxs = system_matrix->get_const_col_idxs();
+    const auto mtx_vals = system_matrix->get_const_values();
+    if (storage_scheme.symm_) {
+        GKO_NOT_IMPLEMENTED;
+    } else {
+        // fill the diagonal blokcs
+        for (auto i = 0; i < diag_num_elems; i++) {
+            if (l_diag_rows[i] >= 0) {
+                const auto mtx_row = permutation_idxs[l_diag_rows[i]];
+                const auto mtx_col = l_diag_mtx_col_idxs[i];
+                l_diag_vals[i] = mtx_vals[mtx_row_ptrs[mtx_row] + mtx_col];
+            }
+        }
+
+
+        auto main_blocks = storage_scheme.forward_solve_;
+        const auto num_blocks = storage_scheme.num_blocks_;
+        // fill the spmv blocks
+        if (num_blocks >= 3) {  // if there are spmv blocks
+            for (auto i = 1; i < num_blocks; i += 2) {
+                auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                    main_blocks[i].get());
+                const auto block_row_offset = spmv_block->start_row_global_;
+                const auto num_rows =
+                    spmv_block->end_row_global_ - block_row_offset;
+                const auto row_ptrs_start = spmv_block->row_ptrs_storage_id_;
+                const auto val_start = spmv_block->val_storage_id_;
+                for (auto row = 0; row < num_rows; row++) {
+                    const auto mtx_row =
+                        permutation_idxs[block_row_offset + row];
+                    for (auto id = l_spmv_row_ptrs[row_ptrs_start + row];
+                         id < l_spmv_row_ptrs[row_ptrs_start + row + 1]; id++) {
+                        const auto mtx_col =
+                            l_spmv_mtx_col_idxs[val_start + id];
+                        l_spmv_vals[val_start + id] =
+                            mtx_vals[mtx_row_ptrs[mtx_row] + mtx_col];
+                    }
+                }
+            }
+        }
+    }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_FILL_WITH_VALS_KERNEL);
 
 template <typename ValueType, typename IndexType>
 void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,

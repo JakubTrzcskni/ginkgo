@@ -852,6 +852,11 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     gko::array<ValueType> expected_l_spmv_vals(
         exec, I<ValueType>({1., 5., 4., 2., 3., 6., 7., 4., 2., 6., 3., 5., 1.,
                             0., 0., 0., 0., 0., 0.}));
+    auto expected_l_spmv_vals_vec = Vec::create(
+        exec, gko::dim<2>{expected_l_spmv_vals.get_num_elems(), 1},
+        gko::make_array_view(exec, expected_l_spmv_vals.get_num_elems(),
+                             expected_l_spmv_vals.get_data()),
+        1);
     gko::array<IndexType> expected_l_spmv_col_idxs(
         exec, I<IndexType>({6, 5, 3, 5, 4, 1, 0, 7, 12, 1, 11, 5, 10, 0, 0, 0,
                             0, 0, 0}));
@@ -898,6 +903,11 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> l_spmv_mtx_col_idxs_(exec,
                                                l_spmv_val_col_mem_requirement);
     gko::array<ValueType> l_spmv_vals_(exec, l_spmv_val_col_mem_requirement);
+    auto l_spmv_vals_vec_ =
+        Vec::create(exec, gko::dim<2>{l_spmv_vals_.get_num_elems(), 1},
+                    gko::make_array_view(exec, l_spmv_vals_.get_num_elems(),
+                                         l_spmv_vals_.get_data()),
+                    1);
     l_spmv_vals_.fill(ValueType{0});
     l_spmv_mtx_col_idxs_.fill(IndexType{0});
     l_spmv_col_idxs_.fill(IndexType{0});
@@ -919,7 +929,26 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_vals, l_spmv_vals_);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_mtx_col_idxs, l_spmv_mtx_col_idxs_);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_col_idxs, l_spmv_col_idxs_);
-    // assert mtx_col_idxs
+
+    auto alpha = gko::initialize<Vec>({2.0}, exec);
+    mtx->scale(lend(alpha));
+    expected_l_diag_vals_vec->scale(lend(alpha));
+    expected_l_spmv_vals_vec->scale(lend(alpha));
+    gko::kernels::reference::gauss_seidel::fill_with_vals(
+        exec, lend(mtx), perm.get_const_data(), dummy_storage_scheme,
+        static_cast<IndexType>(diag_mem_requirement),
+        l_diag_rows_.get_const_data(), l_diag_mtx_col_idxs_.get_const_data(),
+        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_const_data(),
+        l_spmv_col_idxs_.get_const_data(),
+        l_spmv_mtx_col_idxs_.get_const_data(), l_spmv_vals_.get_data(),
+        dummyInd, dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_vals, l_spmv_vals_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_diag_vals, l_diag_vals_);
+    // GKO_ASSERT_MTX_NEAR(expected_l_diag_vals_vec, l_diag_vals_vec_,
+    //                     r<ValueType>::value);
+    // GKO_ASSERT_MTX_NEAR(expected_l_spmv_vals_vec, l_spmv_vals_vec_,
+    //                     r<ValueType>::value);
 }
 
 
