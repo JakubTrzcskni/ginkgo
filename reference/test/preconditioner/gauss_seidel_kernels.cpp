@@ -857,6 +857,9 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
                             0, 0, 0}));
     gko::array<IndexType> expected_l_spmv_row_ptrs(
         exec, I<IndexType>({0, 1, 1, 2, 4, 5, 6, 0, 2, 3, 5, 7}));
+    gko::array<IndexType> expected_l_spmv_mtx_col_idxs(
+        exec, I<IndexType>(
+                  {2, 1, 4, 0, 1, 2, 1, 0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0}));
 
     IndexType max_color = 2;
     IndexType base_block_size = 2;
@@ -895,6 +898,9 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> l_spmv_mtx_col_idxs_(exec,
                                                l_spmv_val_col_mem_requirement);
     gko::array<ValueType> l_spmv_vals_(exec, l_spmv_val_col_mem_requirement);
+    l_spmv_vals_.fill(ValueType{0});
+    l_spmv_mtx_col_idxs_.fill(IndexType{0});
+    l_spmv_col_idxs_.fill(IndexType{0});
 
     gko::kernels::reference::gauss_seidel::setup_blocks(
         exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
@@ -911,6 +917,7 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
 
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_row_ptrs, l_spmv_row_ptrs_);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_vals, l_spmv_vals_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_mtx_col_idxs, l_spmv_mtx_col_idxs_);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_col_idxs, l_spmv_col_idxs_);
     // assert mtx_col_idxs
 }

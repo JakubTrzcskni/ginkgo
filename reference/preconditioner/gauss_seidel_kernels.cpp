@@ -471,72 +471,6 @@ constexpr auto sub_block_lut = lut<max_nz_block + 1>(sub_block);
 unsigned precomputed_block(unsigned n) { return sub_block_lut[n]; }
 unsigned precomputed_diag(unsigned n) { return diag_lut[n + 1]; }
 
-/* template <typename IndexType, typename ValueType>
-void save_block(preconditioner::spmv_block& block,
-                const IndexType* permutation_idxs)
-{}
-
-template <typename IndexType, typename ValueType>
-void save_block(preconditioner::parallel_block& block, IndexType* diag_row_ptrs,
-                ValueType* diag_vals, const IndexType* permutation_idxs,
-                const matrix::Csr<ValueType, IndexType>* system_matrix,
-                const IndexType base_block_size,
-                const IndexType lvl_2_block_size)
-{
-    const auto mtx_row_ptrs = system_matrix->get_const_row_ptrs();
-    const auto mtx_col_idxs = system_matrix->get_const_col_idxs();
-    const auto mtx_vals = system_matrix->get_const_values();
-    for (auto sub_block_ptr : block.parallel_blocks_) {
-        auto sub_block = sub_block_ptr.get();
-        save_block(sub_block, diag_row_ptrs, diag_vals, permutation_idxs,
-                   mtx_row_ptrs, mtx_col_idxs, mtx_vals, base_block_size,
-                   lvl_2_block_size);
-    }
-}
-
-
-template <typename IndexType, typename ValueType>
-void save_block(preconditioner::base_block_aggregation& block,
-                IndexType* diag_row_ptrs, ValueType* diag_vals,
-                const IndexType* permutation_idxs,
-                const IndexType* mtx_row_ptrs, const IndexType* mtx_col_idxs,
-                const ValueType* mtx_vals, const IndexType base_block_size,
-                const IndexType lvl_2_block_size)
-{
-    const auto base_offset = block.val_storage_id_;
-    const auto nz_per_block = get_nz_block(base_block_size);
-
-    for (auto block_id = 0; block_id < block.num_base_blocks_; block_id++) {
-        const auto block_offset = base_offset + block_id * nz_per_block;
-        for (auto id = 0; id < nz_per_block; id++) {
-            auto id_offset = precomputed_diag(precomputed_block(id));
-            diag_row_ptrs[id] = permutation_idxs[block_offset + id_offset];
-        }
-    }
-}
-template <typename IndexType, typename ValueType>
-void save_block(preconditioner::lvl_1_block& block, IndexType* diag_row_ptrs,
-                ValueType* diag_vals, const IndexType* permutation_idxs,
-                const IndexType* mtx_row_ptrs, const IndexType* mtx_col_idxs,
-                const ValueType* mtx_vals, const IndexType base_block_size,
-                const IndexType lvl_2_block_size)
-{
-    const auto base_offset = block.val_storage_id_;
-    const auto num_sub_blocks = get_nz_block(base_block_size);
-
-    for (auto sub_block_id = 0; sub_block_id < num_sub_blocks; sub_block_id++) {
-        const auto sub_block_offset =
-            base_offset + sub_block_id * lvl_2_block_size;
-        const auto id_offset =
-            base_offset + precomputed_diag(precomputed_block(sub_block_id)) *
-                              lvl_2_block_size;
-        for (auto i = 0; i < lvl_2_block_size; i++) {
-            const auto perm_row = permutation_idxs[id_offset + i];
-            diag_row_ptrs[sub_block_offset + i] = perm_row;
-        }
-    }
-} */
-
 
 int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                          const int32 row, const int32 col, bool* lvl_1)
@@ -575,19 +509,7 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     }
 }
 
-// bool check_if_lvl_1(preconditioner::parallel_block* p_block, const int32 row)
-// {
-//     const auto local_row = row - p_block->start_row_global_;
-//     const auto block_id = local_row / p_block->lvl_1_block_size_;
-//     const auto row_id_block = local_row % p_block->lvl_1_block_size_;
-//     if (p_block->residual_ && block_id == p_block->degree_of_parallelism_ -
-//     1) {
-//         return false;
-//     } else
-//         return true;
-// }
-
-template <typename IndexType, typename ValueType>
+template <typename ValueType, typename IndexType>
 void fill_with_vals(std::shared_ptr<const ReferenceExecutor> exec,
                     const matrix::Csr<ValueType, IndexType>* system_matrix,
                     preconditioner::storage_scheme& storage_scheme,
@@ -649,8 +571,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                 tmp_perm.get_data()[j] =
                     inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
             }
-            // auto it = thrust::make_zip_iterator(thrust::make_tuple(
-            //     +tmp_mtx_vals.get_data(), +tmp_mtx_col_idxs.get_data()));
+
             thrust::sort_by_key(tmp_perm.get_data(),
                                 tmp_perm.get_data() + nnz_in_row,
                                 tmp_mtx_col_idxs.get_data());
@@ -695,10 +616,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
         first_spmv_block->update(0, 0, next_p_block->start_row_global_,
                                  next_p_block->end_row_global_, 0,
                                  next_p_block->start_row_global_);
-        // main_blocks[1] = std::make_shared<preconditioner::spmv_block>(
-        //     preconditioner::spmv_block(0, 0, next_p_block->start_row_global_,
-        //                                next_p_block->end_row_global_, 0,
-        //                                next_p_block->start_row_global_));
 
         for (auto i = 1; i < num_blocks; i += 2) {
             //  i even - diagonal(parallel) block, uneven - spmv block
@@ -736,8 +653,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     tmp_perm.get_data()[j] =
                         inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
                 }
-                // auto it = thrust::make_zip_iterator(thrust::make_tuple(
-                //     tmp_mtx_vals.get_data(), tmp_mtx_col_idxs.get_data()));
                 thrust::sort_by_key(tmp_perm.get_data(),
                                     tmp_perm.get_data() + nnz_in_row,
                                     tmp_mtx_col_idxs.get_data());
@@ -759,41 +674,18 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     spmv_block->val_storage_id_ +
                     l_spmv_row_ptrs[curr_id_spmv_row];
 
-                // auto in_begin = thrust::make_tuple(tmp_mtx_vals.get_data(),
-                //                                    tmp_mtx_col_idxs.get_data(),
-                //                                    tmp_perm.get_data());
-                // auto in_end =
-                //     thrust::make_tuple(tmp_mtx_vals.get_data() + nnz_in_row,
-                //                        tmp_mtx_col_idxs.get_data() +
-                //                        nnz_in_row, tmp_perm.get_data() +
-                //                        nnz_in_row);
 
-                // auto out_begin = thrust::make_tuple(
-                //     &l_spmv_vals[curr_id_spmv_val_col],
-                //     &l_spmv_mtx_col_idxs[curr_id_spmv_val_col],
-                //     &l_spmv_col_idxs[curr_id_spmv_val_col]);
-
-                // fill the row in the spmv block
-                // thrust::copy_if(
-                //     in_begin, in_end, out_begin,
-                //     [&](thrust::tuple<ValueType, IndexType, IndexType> t) {
-                //         return thrust::get<2>(t) <
-                //                 parallel_block->start_row_global_;  // col <
-                //                 first row
-                //                            // of the parallel
-                //                            // block
-                //     });
                 auto nnz_in_spmv_block_row = 0;
                 for (auto j = 0;
                      j < nnz_in_row && tmp_perm.get_const_data()[j] <
                                            parallel_block->start_row_global_;
                      j++) {
-                    l_spmv_vals[curr_id_spmv_val_col + i] =
-                        tmp_mtx_vals.get_const_data()[i];
-                    l_spmv_mtx_col_idxs[curr_id_spmv_val_col + i] =
-                        tmp_mtx_col_idxs.get_const_data()[i];
-                    l_spmv_col_idxs[curr_id_spmv_val_col + i] =
-                        tmp_perm.get_const_data()[i];
+                    l_spmv_vals[curr_id_spmv_val_col + j] =
+                        tmp_mtx_vals.get_const_data()[j];
+                    l_spmv_mtx_col_idxs[curr_id_spmv_val_col + j] =
+                        tmp_mtx_col_idxs.get_const_data()[j];
+                    l_spmv_col_idxs[curr_id_spmv_val_col + j] =
+                        tmp_perm.get_const_data()[j];
                     nnz_in_spmv_block_row++;
                 }
 
