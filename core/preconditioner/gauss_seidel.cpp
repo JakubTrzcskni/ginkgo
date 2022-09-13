@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/base/allocator.hpp"
 #include "core/base/utils.hpp"
+#include "core/matrix/csr_kernels.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/jacobi_kernels.hpp"
 #include "core/utils/matrix_utils.hpp"
@@ -69,6 +70,7 @@ GKO_REGISTER_OPERATION(get_secondary_ordering,
                        gauss_seidel::get_secondary_ordering);
 GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 GKO_REGISTER_OPERATION(get_degree_of_nodes, gauss_seidel::get_degree_of_nodes);
+GKO_REGISTER_OPERATION(invert_permutation, csr::invert_permutation);
 }  // namespace
 }  // namespace gauss_seidel
 
@@ -440,24 +442,51 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
                               num_nodes;  // should work if matrix is symmetric
 
     // best case all blocks are dense
-    const auto diag_val_col_mem_requirement =
-        num_base_blocks * base_block_size * base_block_size;
-    const auto diag_row_mem_requirement =
-        diag_val_col_mem_requirement;  // diagonal blocks will be COO style
+    const auto diag_mem_requirement =
+        num_base_blocks * base_block_size *
+        base_block_size;  // TODO only the lower tr will be saved from each
+                          // block
+    // diagonal blocks will be COO style (col info implicit)
 
     // worst case all diag blocks are only a diagonal
-    const auto spmv_val_col_mem_requirement = nnz_triangle - num_nodes;
-    const auto spmv_row_mem_requirement = num_nodes -
-                                          color_ptrs_.get_const_data()[1] +
-                                          color_ptrs_.get_num_elems() - 2;
+    const auto l_spmv_val_col_mem_requirement =
+        nnz_triangle - num_nodes;  // more memory than needed
+    const auto l_spmv_row_mem_requirement =
+        num_nodes - color_ptrs_.get_const_data()[1] +
+        color_ptrs_.get_num_elems() - 2;  // optimal
 
-    diag_row_ptrs_.resize_and_reset(diag_row_mem_requirement);
-    diag_col_idxs_.resize_and_reset(diag_val_col_mem_requirement);
-    diag_values_.resize_and_reset(diag_val_col_mem_requirement);
+    l_diag_rows_.resize_and_reset(diag_mem_requirement);
+    l_diag_mtx_col_idxs_.resize_and_reset(diag_mem_requirement);
+    l_diag_vals_.resize_and_reset(diag_mem_requirement);
+    l_diag_vals_.fill(ValueType{0});
+    l_diag_mtx_col_idxs_.fill(IndexType{-1});
+    l_spmv_row_ptrs_.resize_and_reset(l_spmv_row_mem_requirement);
+    l_spmv_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
+    l_spmv_mtx_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
+    l_spmv_vals_.resize_and_reset(l_spmv_val_col_mem_requirement);
 
     const auto num_blocks = num_colors * 2 - 1;
 
-    forward_solve_ = storage_scheme(num_blocks);
+    if (symmetric_preconditioner_) {
+        const auto u_spmv_val_col_mem_requirement =
+            l_spmv_val_col_mem_requirement;
+        const auto u_spmv_row_mem_requirement =
+            color_ptrs_.get_const_data()[color_ptrs_.get_num_elems() - 2] +
+            color_ptrs_.get_num_elems() - 2;
+
+        u_diag_rows_.resize_and_reset(diag_mem_requirement);
+        u_diag_mtx_col_idxs_.resize_and_reset(diag_mem_requirement);
+        u_diag_vals_.resize_and_reset(diag_mem_requirement);
+        u_diag_vals_.fill(ValueType{0});
+        u_diag_mtx_col_idxs_.fill(IndexType{-1});
+        u_spmv_row_ptrs_.resize_and_reset(u_spmv_row_mem_requirement);
+        u_spmv_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);
+        u_spmv_mtx_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);
+        u_spmv_vals_.resize_and_reset(u_spmv_val_col_mem_requirement);
+    }
+
+    hbmc_storage_scheme_ =
+        storage_scheme(num_blocks, symmetric_preconditioner_);
 }
 
 template <typename ValueType, typename IndexType>
@@ -500,9 +529,13 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
 
         // secondary ordering
         exec->run(gauss_seidel::make_get_secondary_ordering(
-            permutation_idxs_.get_data(), forward_solve_,
-            diag_row_ptrs_.get_data(), diag_col_idxs_.get_data(), block_size,
+            permutation_idxs_.get_data(), hbmc_storage_scheme_, block_size,
             lvl_2_block_size, color_ptrs_.get_const_data(), max_color));
+
+        inv_permutation_idxs_.resize_and_reset(num_nodes);
+        exec->run(gauss_seidel::make_invert_permutation(
+            num_nodes, permutation_idxs_.get_const_data(),
+            inv_permutation_idxs_.get_data()));
     }
 
     return block_ordering;  // won't be needed at all

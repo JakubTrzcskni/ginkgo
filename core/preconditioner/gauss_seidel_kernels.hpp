@@ -93,7 +93,6 @@ namespace kernels {
         std::shared_ptr<const DefaultExecutor> exec,                       \
         IndexType* permutation_idxs,                                       \
         preconditioner::storage_scheme& storage_scheme,                    \
-        IndexType* diag_row_ptrs, IndexType* diag_col_idxs,                \
         const IndexType base_block_size, const IndexType lvl_2_block_size, \
         const IndexType* color_block_ptrs, const IndexType max_color)
 
@@ -118,6 +117,20 @@ namespace kernels {
                              const IndexType* const row_ptrs,             \
                              IndexType* const degrees)
 
+#define GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType)    \
+    void setup_blocks(std::shared_ptr<const DefaultExecutor> exec,            \
+                      const matrix::Csr<ValueType, IndexType>* system_matrix, \
+                      const IndexType* permutation_idxs,                      \
+                      const IndexType* inv_permutation_idxs,                  \
+                      preconditioner::storage_scheme& storage_scheme,         \
+                      IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs, \
+                      ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,     \
+                      IndexType* l_spmv_col_idxs,                             \
+                      IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals, \
+                      IndexType* u_diag_rows, IndexType* u_diag_mtx_col_idxs, \
+                      ValueType* u_diag_vals, IndexType* u_spmv_row_ptrs,     \
+                      IndexType* u_spmv_col_idxs,                             \
+                      IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals)
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                          \
     template <typename ValueType, typename IndexType>                         \
@@ -139,7 +152,9 @@ namespace kernels {
     template <typename IndexType>                                             \
     GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL(IndexType);        \
     template <typename IndexType>                                             \
-    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL(IndexType)
+    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL(IndexType);           \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType)
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(gauss_seidel,
                                         GKO_DECLARE_ALL_AS_TEMPLATES);

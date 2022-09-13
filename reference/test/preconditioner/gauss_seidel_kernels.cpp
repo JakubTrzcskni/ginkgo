@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/stop/iteration.hpp>
 #include <ginkgo/core/stop/residual_norm.hpp>
 
+#include "core/matrix/csr_kernels.hpp"
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/preconditioner/sparse_display.hpp"
 #include "core/test/utils.hpp"
@@ -699,7 +700,7 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 // }
 
 
-TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
+/* TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
 {
     using Vec = typename TestFixture::Vec;
     using ValueType = typename TestFixture::value_type;
@@ -730,13 +731,12 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     const IndexType lvl_2_block_size = 4;
     const IndexType max_color = 0;
 
-    auto dummy_storage = gko::preconditioner::storage_scheme(10);
-    auto dummy_row_ptrs = gko::array<IndexType>(exec);
-    auto dummy_col_idxs = gko::array<IndexType>(exec);
+    auto dummy_storage = gko::preconditioner::storage_scheme(1);
+
 
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, block_ordering.get_data(), dummy_storage,
-        dummy_row_ptrs.get_data(), dummy_col_idxs.get_data(), base_block_size,
+         base_block_size,
         lvl_2_block_size, color_ptrs.get_const_data(), max_color);
 
     // auto standard_label = std::string("withoutOrdering-");
@@ -745,7 +745,8 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     // this->visualize(gko::lend(mtx), standard_label);
 
     // auto perm_mtx = Csr::create(exec);
-    // perm_mtx->copy_from(gko::give(gko::as<Csr>(mtx->permute(&block_ordering))));
+    //
+perm_mtx->copy_from(gko::give(gko::as<Csr>(mtx->permute(&block_ordering))));
 
     // auto label = std::string("SecondaryOrdering-");
     // label += typeid(ValueType).name() + std::string("-") +
@@ -753,7 +754,7 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     // this->visualize(gko::lend(perm_mtx), label);
 
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
-}
+} */
 
 TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
 {
@@ -791,6 +792,128 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
 // TODO
 // Test if nodes within blocks are contigous after permuting (similar
 // formulation)
+
+TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    auto exec = this->exec;
+
+    auto mtx = Csr::create(exec, gko::dim<2>{18}, 56);
+    this->template init_array<IndexType>(
+        mtx->get_row_ptrs(), {0, 4, 9, 12, 15, 18, 20, 22, 27, 30, 33, 36, 39,
+                              42, 43, 46, 49, 52, 56});
+    this->template init_array<IndexType>(
+        mtx->get_col_idxs(),
+        {0,  1,  2,  15, 0, 1,  5,  7,  15, 0,  2,  17, 3,  7,
+         9,  4,  9,  14, 1, 5,  6,  16, 1,  3,  7,  8,  12, 7,
+         8,  17, 3,  4,  9, 10, 12, 14, 11, 16, 17, 7,  10, 12,
+         13, 4,  10, 14, 0, 1,  15, 6,  11, 16, 2,  8,  11, 17});
+    this->template init_array<ValueType>(
+        mtx->get_values(),
+        {10., 5.,  2.,  1.,  5.,  6.,  0.5, 2., 5.,  2.,  9.7, 6., 3., 4.,
+         1.,  5.2, 12., 4.,  0.5, 15., 2.,  2., 2.,  4.,  2.,  3., 4., 3.,
+         3.,  6.,  1.,  12., 4.7, 1.5, 7.,  7., 1.3, 3.,  9.,  4., 7., 4.,
+         8.,  4.,  7.,  1.,  1.,  5.,  4.,  2., 3.,  6.5, 6.,  6., 9., 2.2});
+
+    gko::array<IndexType> perm(
+        exec, I<IndexType>({10, 12, 17, 11, 5, 1, 9, 4, 3, 7, 13, 16, 0, 2, 14,
+                            6, 8, 15}));
+    gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
+    gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 14, 18}));
+    gko::array<IndexType> perm_after_2nd_ordering(
+        exec, I<IndexType>({10, 17, 5, 12, 11, 1, 9, 4, 3, 13, 0, 7, 16, 2, 14,
+                            6, 8, 15}));
+    GKO_ASSERT(mtx->get_size()[0] == perm.get_num_elems());
+
+    gko::array<ValueType> expected_l_diag_vals(
+        exec, I<ValueType>({1. / 1.5, 1. / 2.2, 1. / 15., 7.,  9.,  0.5,
+                            1. / 4.,  1. / 1.3, 1. / 6.,  4.7, 12., 5.2,
+                            1. / 3.,  1. / 8.,  1. / 10., 4.,  0.,  2.,
+                            1. / 2.,  1. / 6.5, 1. / 9.7, 1.,  0.,  2.,
+                            3.,       0.,       4.}));
+    auto expected_l_diag_vals_vec = Vec::create(
+        exec, gko::dim<2>{expected_l_diag_vals.get_num_elems(), 1},
+        gko::make_array_view(exec, expected_l_diag_vals.get_num_elems(),
+                             expected_l_diag_vals.get_data()),
+        1);
+    gko::array<IndexType> expected_l_diag_mtx_col_idxs(
+        exec, I<IndexType>({0, 3, 1,  1, 2, 2, 2, 0, 1,  2, 1, 0,  0, 0,
+                            0, 1, -1, 0, 2, 2, 1, 2, -1, 0, 1, -1, 2}));
+    gko::array<IndexType> expected_l_diag_row(
+        exec,
+        I<IndexType>({0,  1,  2,  3,  4,  5,  3,  4,  5,  6,  7,  7,  8, 9,
+                      10, 11, -1, 13, 11, 12, 13, 14, -1, 15, 16, -1, 17}));
+    GKO_ASSERT(expected_l_diag_mtx_col_idxs.get_num_elems() ==
+               expected_l_diag_vals.get_num_elems());
+
+    gko::array<ValueType> expected_l_spmv_vals(
+        exec, I<ValueType>({1., 5., 4., 2., 3., 6., 7., 4., 2., 6., 3., 5., 1.,
+                            0., 0., 0., 0., 0., 0.}));
+    gko::array<IndexType> expected_l_spmv_col_idxs(
+        exec, I<IndexType>({6, 5, 3, 5, 4, 1, 0, 7, 12, 1, 11, 5, 10, 0, 0, 0,
+                            0, 0, 0}));
+    gko::array<IndexType> expected_l_spmv_row_ptrs(
+        exec, I<IndexType>({0, 1, 1, 2, 4, 5, 6, 0, 2, 3, 5, 7}));
+
+    IndexType max_color = 2;
+    IndexType base_block_size = 2;
+    IndexType lvl_2_block_size = 3;
+
+    gko::preconditioner::storage_scheme dummy_storage_scheme(2 * max_color + 1);
+
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, perm.get_data(), dummy_storage_scheme, base_block_size,
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+
+    GKO_ASSERT_ARRAY_EQ(perm, perm_after_2nd_ordering);
+
+    gko::kernels::reference::csr::invert_permutation(
+        exec, perm.get_num_elems(), perm.get_const_data(), inv_perm.get_data());
+
+    IndexType* dummyInd;
+    ValueType* dummyVal;
+    const auto diag_mem_requirement = 27;
+    const auto l_spmv_val_col_mem_requirement = 19;
+    const auto l_spmv_row_mem_requirement = 18 - 8 + max_color;
+    gko::array<IndexType> l_diag_rows_(exec, diag_mem_requirement);
+    gko::array<IndexType> l_diag_mtx_col_idxs_(exec, diag_mem_requirement);
+    gko::array<ValueType> l_diag_vals_(exec, diag_mem_requirement);
+    auto l_diag_vals_vec_ =
+        Vec::create(exec, gko::dim<2>{l_diag_vals_.get_num_elems(), 1},
+                    gko::make_array_view(exec, l_diag_vals_.get_num_elems(),
+                                         l_diag_vals_.get_data()),
+                    1);
+    l_diag_vals_.fill(ValueType{0});
+    l_diag_mtx_col_idxs_.fill(IndexType{-1});
+    l_diag_rows_.fill(IndexType{-1});
+    gko::array<IndexType> l_spmv_row_ptrs_(exec, l_spmv_row_mem_requirement);
+    gko::array<IndexType> l_spmv_col_idxs_(exec,
+                                           l_spmv_val_col_mem_requirement);
+    gko::array<IndexType> l_spmv_mtx_col_idxs_(exec,
+                                               l_spmv_val_col_mem_requirement);
+    gko::array<ValueType> l_spmv_vals_(exec, l_spmv_val_col_mem_requirement);
+
+    gko::kernels::reference::gauss_seidel::setup_blocks(
+        exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
+        dummy_storage_scheme, l_diag_rows_.get_data(),
+        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
+        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
+        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(), dummyInd,
+        dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+
+    GKO_ASSERT_MTX_NEAR(expected_l_diag_vals_vec, l_diag_vals_vec_,
+                        r<ValueType>::value);
+    GKO_ASSERT_ARRAY_EQ(expected_l_diag_mtx_col_idxs, l_diag_mtx_col_idxs_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_diag_row, l_diag_rows_);
+
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_row_ptrs, l_spmv_row_ptrs_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_vals, l_spmv_vals_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_col_idxs, l_spmv_col_idxs_);
+    // assert mtx_col_idxs
+}
 
 
 }  // namespace

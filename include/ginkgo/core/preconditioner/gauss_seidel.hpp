@@ -54,68 +54,109 @@ namespace preconditioner {
 
 
 struct general_block {
-    general_block(uint32 start_row_ptrs_id, uint32 start_val_col_id)
-        : start_row_ptrs_id_{start_row_ptrs_id},
-          start_val_col_id_{start_val_col_id}
+    general_block() = default;
+    general_block(int32 start_val_storage_id, int32 start_row_global,
+                  int32 end_row_global)
+        : val_storage_id_{start_val_storage_id},
+          start_row_global_{start_row_global},
+          end_row_global_{end_row_global}
     {}
-    uint32 start_row_ptrs_id_;
-    uint32 start_val_col_id_;
+    int32 val_storage_id_ = 0;
+    int32 start_row_global_ = 0;
+    int32 end_row_global_ = 0;
 };
 
 
 struct storage_scheme {
     storage_scheme() = default;
-    storage_scheme(uint32 num_blocks)
-
+    storage_scheme(int32 num_blocks, bool symm = false)
+        : num_blocks_{num_blocks}, symm_{symm}
     {
-        blocks_in_execution_order_.reserve(num_blocks);
+        forward_solve_.reserve(num_blocks);
+        if (symm) {
+            backward_solve_.reserve(num_blocks);
+        }
     }
-
-    std::vector<std::shared_ptr<general_block>> blocks_in_execution_order_;
+    int32 num_blocks_;
+    bool symm_;
+    std::vector<std::shared_ptr<general_block>> forward_solve_;
+    std::vector<std::shared_ptr<general_block>> backward_solve_;
 };
 
 struct spmv_block : general_block {
-    spmv_block(uint32 start_row_ptrs_id, uint32 start_val_col_id,
-               uint32 start_row_global, uint32 end_row_global,
-               uint32 end_col_global)
-        : general_block(start_row_ptrs_id, start_val_col_id),
-          start_row_global_{start_row_global},
-          end_row_global_{end_col_global},
+    spmv_block(int32 start_row_global, int32 start_col_global,
+               int32 end_col_global)
+        : general_block(0, start_row_global, 0),
+          start_col_global_{start_col_global},
           end_col_global_{end_col_global}
     {}
-    uint32 start_row_global_;
-    uint32 end_row_global_;
-    uint32 start_col_global_;  // it is always 0...
-    uint32 end_col_global_;
+    spmv_block(int32 start_row_ptrs_storage_id, int32 start_val_storage_id,
+               int32 start_row_global, int32 end_row_global,
+               int32 start_col_global, int32 end_col_global)
+        : general_block(start_val_storage_id, start_row_global, end_row_global),
+          row_ptrs_storage_id_{start_row_ptrs_storage_id},
+          start_col_global_{start_col_global},
+          end_col_global_{end_col_global}
+    {}
+    void update(int32 start_row_ptrs_storage_id, int32 start_val_storage_id,
+                int32 start_row_global, int32 end_row_global,
+                int32 start_col_global, int32 end_col_global)
+    {
+        row_ptrs_storage_id_ = start_row_ptrs_storage_id;
+        val_storage_id_ = start_val_storage_id;
+        start_row_global_ = start_row_global;
+        start_col_global_ = start_col_global;
+        end_row_global_ = end_row_global;
+        end_col_global_ = end_col_global;
+    }
+    int32 row_ptrs_storage_id_ = 0;
+    int32 start_col_global_ = 0;
+    int32 end_col_global_ = 0;
 };
 
 struct parallel_block : general_block {
-    parallel_block(uint32 start_row_ptrs_id, uint32 start_val_col_id,
-                   uint32 degree_of_parallelism)
-        : general_block(start_row_ptrs_id, start_val_col_id),
-          degree_of_parallelism_{degree_of_parallelism}
+    parallel_block() = default;
+    parallel_block(int32 start_val_storage_id, int32 start_row_global,
+                   int32 end_row_global, int32 degree_of_parallelism,
+                   int32 base_block_size, int32 lvl_2_block_size, bool residual)
+        : general_block(start_val_storage_id, start_row_global, end_row_global),
+          degree_of_parallelism_{degree_of_parallelism},
+          base_block_size_{base_block_size},
+          lvl_2_block_size_{lvl_2_block_size},
+          residual_{residual}
     {
         parallel_blocks_.reserve(degree_of_parallelism);
+        lvl_1_block_size_ = base_block_size * lvl_2_block_size;
+        nz_p_b_block_ =
+            (base_block_size * base_block_size - base_block_size) / 2 +
+            base_block_size;
     }
-    uint32 degree_of_parallelism_;
+    int32 degree_of_parallelism_;
+    int32 base_block_size_ = 4;
+    int32 nz_p_b_block_ = 10;
+    int32 lvl_2_block_size_ = 4;
+    int32 lvl_1_block_size_ = 16;
+    bool residual_;  // true if there are trailing base blocks, false if current
+                     // color consists only of lvl 1 blocks
     std::vector<std::shared_ptr<general_block>> parallel_blocks_;
 };
 
 // template <int base_block_size, int lvl_2_block_size>
 struct lvl_1_block : general_block {
-    lvl_1_block(uint32 start_row_ptrs_id, uint32 start_val_col_id)
-        : general_block(start_row_ptrs_id, start_val_col_id)
+    lvl_1_block(int32 start_val_storage_id, int32 start_row_global,
+                int32 end_row_global)
+        : general_block(start_val_storage_id, start_row_global, end_row_global)
     {}
 };
 
 // template <int base_block_size>
 struct base_block_aggregation : general_block {
-    base_block_aggregation(uint32 start_row_ptrs_id, uint32 start_val_col_id,
-                           uint32 num_base_blocks)
-        : general_block(start_row_ptrs_id, start_val_col_id),
+    base_block_aggregation(int32 start_val_storage_id, int32 start_row_global,
+                           int32 end_row_global, int32 num_base_blocks)
+        : general_block(start_val_storage_id, start_row_global, end_row_global),
           num_base_blocks_{num_base_blocks}
     {}
-    uint32 num_base_blocks_;
+    int32 num_base_blocks_;
 };
 
 template <typename ValueType = default_precision, typename IndexType = int32>
@@ -210,18 +251,35 @@ protected:
                                            system_matrix->get_size()[0])},
           color_ptrs_{array<index_type>(factory->get_executor())},
           permutation_idxs_{array<index_type>(factory->get_executor())},
+          inv_permutation_idxs_{array<index_type>(factory->get_executor())},
           base_block_size_{parameters_.base_block_size},
           lvl2_block_size_{parameters_.lvl2_block_size},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_coloring_{parameters_.use_coloring},
-          diag_row_ptrs_{array<index_type>(factory->get_executor())},
-          diag_col_idxs_{array<index_type>(factory->get_executor())},
-          diag_values_{array<value_type>(factory->get_executor())}
+          l_diag_rows_{array<index_type>(factory->get_executor())},
+          l_diag_mtx_col_idxs_{array<index_type>(factory->get_executor())},
+          l_diag_vals_{array<value_type>(factory->get_executor())},
+          l_spmv_row_ptrs_{array<index_type>(factory->get_executor())},
+          l_spmv_col_idxs_{array<index_type>(factory->get_executor())},
+          l_spmv_mtx_col_idxs_{array<index_type>(factory->get_executor())},
+          l_spmv_vals_{array<value_type>(factory->get_executor())}
     {
         if (parameters_.use_HBMC == true) {
+            if (parameters_.symmetric_preconditioner) {
+                u_diag_rows_ = array<index_type>(factory->get_executor());
+                u_diag_mtx_col_idxs_ =
+                    array<index_type>(factory->get_executor());
+                u_diag_vals_ = array<value_type>(factory->get_executor());
+                u_spmv_row_ptrs_ = array<index_type>(factory->get_executor());
+                u_spmv_col_idxs_ = array<index_type>(factory->get_executor());
+                u_spmv_mtx_col_idxs_ =
+                    array<index_type>(factory->get_executor());
+                u_spmv_vals_ = array<value_type>(factory->get_executor());
+            }
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
+
         } else {
             this->generate(system_matrix, parameters_.skip_sorting);
         }
@@ -269,6 +327,7 @@ private:
                                     // a span [0,max_color], i.e., there are no
                                     // gaps in the assigned color numbers
     array<index_type> permutation_idxs_;
+    array<index_type> inv_permutation_idxs_;
     std::vector<std::unique_ptr<LinOp>> block_ptrs_;
     std::vector<index_type> level_ptrs_;
     size_t base_block_size_;
@@ -277,10 +336,21 @@ private:
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_coloring_;
-    storage_scheme forward_solve_{};
-    array<index_type> diag_row_ptrs_;
-    array<index_type> diag_col_idxs_;
-    array<value_type> diag_values_;
+    storage_scheme hbmc_storage_scheme_{};
+    array<index_type> l_diag_rows_;
+    array<index_type> l_diag_mtx_col_idxs_;
+    array<value_type> l_diag_vals_;
+    array<index_type> l_spmv_row_ptrs_;
+    array<index_type> l_spmv_col_idxs_;
+    array<index_type> l_spmv_mtx_col_idxs_;
+    array<value_type> l_spmv_vals_;
+    array<index_type> u_diag_rows_;
+    array<value_type> u_diag_vals_;
+    array<index_type> u_diag_mtx_col_idxs_;
+    array<index_type> u_spmv_row_ptrs_;
+    array<index_type> u_spmv_col_idxs_;
+    array<index_type> u_spmv_mtx_col_idxs_;
+    array<value_type> u_spmv_vals_;
 };
 }  // namespace preconditioner
 }  // namespace gko

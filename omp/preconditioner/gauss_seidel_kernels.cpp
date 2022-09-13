@@ -138,13 +138,30 @@ template <typename IndexType>
 void get_secondary_ordering(std::shared_ptr<const OmpExecutor> exec,
                             IndexType* permutation_idxs,
                             preconditioner::storage_scheme& storage_scheme,
-                            IndexType* diag_row_ptrs, IndexType* diag_col_idxs,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
                             const IndexType max_color) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void setup_blocks(std::shared_ptr<const OmpExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* system_matrix,
+                  const IndexType* permutation_idxs,
+                  const IndexType* inv_permutation_idxs,
+                  preconditioner::storage_scheme& storage_scheme,
+                  IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs,
+                  ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,
+                  IndexType* l_spmv_col_idxs, IndexType* l_spmv_mtx_col_idxs,
+                  ValueType* l_spmv_vals, IndexType* u_diag_rows,
+                  IndexType* u_diag_mtx_col_idxs, ValueType* u_diag_vals,
+                  IndexType* u_spmv_row_ptrs, IndexType* u_spmv_col_idxs,
+                  IndexType* u_spmv_mtx_col_idxs,
+                  ValueType* u_spmv_vals) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL);
+
 
 }  // namespace gauss_seidel
 }  // namespace omp

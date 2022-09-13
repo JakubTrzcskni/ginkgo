@@ -42,9 +42,9 @@ void get_permutation_from_coloring(
     auto it_color = thrust::make_permutation_iterator(
         thrust::device_pointer_cast(coloring),
         thrust::device_pointer_cast(block_ordering));
-    auto it_end = thrust::make_permutation_iterator(
-        thrust::device_pointer_cast(coloring),
-        thrust::device_pointer_cast(block_ordering + num_nodes));
+    // auto it_end = thrust::make_permutation_iterator(
+    //     thrust::device_pointer_cast(coloring),
+    //     thrust::device_pointer_cast(block_ordering + num_nodes));
 
     // coloring is permuted here too
     thrust::sort_by_key(thrust::device, it_color, it_color + num_nodes,
