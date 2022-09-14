@@ -134,29 +134,46 @@ struct parallel_block : general_block {
     int32 degree_of_parallelism_;
     int32 base_block_size_ = 4;
     int32 nz_p_b_block_ = 10;
-    int32 lvl_2_block_size_ = 4;
-    int32 lvl_1_block_size_ = 16;
+    int32 lvl_2_block_size_ = 32;
+    int32 lvl_1_block_size_ = 128;
     bool residual_;  // true if there are trailing base blocks, false if current
                      // color consists only of lvl 1 blocks
     std::vector<std::shared_ptr<general_block>> parallel_blocks_;
 };
 
-// template <int base_block_size, int lvl_2_block_size>
+// template <int base_block_size  =4, int lvl_2_block_size = 32>
 struct lvl_1_block : general_block {
     lvl_1_block(int32 start_val_storage_id, int32 start_row_global,
-                int32 end_row_global)
-        : general_block(start_val_storage_id, start_row_global, end_row_global)
-    {}
+                int32 end_row_global, int32 base_block_size,
+                int32 lvl_2_block_size)
+        : general_block(start_val_storage_id, start_row_global, end_row_global),
+          base_block_size_{base_block_size},
+          lvl_2_block_size_{lvl_2_block_size}
+    {
+        lvl_1_block_size_ = base_block_size * lvl_2_block_size;
+    }
+    int32 base_block_size_;
+    int32 num_subblocks_;
+    int32 lvl_2_block_size_;
+    int32 lvl_1_block_size_;
 };
 
-// template <int base_block_size>
+// template <int base_block_size = 4>
 struct base_block_aggregation : general_block {
     base_block_aggregation(int32 start_val_storage_id, int32 start_row_global,
-                           int32 end_row_global, int32 num_base_blocks)
+                           int32 end_row_global, int32 num_base_blocks,
+                           int32 base_block_size)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
-          num_base_blocks_{num_base_blocks}
-    {}
+          num_base_blocks_{num_base_blocks},
+          base_block_size_{base_block_size}
+    {
+        nz_p_b_block_ =
+            (base_block_size * base_block_size - base_block_size) / 2 +
+            base_block_size;
+    }
     int32 num_base_blocks_;
+    int32 base_block_size_;
+    int32 nz_p_b_block_;
 };
 
 template <typename ValueType = default_precision, typename IndexType = int32>

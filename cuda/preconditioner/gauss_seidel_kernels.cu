@@ -115,8 +115,13 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 template <typename ValueType, typename IndexType>
 void simple_apply(std::shared_ptr<const CudaExecutor> exec,
-                  const matrix::Csr<ValueType, IndexType>* A,
-                  const matrix::Dense<ValueType>* rhs,
+                  const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                  const IndexType* l_spmv_row_ptrs,
+                  const IndexType* l_spmv_col_idxs,
+                  const ValueType* l_spmv_vals,
+                  const IndexType* permutation_idxs,
+                  const preconditioner::storage_scheme& storage_scheme,
+                  matrix::Dense<ValueType>* b_perm,
                   matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
@@ -180,7 +185,7 @@ void fill_with_vals(
     std::shared_ptr<const CudaExecutor> exec,
     const matrix::Csr<ValueType, IndexType>* system_matrix,
     const IndexType* permutation_idxs,
-    preconditioner::storage_scheme& storage_scheme,
+    const preconditioner::storage_scheme& storage_scheme,
     const IndexType diag_num_elems, const IndexType* l_diag_rows,
     const IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,
     const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,

@@ -63,11 +63,14 @@ namespace kernels {
                    const matrix::Dense<ValueType>* beta,                       \
                    matrix::Dense<ValueType>* x)
 
-#define GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType) \
-    void simple_apply(std::shared_ptr<const DefaultExecutor> exec,         \
-                      const matrix::Csr<ValueType, IndexType>* A,          \
-                      const matrix::Dense<ValueType>* rhs,                 \
-                      matrix::Dense<ValueType>* x)
+#define GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType)  \
+    void simple_apply(                                                      \
+        std::shared_ptr<const DefaultExecutor> exec,                        \
+        const IndexType* l_diag_rows, const ValueType* l_diag_vals,         \
+        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
+        const ValueType* l_spmv_vals, const IndexType* permutation_idxs,    \
+        const preconditioner::storage_scheme& storage_scheme,               \
+        matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType) \
     void ref_simple_apply(                                                \
@@ -137,7 +140,7 @@ namespace kernels {
         std::shared_ptr<const DefaultExecutor> exec,                         \
         const matrix::Csr<ValueType, IndexType>* system_matrix,              \
         const IndexType* permutation_idxs,                                   \
-        preconditioner::storage_scheme& storage_scheme,                      \
+        const preconditioner::storage_scheme& storage_scheme,                \
         const IndexType diag_num_elems, const IndexType* l_diag_rows,        \
         const IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,        \
         const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,  \
