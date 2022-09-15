@@ -150,7 +150,7 @@ protected:
         auto rand_mat_data =
             gko::test::generate_random_matrix_data<value_type, index_type>(
                 mtx_rand->get_size()[0], mtx_rand->get_size()[1],
-                std::uniform_int_distribution<index_type>(5, 15),
+                std::uniform_int_distribution<index_type>(5, 10),
                 std::normal_distribution<gko::remove_complex<value_type>>(-1.0,
                                                                           1.0),
                 rand_engine);
@@ -452,8 +452,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     auto exec = this->exec;
 
     auto mtx_rand = this->mtx_rand;
-
-
     auto rhs_rand = this->rhs_rand;
 
     auto x = Vec::create_with_config_of(lend(rhs_rand));
@@ -462,10 +460,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     ref_x->fill(ValueType{0});
 
     auto gs = this->gs_factory->generate(mtx_rand);
-    // auto ref_gs = this->ref_gs_factory->generate(mtx_rand);
-    // comparing to ref_gs yields a small error every time ->effect of
-    // reordering on the system?
-    // mtx_rand isnt row_major sorted after gs_factory generation
+
     auto ltrs_factory =
         gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
 
@@ -947,28 +942,119 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
 
 TYPED_TEST(GaussSeidel, SimpleApplyHBMCKernel)
 {
+    using namespace gko::preconditioner;
     using IndexType = typename TestFixture::index_type;
     using ValueType = typename TestFixture::value_type;
-    using GS = typename TestFixture::GS;
-
+    using Vec = typename TestFixture::Vec;
     auto exec = this->exec;
+    const auto b_s = 2;
+    const auto w = 2;
+    auto rhs = Vec::create(exec, gko::dim<2>{9, 2});
+    this->template init_array<ValueType>(
+        rhs->get_values(), {2., 4., 2., 4., 3., 6., 3., 6., 3., 6., 6., 12.,
+                            10., 20., 15., 30., 13., 26.});
+    auto x = Vec::create(exec, gko::dim<2>{9, 2});
+    auto exp_x = Vec::create(exec, gko::dim<2>{9, 2});
+    this->template init_array<ValueType>(
+        exp_x->get_values(), {1., 2., 1., 2., 1., 2., 1., 2., 1., 2., 1., 2.,
+                              1., 2., 1., 2., 1., 2.});
+
+    gko::array<IndexType> perm_idxs(exec,
+                                    I<IndexType>({0, 1, 2, 3, 4, 5, 6, 7, 8}));
     gko::array<ValueType> l_diag_vals(
         exec,
         I<ValueType>({2., 2., 1., 1., 2., 2., 3., 3., 3., 4., 4., 4., 5.}));
-    gko::array<ValueType> exp_x(exec, 9);
-    exp_x.fill(ValueType{1});
+
     gko::array<IndexType> l_diag_rows(
         exec, I<IndexType>({0, 1, 2, 3, 2, 3, 4, 5, 5, 6, 7, 7, 8}));
     gko::array<IndexType> l_spmv_row_ptrs(exec, I<IndexType>({0, 1, 2, 3}));
     gko::array<IndexType> l_spmv_col_idxs(exec, I<IndexType>({1, 2, 3}));
     gko::array<ValueType> l_spmv_vals(exec, I<ValueType>({6., 7., 8.}));
 
-    auto dummy_storage = gko::preconditioner::storage_scheme(3);
+    auto storage = storage_scheme(3);
 
-    // gko::kernels::reference::gauss_seidel::simple_apply(exec,);
+    auto p_block_1 = parallel_block(0, 0, 6, 2, b_s, w, true);
+    p_block_1.parallel_blocks_.emplace_back(
+        std::make_shared<lvl_1_block>(lvl_1_block(0, 0, 4, b_s, w)));
+    p_block_1.parallel_blocks_.emplace_back(
+        std::make_shared<base_block_aggregation>(
+            base_block_aggregation(6, 4, 6, 1, b_s)));
+    storage.forward_solve_.emplace_back(
+        std::make_shared<parallel_block>(p_block_1));
+
+    storage.forward_solve_.emplace_back(
+        std::make_shared<spmv_block>(spmv_block(0, 0, 6, 9, 0, 6)));
+
+    auto p_block_2 = parallel_block(9, 6, 9, 1, b_s, w, true);
+    p_block_2.parallel_blocks_.emplace_back(
+        std::make_shared<base_block_aggregation>(
+            base_block_aggregation(9, 6, 9, 2, b_s)));
+    storage.forward_solve_.emplace_back(
+        std::make_shared<parallel_block>(p_block_2));
+
+    gko::kernels::reference::gauss_seidel::simple_apply(
+        exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
+        l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
+        l_spmv_vals.get_const_data(), perm_idxs.get_const_data(), storage,
+        gko::lend(rhs), gko::lend(x));
+
+    GKO_ASSERT_MTX_NEAR(x, exp_x, r<ValueType>::value);
 }
 
-// auto gs_HBMC_factory =
-// GS::build().with_use_HBMC(true).with_base_block_size(4).with_lvl_2_block_size(4).on(exec);
+TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+
+    auto exec = this->exec;
+    auto mtx = gko::share(this->generate_rand_matrix(
+        IndexType{1000}, IndexType{2}, IndexType{4}, ValueType{0}));
+    auto rhs =
+        gko::share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+
+    auto x = Vec::create_with_config_of(gko::lend(rhs));
+    x->fill(ValueType{0});
+    auto ref_x = Vec::create_with_config_of(gko::lend(rhs));
+    ref_x->fill(ValueType{0});
+
+    auto gs_HBMC_factory = GS::build()
+                               .with_use_HBMC(true)
+                               .with_base_block_size(4u)
+                               .with_lvl_2_block_size(8u)
+                               .on(exec);
+    auto gs_HBMC = gs_HBMC_factory->generate(mtx);
+
+    auto perm_idxs =
+        gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
+
+    auto mtx_perm = gko::as<Csr>(mtx->permute(&perm_idxs));
+    gko::matrix_data<ValueType, IndexType> ref_data;
+    mtx_perm->write(ref_data);
+    gko::utils::make_lower_triangular(ref_data);
+    ref_data.ensure_row_major_order();
+    auto ref_mtx = gko::share(Csr::create(exec));
+    ref_mtx->read(ref_data);
+    const auto rhs_perm =
+        gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
+
+    auto ltrs_factory =
+        gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+    auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+
+
+    ref_ltrs->apply(gko::lend(rhs_perm), gko::lend(ref_x));
+    gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
+
+    auto ref_ans = Vec::create(exec);
+    ref_ans->copy_from(
+        std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
+
+
+    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
+}
+
 
 }  // namespace

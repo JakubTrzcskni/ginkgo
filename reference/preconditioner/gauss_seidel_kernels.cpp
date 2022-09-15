@@ -373,6 +373,7 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
         for (auto local_offs = precomputed_diag(i) * w;
              local_offs < precomputed_diag(i) * w + w; local_offs++) {
             const auto row = l_diag_rows[block_offs + local_offs];
+            GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
             const auto inv_diag_val =
                 ValueType{1} / l_diag_vals[block_offs + local_offs];
@@ -385,23 +386,28 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
             // multiply
             for (auto row_offs = 0; row_offs < w; row_offs++) {
                 const auto write_offs =
-                    block_offs + precomputed_diag(i + 1) * w + row_offs;
+                    block_offs + precomputed_diag(i) * w + w + row_offs;
                 const auto row_write =
                     l_diag_rows[write_offs];  // row is same as the
-                                              // following diag block
-                for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    ValueType val = 0;
-                    for (auto subblock = precomputed_diag(i) + 1;
-                         subblock < precomputed_diag(i + 1); subblock++) {
-                        const auto row_read =
-                            l_diag_rows[block_offs +
-                                        precomputed_diag(
-                                            precomputed_block(subblock) * w +
-                                            row_offs)];
-                        const auto x_row_read = permutation_idxs[row_read];
-                        val += l_diag_vals[write_offs] * x->at(x_row_read, k);
+                // following diag block
+                if (row_write >= 0) {
+                    for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
+                        ValueType val = 0;
+                        for (auto subblock = precomputed_diag(i) + 1;
+                             subblock < precomputed_diag(i + 1); subblock++) {
+                            const auto row_read =
+                                l_diag_rows[block_offs +
+                                            precomputed_diag(
+                                                precomputed_block(subblock)) *
+                                                w +
+                                            row_offs];
+                            GKO_ASSERT(row_read >= 0);
+                            const auto x_row_read = permutation_idxs[row_read];
+                            val +=
+                                l_diag_vals[write_offs] * x->at(x_row_read, k);
+                        }
+                        b_perm->at(row_write, k) -= val;
                     }
-                    b_perm->at(row_write, k) -= val;
                 }
             }
         }
@@ -448,38 +454,42 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
     const auto num_blocks = agg_block->num_base_blocks_;
     const auto base_offs = agg_block->val_storage_id_;
     const auto nz_p_b = agg_block->nz_p_b_block_;
-    const auto last_row = agg_block->end_row_global_;
+    const auto max_rows =
+        agg_block->end_row_global_ - agg_block->start_row_global_;
     const auto b_s = agg_block->base_block_size_;
-    for (auto i = 0; i < num_blocks; i++) {
-        const auto block_offs = base_offs + i * nz_p_b;
+    for (auto block_id = 0; block_id < num_blocks; block_id++) {
+        const auto block_offs = base_offs + block_id * nz_p_b;
 
-        for (auto i = 0; i < b_s && i * b_s < last_row; i++) {
+        for (auto i = 0; i < b_s && block_id * b_s + i < max_rows; i++) {
             auto diag_offs = block_offs + precomputed_diag(i);
 
-            const auto row = l_diag_rows[block_offs + diag_offs];
+            const auto row = l_diag_rows[diag_offs];
+            GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
-            const auto inv_diag_val =
-                ValueType{1} / l_diag_vals[block_offs + diag_offs];
+            const auto inv_diag_val = ValueType{1} / l_diag_vals[diag_offs];
             for (size_type k = 0; k < x->get_size()[1]; ++k) {
                 x->at(x_row, k) = inv_diag_val * b_perm->at(row, k);
             }
-            if (i < b_s - 1 && i * b_s < last_row - 1) {
-                const auto write_offs = block_offs + precomputed_diag(i + 1);
-                const auto row_write =
-                    l_diag_rows[write_offs];  // row is same as the
-                                              // following diag entry
-                for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    ValueType val = 0;
-                    for (auto id = precomputed_diag(i) + 1;
-                         id < precomputed_diag(i + 1); id++) {
-                        const auto row_read =
-                            l_diag_rows[block_offs +
-                                        precomputed_diag(
-                                            precomputed_block(id))];
-                        const auto x_row_read = permutation_idxs[row_read];
-                        val += l_diag_vals[write_offs] * x->at(x_row_read, k);
+            if (i < b_s - 1 && block_id * b_s + i < max_rows - 1) {
+                const auto write_offs = block_offs + precomputed_diag(i) +
+                                        1;  // TODO change to curr id
+                const auto row_write = l_diag_rows[write_offs];
+                if (row_write >= 0) {
+                    for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
+                        ValueType val = 0;
+                        for (auto id = precomputed_diag(i) + 1;
+                             id < precomputed_diag(i + 1); id++) {
+                            const auto row_read =
+                                l_diag_rows[block_offs +
+                                            precomputed_diag(
+                                                precomputed_block(id))];
+                            GKO_ASSERT(row_read >= 0);
+                            const auto x_row_read = permutation_idxs[row_read];
+                            val +=
+                                l_diag_vals[write_offs] * x->at(x_row_read, k);
+                        }
+                        b_perm->at(row_write, k) -= val;
                     }
-                    b_perm->at(row_write, k) -= val;
                 }
             }
         }

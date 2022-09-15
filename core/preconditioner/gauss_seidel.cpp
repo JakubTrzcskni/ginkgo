@@ -71,6 +71,7 @@ GKO_REGISTER_OPERATION(get_secondary_ordering,
 GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 GKO_REGISTER_OPERATION(get_degree_of_nodes, gauss_seidel::get_degree_of_nodes);
 GKO_REGISTER_OPERATION(invert_permutation, csr::invert_permutation);
+GKO_REGISTER_OPERATION(setup_blocks, gauss_seidel::setup_blocks);
 }  // namespace
 }  // namespace gauss_seidel
 
@@ -135,82 +136,93 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
     bool permuted = permutation_idxs_.get_num_elems() > 0;
 
     if (permuted) {
-        const auto b_perm = share(as<const Dense>(
-            as<const Dense>(b)->row_permute(&permutation_idxs_)));
-        auto x_perm =
-            share(as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_)));
-
-        if (use_reference_) {
-            GKO_NOT_SUPPORTED(this);
+        auto b_perm = share(
+            as<Dense>(as<const Dense>(b)->row_permute(&permutation_idxs_)));
+        if (use_HBMC_) {
+            exec->run(gauss_seidel::make_simple_apply(
+                l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
+                l_spmv_row_ptrs_.get_const_data(),
+                l_spmv_col_idxs_.get_const_data(),
+                l_spmv_vals_.get_const_data(),
+                permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
+                lend(b_perm), as<Dense>(x)));
         } else {
-            const auto block_ptrs = color_ptrs_.get_const_data();
-            const auto num_rows = lower_triangular_matrix_->get_size()[0];
+            auto x_perm =
+                share(as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_)));
 
-            auto tmp_rhs_block = Dense::create(exec);
+            if (use_reference_) {
+                GKO_NOT_SUPPORTED(this);
+            } else {
+                const auto block_ptrs = color_ptrs_.get_const_data();
+                const auto num_rows = lower_triangular_matrix_->get_size()[0];
 
-            for (auto color_block = 0;
-                 color_block < color_ptrs_.get_num_elems() - 1; color_block++) {
-                dim_type block_start = block_ptrs[color_block];
-                dim_type block_end = block_ptrs[color_block + 1];
-                dim_type block_size = block_end - block_start;
+                auto tmp_rhs_block = Dense::create(exec);
 
-                if (color_block == 0) {
-                    const auto curr_b_block = Dense::create_const(
-                        exec, dim<2>{block_size, b_perm->get_size()[1]},
-                        gko::array<ValueType>::const_view(
-                            exec, block_size * b_perm->get_size()[1],
-                            &(b_perm
-                                  ->get_const_values()[block_start *
-                                                       b_perm->get_size()[1]])),
-                        b_perm->get_size()[1]);
-                    tmp_rhs_block->copy_from(lend(curr_b_block));
-                }
+                for (auto color_block = 0;
+                     color_block < color_ptrs_.get_num_elems() - 1;
+                     color_block++) {
+                    dim_type block_start = block_ptrs[color_block];
+                    dim_type block_end = block_ptrs[color_block + 1];
+                    dim_type block_size = block_end - block_start;
 
-                auto curr_x_block = Dense::create(
-                    exec, dim<2>{block_size, x_perm->get_size()[1]},
-                    gko::make_array_view(
-                        exec, block_size * x_perm->get_size()[1],
-                        &(x_perm->get_values()[block_start *
-                                               x_perm->get_size()[1]])),
-                    x_perm->get_size()[1]);
+                    if (color_block == 0) {
+                        const auto curr_b_block = Dense::create_const(
+                            exec, dim<2>{block_size, b_perm->get_size()[1]},
+                            gko::array<ValueType>::const_view(
+                                exec, block_size * b_perm->get_size()[1],
+                                &(b_perm->get_const_values()
+                                      [block_start * b_perm->get_size()[1]])),
+                            b_perm->get_size()[1]);
+                        tmp_rhs_block->copy_from(lend(curr_b_block));
+                    }
 
-                block_ptrs_[2 * color_block]->apply(lend(tmp_rhs_block),
-                                                    lend(curr_x_block));
-
-                if (block_end < num_rows) {
-                    dim_type next_block_start = block_ptrs[color_block + 1];
-                    dim_type next_block_end = block_ptrs[color_block + 2];
-                    dim_type next_block_size =
-                        next_block_end - next_block_start;
-
-                    const auto next_b_block = Dense::create_const(
-                        exec, dim<2>{next_block_size, b_perm->get_size()[1]},
-                        gko::array<ValueType>::const_view(
-                            exec, next_block_size * b_perm->get_size()[1],
-                            &(b_perm
-                                  ->get_const_values()[next_block_start *
-                                                       b_perm->get_size()[1]])),
-                        b_perm->get_size()[1]);
-
-                    auto up_to_curr_x_block = Dense::create(
-                        exec, dim<2>{block_end, x_perm->get_size()[1]},
-                        gko::make_array_view(exec,
-                                             block_end * x_perm->get_size()[1],
-                                             &(x_perm->get_values()[0])),
+                    auto curr_x_block = Dense::create(
+                        exec, dim<2>{block_size, x_perm->get_size()[1]},
+                        gko::make_array_view(
+                            exec, block_size * x_perm->get_size()[1],
+                            &(x_perm->get_values()[block_start *
+                                                   x_perm->get_size()[1]])),
                         x_perm->get_size()[1]);
 
-                    tmp_rhs_block->copy_from(lend(next_b_block));
+                    block_ptrs_[2 * color_block]->apply(lend(tmp_rhs_block),
+                                                        lend(curr_x_block));
 
-                    auto one = gko::initialize<Dense>({1.0}, exec);
-                    auto neg_one = gko::initialize<Dense>({-1.0}, exec);
-                    block_ptrs_[2 * color_block + 1]->apply(
-                        lend(neg_one), lend(up_to_curr_x_block), lend(one),
-                        lend(tmp_rhs_block));
+                    if (block_end < num_rows) {
+                        dim_type next_block_start = block_ptrs[color_block + 1];
+                        dim_type next_block_end = block_ptrs[color_block + 2];
+                        dim_type next_block_size =
+                            next_block_end - next_block_start;
+
+                        const auto next_b_block = Dense::create_const(
+                            exec,
+                            dim<2>{next_block_size, b_perm->get_size()[1]},
+                            gko::array<ValueType>::const_view(
+                                exec, next_block_size * b_perm->get_size()[1],
+                                &(b_perm->get_const_values()
+                                      [next_block_start *
+                                       b_perm->get_size()[1]])),
+                            b_perm->get_size()[1]);
+
+                        auto up_to_curr_x_block = Dense::create(
+                            exec, dim<2>{block_end, x_perm->get_size()[1]},
+                            gko::make_array_view(
+                                exec, block_end * x_perm->get_size()[1],
+                                &(x_perm->get_values()[0])),
+                            x_perm->get_size()[1]);
+
+                        tmp_rhs_block->copy_from(lend(next_b_block));
+
+                        auto one = gko::initialize<Dense>({1.0}, exec);
+                        auto neg_one = gko::initialize<Dense>({-1.0}, exec);
+                        block_ptrs_[2 * color_block + 1]->apply(
+                            lend(neg_one), lend(up_to_curr_x_block), lend(one),
+                            lend(tmp_rhs_block));
+                    }
                 }
             }
+            as<Dense>(x)->copy_from(std::move(
+                as<Dense>(x_perm->inverse_row_permute(&permutation_idxs_))));
         }
-        as<Dense>(x)->copy_from(std::move(
-            as<Dense>(x_perm->inverse_row_permute(&permutation_idxs_))));
     } else {
         if (use_reference_) {
             exec->run(gauss_seidel::make_ref_simple_apply(
@@ -420,14 +432,22 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         lvl2_block_size_);  // TODO a lot of functionality in this
                             // function, split up needed ?
 
+    if (hbmc_storage_scheme_.symm_) GKO_NOT_IMPLEMENTED;
+    ValueType* dummyVal;
+    IndexType* dummyInd;
+
+    exec->run(gauss_seidel::make_setup_blocks(
+        lend(csr_matrix), permutation_idxs_.get_const_data(),
+        inv_permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
+        l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
+        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
+        l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
+        l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
+        dummyInd, dummyInd, dummyVal));
+
     // for testing only
     lower_triangular_matrix_->copy_from(
         give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
-
-    // for testing only
-    upper_triangular_matrix_->copy_from(
-        give(as<Csr>(as<Csr>(csr_matrix->inverse_permute(&permutation_idxs_))
-                         ->permute(&block_ordering))));
 }
 
 template <typename ValueType, typename IndexType>
@@ -460,6 +480,7 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     l_diag_vals_.resize_and_reset(diag_mem_requirement);
     l_diag_vals_.fill(ValueType{0});
     l_diag_mtx_col_idxs_.fill(IndexType{-1});
+    l_diag_rows_.fill(IndexType{-1});
     l_spmv_row_ptrs_.resize_and_reset(l_spmv_row_mem_requirement);
     l_spmv_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
     l_spmv_mtx_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
@@ -479,6 +500,7 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
         u_diag_vals_.resize_and_reset(diag_mem_requirement);
         u_diag_vals_.fill(ValueType{0});
         u_diag_mtx_col_idxs_.fill(IndexType{-1});
+        u_diag_rows_.fill(IndexType{-1});
         u_spmv_row_ptrs_.resize_and_reset(u_spmv_row_mem_requirement);
         u_spmv_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);
         u_spmv_mtx_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);

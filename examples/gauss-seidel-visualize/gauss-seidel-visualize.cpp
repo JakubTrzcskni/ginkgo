@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)
                                .with_base_block_size(base_block_size)
-                               .with_lvl2_block_size(lvl_2_block_size)
+                               .with_lvl_2_block_size(lvl_2_block_size)
                                .on(exec);
 
 

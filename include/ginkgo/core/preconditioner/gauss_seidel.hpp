@@ -228,9 +228,9 @@ public:
         bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, false);
 
         // TODO change to uint
-        size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4);
+        size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
 
-        size_t GKO_FACTORY_PARAMETER_SCALAR(lvl2_block_size, 32);
+        size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
 
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
@@ -270,11 +270,12 @@ protected:
           permutation_idxs_{array<index_type>(factory->get_executor())},
           inv_permutation_idxs_{array<index_type>(factory->get_executor())},
           base_block_size_{parameters_.base_block_size},
-          lvl2_block_size_{parameters_.lvl2_block_size},
+          lvl2_block_size_{parameters_.lvl_2_block_size},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_coloring_{parameters_.use_coloring},
+          use_HBMC_{parameters_.use_HBMC},
           l_diag_rows_{array<index_type>(factory->get_executor())},
           l_diag_mtx_col_idxs_{array<index_type>(factory->get_executor())},
           l_diag_vals_{array<value_type>(factory->get_executor())},
@@ -353,6 +354,7 @@ private:
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_coloring_;
+    bool use_HBMC_;
     storage_scheme hbmc_storage_scheme_{};
     array<index_type> l_diag_rows_;
     array<index_type> l_diag_mtx_col_idxs_;
