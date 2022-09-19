@@ -42,16 +42,13 @@ void get_permutation_from_coloring(
     auto it_color = thrust::make_permutation_iterator(
         thrust::device_pointer_cast(coloring),
         thrust::device_pointer_cast(block_ordering));
-    // auto it_end = thrust::make_permutation_iterator(
-    //     thrust::device_pointer_cast(coloring),
-    //     thrust::device_pointer_cast(block_ordering + num_nodes));
 
     // coloring is permuted here too
     thrust::sort_by_key(thrust::device, it_color, it_color + num_nodes,
                         p_idxs);  // alternatively stable_sort_by_key
 
     // TODO
-    // calculate color block pointers
+    // calculate color_ptrs
 }
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_PERMUTATION_FROM_COLORING_KERNEL);
@@ -72,4 +69,61 @@ __global__ void get_degree_of_nodes_kernel(const IndexType num_nodes,
     const auto node_degree = next_row_start - curr_row_start;
 
     degrees[thread_id] = node_degree;
+}
+
+// template <typename ValueType, typename IndexType>
+// __global__ apply_l_spmv_block_kernel(){}
+
+// template <typename ValueType, typename IndexType>
+// __global__ apply_l_parallel_block_kernel(){}
+
+template <typename ValueType,
+          typename IndexType>  // rows&vals passed already with offset
+__global__ void apply_l_lvl_1(const IndexType* __restrict__ rows,
+                              const ValueType* __restrict__ vals,
+                              const size_type b_s, const size_type w,
+                              const size_type num_rows, const size_type num_rhs,
+                              ValueType* __restrict__ b_perm,
+                              ValueType* __restrict__ x,
+                              const IndexType* __restrict__ perm_idxs)
+{
+    constexpr int warp_size = config::warp_size;
+    const auto warp =
+        group::tiled_partition<warp_size>(group::this_thread_block());
+    const auto local_tid = warp.thread_rank();
+    const auto warp_id = thread::get_subwarp_id_flat<warp_size>();
+
+    const auto lvl_1_size = b_s * w;  // stride should be nz_p_b * w
+    const auto base_offs = warp_id * lvl_1_size + local_tid;  // warp_id *
+                                                              // stride
+    ValueType tmp{0};
+    for (auto i = 0; i < b_s; ++i) {
+        const auto curr_offs = base_offs + i * w;
+        const auto row = rows[curr_offs];
+        const auto x_row = perm_idxs[row];
+
+        if (row >= 0) {
+            if (i == precomputed_diag(precomputed_block(i))) {
+                // on the diagonal
+                const auto inv_diag_val = ValueType{1} / vals[curr_offs];
+                for (size_type k = 0; k < num_rhs; ++k) {
+                    x[x_row * num_rhs + k] =
+                        inv_diag_val * (b_perm[row * num_rhs + k] - tmp);
+                }
+                tmp = ValueType{0};
+
+            } else {
+                // off the diagonal
+                const auto read_offs =
+                    base_offs + precomputed_diag(precomputed_block(i)) * w;
+                const auto row_read = rows[read_offs];
+                if (row_read >= 0) {
+                    const auto x_row_read = perm_idxs[row_read];
+                    for (size_type k = 0; k < num_rhs; ++k) {
+                        tmp += vals[curr_offs] * x[x_row_read * num_rhs + k];
+                    }
+                }
+            }
+        }
+    }
 }

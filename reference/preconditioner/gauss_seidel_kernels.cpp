@@ -90,59 +90,6 @@ IndexType get_curr_storage_offset(const IndexType curr_node,
             (static_cast<float>(base_block_size + 1) / 2));
     }
 }
-template <typename IndexType>
-constexpr IndexType get_nz_block(const IndexType block_size)
-{
-    return (block_size * block_size - block_size) / 2 + block_size;
-}
-// Source: https://joelfilho.com/blog/2020/compile_time_lookup_tables_in_cpp/
-template <std::size_t Length, typename Generator, std::size_t... Indexes>
-constexpr auto lut_impl(Generator&& f, std::index_sequence<Indexes...>)
-{
-    using content_type = decltype(f(std::size_t{0}));
-    return std::array<content_type, Length>{{f(Indexes)...}};
-}
-
-template <std::size_t Length, typename Generator>
-constexpr auto lut(Generator&& f)
-{
-    return lut_impl<Length>(std::forward<Generator>(f),
-                            std::make_index_sequence<Length>{});
-}
-constexpr auto max_block_size = 8;
-constexpr auto max_nz_block = get_nz_block(max_block_size);
-constexpr unsigned diag(unsigned n)
-{
-    unsigned result = 0;
-    for (unsigned i = 0; i <= n; i++) {
-        result += i;
-    }
-    return result - 1;
-}
-constexpr auto diag_lut = lut<max_block_size + 1>(diag);
-
-constexpr unsigned sub_block(unsigned n)
-{
-    unsigned result = 0;
-    for (unsigned i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1; i++) {
-        result = i;
-    }
-    unsigned tmp = n - diag_lut[result + 1];
-    return tmp == 0 ? result : tmp - 1;
-}
-
-constexpr auto sub_block_lut = lut<max_nz_block + 1>(sub_block);
-
-/// @brief equal to {0, 0, 1, 0, 1, 2, 0, 1, 2, 3, ...}
-/// @param n storage scheme id of the subblock(/entry in a base block)
-/// @return relative id of the diagonal entry above (/of the subblock itself)
-unsigned precomputed_block(unsigned n) { return sub_block_lut[n]; }
-
-/// @brief equal to {0, 2, 5, 9, 14, ...}
-/// @param n relative id of the diagonal entry
-/// @return id of the diagonal entry in the rowwise storage scheme
-unsigned precomputed_diag(unsigned n) { return diag_lut[n + 1]; }
-
 
 int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                          const int32 row, const int32 col, bool* lvl_1)
@@ -375,6 +322,7 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
             const auto row = l_diag_rows[block_offs + local_offs];
             GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
+            GKO_ASSERT(l_diag_vals[block_offs + local_offs] != ValueType{0});
             const auto inv_diag_val =
                 ValueType{1} / l_diag_vals[block_offs + local_offs];
             for (size_type k = 0; k < x->get_size()[1]; ++k) {
@@ -392,7 +340,7 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                 // following diag block
                 if (row_write >= 0) {
                     for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                        ValueType val = 0;
+                        auto val = ValueType{0};
                         for (auto subblock = precomputed_diag(i) + 1;
                              subblock < precomputed_diag(i + 1); subblock++) {
                             const auto row_read =
@@ -413,7 +361,7 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
         }
     }
 }
-namespace {
+
 // modified func from reference/jacobi_kernels.cpp
 // not tested yet
 template <typename ValueType, typename IndexType>
@@ -442,7 +390,6 @@ inline bool apply_gauss_jordan_transform(IndexType row, IndexType nz_p_b,
     block[precomputed_diag(row)] = one<ValueType>() / d;
     return true;
 }
-}  // namespace
 
 
 template <typename ValueType, typename IndexType>
@@ -457,28 +404,28 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
     const auto max_rows =
         agg_block->end_row_global_ - agg_block->start_row_global_;
     const auto b_s = agg_block->base_block_size_;
-    for (auto block_id = 0; block_id < num_blocks; block_id++) {
+    for (auto block_id = 0; block_id < num_blocks; ++block_id) {
         const auto block_offs = base_offs + block_id * nz_p_b;
 
-        for (auto i = 0; i < b_s && block_id * b_s + i < max_rows; i++) {
+        for (auto i = 0; i < b_s && block_id * b_s + i < max_rows; ++i) {
             auto diag_offs = block_offs + precomputed_diag(i);
 
             const auto row = l_diag_rows[diag_offs];
             GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
+            GKO_ASSERT(l_diag_vals[diag_offs] != ValueType{0});
             const auto inv_diag_val = ValueType{1} / l_diag_vals[diag_offs];
             for (size_type k = 0; k < x->get_size()[1]; ++k) {
                 x->at(x_row, k) = inv_diag_val * b_perm->at(row, k);
             }
             if (i < b_s - 1 && block_id * b_s + i < max_rows - 1) {
-                const auto write_offs = block_offs + precomputed_diag(i) +
-                                        1;  // TODO change to curr id
-                const auto row_write = l_diag_rows[write_offs];
-                if (row_write >= 0) {
-                    for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                        ValueType val = 0;
-                        for (auto id = precomputed_diag(i) + 1;
-                             id < precomputed_diag(i + 1); id++) {
+                for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
+                    auto val = ValueType{0};
+                    for (auto id = precomputed_diag(i) + 1;
+                         id < precomputed_diag(i + 1); ++id) {
+                        const auto write_offs = block_offs + id;
+                        const auto row_write = l_diag_rows[write_offs];
+                        if (row_write >= 0) {
                             const auto row_read =
                                 l_diag_rows[block_offs +
                                             precomputed_diag(
@@ -487,8 +434,8 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
                             const auto x_row_read = permutation_idxs[row_read];
                             val +=
                                 l_diag_vals[write_offs] * x->at(x_row_read, k);
+                            b_perm->at(row_write, k) -= val;
                         }
-                        b_perm->at(row_write, k) -= val;
                     }
                 }
             }
@@ -540,7 +487,6 @@ void apply_l_spmv_block(preconditioner::spmv_block* spmv_block,
         }
     }
 }
-
 }  // namespace
 
 
@@ -682,7 +628,7 @@ void assign_to_blocks(
         std::list<IndexType>
             candidates;  // not sure if std::list is the right one
         auto curr_block = &(block_ordering[k]);
-        for (auto i = 0; i < block_size && i + k < num_nodes; i++) {
+        for (auto i = 0; i < block_size && k + i < num_nodes; i++) {
             auto next_node = find_next_candidate(
                 block_ordering, k, candidates, num_nodes, block_size, degrees,
                 visited, row_ptrs, col_idxs, nodeSelectionPolicy::maxNumEdges,
@@ -821,7 +767,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
     } else {
         auto main_blocks = storage_scheme.forward_solve_;
         const auto num_blocks = storage_scheme.num_blocks_;
-        GKO_ASSERT(num_blocks >= 3);
+        GKO_ASSERT(num_blocks >= 1);
 
         // fill the first parallel block
         auto first_p_block =
@@ -884,132 +830,137 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
             GKO_ASSERT(tmp > 0);  // at least the diagonal must be filled
         }
 
+        if (num_blocks >= 3) {
+            auto next_p_block = static_cast<preconditioner::parallel_block*>(
+                main_blocks[2].get());
+            auto first_spmv_block =
+                static_cast<preconditioner::spmv_block*>(main_blocks[1].get());
+            first_spmv_block->update(0, 0, next_p_block->start_row_global_,
+                                     next_p_block->end_row_global_, 0,
+                                     next_p_block->start_row_global_);
 
-        auto next_p_block =
-            static_cast<preconditioner::parallel_block*>(main_blocks[2].get());
-        auto first_spmv_block =
-            static_cast<preconditioner::spmv_block*>(main_blocks[1].get());
-        first_spmv_block->update(0, 0, next_p_block->start_row_global_,
-                                 next_p_block->end_row_global_, 0,
-                                 next_p_block->start_row_global_);
+            for (auto i = 1; i < num_blocks; i += 2) {
+                //  i even - diagonal(parallel) block, uneven - spmv block
+                auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                    main_blocks[i].get());
+                auto parallel_block =
+                    static_cast<preconditioner::parallel_block*>(
+                        main_blocks[i + 1].get());
 
-        for (auto i = 1; i < num_blocks; i += 2) {
-            //  i even - diagonal(parallel) block, uneven - spmv block
-            auto spmv_block =
-                static_cast<preconditioner::spmv_block*>(main_blocks[i].get());
-            auto parallel_block = static_cast<preconditioner::parallel_block*>(
-                main_blocks[i + 1].get());
+                GKO_ASSERT(spmv_block->start_row_global_ ==
+                           parallel_block->start_row_global_);
+                GKO_ASSERT(spmv_block->end_col_global_ ==
+                           parallel_block->start_row_global_);
 
-            GKO_ASSERT(spmv_block->start_row_global_ ==
-                       parallel_block->start_row_global_);
-            GKO_ASSERT(spmv_block->end_col_global_ ==
-                       parallel_block->start_row_global_);
-
-            l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_] = 0;
-
-
-            for (auto row = parallel_block->start_row_global_;
-                 row < parallel_block->end_row_global_; row++) {
-                const auto mtx_row = permutation_idxs[row];
-                const auto mtx_start_id = mtx_row_ptrs[mtx_row];
-                const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
-                const auto nnz_in_row =
-                    mtx_row_ptrs[mtx_row + 1] - mtx_row_ptrs[mtx_row];
-
-                array<ValueType> tmp_mtx_vals(exec, &mtx_vals[mtx_start_id],
-                                              &mtx_vals[mtx_end_id]);
-                array<IndexType> tmp_mtx_col_idxs(exec, nnz_in_row);
-
-                thrust::sequence(tmp_mtx_col_idxs.get_data(),
-                                 tmp_mtx_col_idxs.get_data() + nnz_in_row);
-
-                array<IndexType> tmp_perm(exec, nnz_in_row);
-
-                for (auto j = 0; j < nnz_in_row; j++) {
-                    tmp_perm.get_data()[j] =
-                        inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
-                }
-                thrust::sort_by_key(tmp_perm.get_data(),
-                                    tmp_perm.get_data() + nnz_in_row,
-                                    tmp_mtx_col_idxs.get_data());
-                for (auto j = 0; j < nnz_in_row; j++) {
-                    tmp_mtx_vals.get_data()[j] =
-                        mtx_vals[mtx_start_id +
-                                 tmp_mtx_col_idxs
-                                     .get_const_data()[j]];  // wouldn't be
-                                                             // necessary with a
-                                                             // sort by key over
-                                                             // a zip iterator
-                }
-
-                const auto id_of_row_in_block =
-                    row - spmv_block->start_row_global_;
-                const auto curr_id_spmv_row =
-                    spmv_block->row_ptrs_storage_id_ + id_of_row_in_block;
-                const auto curr_id_spmv_val_col =
-                    spmv_block->val_storage_id_ +
-                    l_spmv_row_ptrs[curr_id_spmv_row];
+                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_] = 0;
 
 
-                auto nnz_in_spmv_block_row = 0;
-                for (auto j = 0;
-                     j < nnz_in_row && tmp_perm.get_const_data()[j] <
-                                           parallel_block->start_row_global_;
-                     j++) {
-                    l_spmv_vals[curr_id_spmv_val_col + j] =
-                        tmp_mtx_vals.get_const_data()[j];
-                    l_spmv_mtx_col_idxs[curr_id_spmv_val_col + j] =
-                        tmp_mtx_col_idxs.get_const_data()[j];
-                    l_spmv_col_idxs[curr_id_spmv_val_col + j] =
-                        tmp_perm.get_const_data()[j];
-                    nnz_in_spmv_block_row++;
-                }
+                for (auto row = parallel_block->start_row_global_;
+                     row < parallel_block->end_row_global_; row++) {
+                    const auto mtx_row = permutation_idxs[row];
+                    const auto mtx_start_id = mtx_row_ptrs[mtx_row];
+                    const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
+                    const auto nnz_in_row =
+                        mtx_row_ptrs[mtx_row + 1] - mtx_row_ptrs[mtx_row];
 
+                    array<ValueType> tmp_mtx_vals(exec, &mtx_vals[mtx_start_id],
+                                                  &mtx_vals[mtx_end_id]);
+                    array<IndexType> tmp_mtx_col_idxs(exec, nnz_in_row);
 
-                l_spmv_row_ptrs[curr_id_spmv_row + 1] =
-                    l_spmv_row_ptrs[curr_id_spmv_row] + nnz_in_spmv_block_row;
+                    thrust::sequence(tmp_mtx_col_idxs.get_data(),
+                                     tmp_mtx_col_idxs.get_data() + nnz_in_row);
 
-                // setup of the next spmv_block
-                if (row == parallel_block->end_row_global_ - 1 &&
-                    i + 3 < num_blocks) {  // last row of the curr block and not
-                                           // in the last spmv block
-                    const auto next_row_ptrs_id = curr_id_spmv_row + 2;
-                    const auto next_val_col_id =
-                        curr_id_spmv_val_col + nnz_in_spmv_block_row;
-                    auto next_parallel_block =
-                        static_cast<preconditioner::parallel_block*>(
-                            main_blocks[i + 3].get());
-                    auto next_spmv_block =
-                        static_cast<preconditioner::spmv_block*>(
-                            main_blocks[i + 2].get());
-                    next_spmv_block->update(
-                        next_row_ptrs_id, next_val_col_id,
-                        spmv_block->end_row_global_,  // end of curr ==
-                                                      // start of next
-                        next_parallel_block->end_row_global_, 0,
-                        next_parallel_block->start_row_global_);
-                }
-                auto tmp = 0;
-                for (auto k = nnz_in_spmv_block_row;
-                     k < nnz_in_row && tmp_perm.get_const_data()[k] <= row;
-                     k++) {
-                    bool lvl_1 = true;
-                    auto id = get_id_for_storage(parallel_block, row,
-                                                 tmp_perm.get_const_data()[k],
-                                                 &lvl_1);
-                    if (id >= 0) {
-                        l_diag_rows[id] = row;
-                        l_diag_vals[id] = tmp_mtx_vals.get_const_data()[k];
-                        // (lvl_1 && row == tmp_perm.get_const_data()[k])
-                        //     ? static_cast<ValueType>(1) /
-                        //           tmp_mtx_vals.get_const_data()[k]
-                        //     : tmp_mtx_vals.get_const_data()[k];
-                        l_diag_mtx_col_idxs[id] =
-                            tmp_mtx_col_idxs.get_const_data()[k];
-                        tmp++;
+                    array<IndexType> tmp_perm(exec, nnz_in_row);
+
+                    for (auto j = 0; j < nnz_in_row; j++) {
+                        tmp_perm.get_data()[j] =
+                            inv_permutation_idxs[mtx_col_idxs[mtx_start_id +
+                                                              j]];
                     }
+                    thrust::sort_by_key(tmp_perm.get_data(),
+                                        tmp_perm.get_data() + nnz_in_row,
+                                        tmp_mtx_col_idxs.get_data());
+                    for (auto j = 0; j < nnz_in_row; j++) {
+                        tmp_mtx_vals.get_data()[j] =
+                            mtx_vals[mtx_start_id +
+                                     tmp_mtx_col_idxs.get_const_data()
+                                         [j]];  // wouldn't be
+                                                // necessary with a
+                                                // sort by key over
+                                                // a zip iterator
+                    }
+
+                    const auto id_of_row_in_block =
+                        row - spmv_block->start_row_global_;
+                    const auto curr_id_spmv_row =
+                        spmv_block->row_ptrs_storage_id_ + id_of_row_in_block;
+                    const auto curr_id_spmv_val_col =
+                        spmv_block->val_storage_id_ +
+                        l_spmv_row_ptrs[curr_id_spmv_row];
+
+
+                    auto nnz_in_spmv_block_row = 0;
+                    for (auto j = 0; j < nnz_in_row &&
+                                     tmp_perm.get_const_data()[j] <
+                                         parallel_block->start_row_global_;
+                         j++) {
+                        l_spmv_vals[curr_id_spmv_val_col + j] =
+                            tmp_mtx_vals.get_const_data()[j];
+                        l_spmv_mtx_col_idxs[curr_id_spmv_val_col + j] =
+                            tmp_mtx_col_idxs.get_const_data()[j];
+                        l_spmv_col_idxs[curr_id_spmv_val_col + j] =
+                            tmp_perm.get_const_data()[j];
+                        nnz_in_spmv_block_row++;
+                    }
+
+
+                    l_spmv_row_ptrs[curr_id_spmv_row + 1] =
+                        l_spmv_row_ptrs[curr_id_spmv_row] +
+                        nnz_in_spmv_block_row;
+
+                    // setup of the next spmv_block
+                    if (row == parallel_block->end_row_global_ - 1 &&
+                        i + 3 < num_blocks) {  // last row of the curr block and
+                                               // not in the last spmv block
+                        const auto next_row_ptrs_id = curr_id_spmv_row + 2;
+                        const auto next_val_col_id =
+                            curr_id_spmv_val_col + nnz_in_spmv_block_row;
+                        auto next_parallel_block =
+                            static_cast<preconditioner::parallel_block*>(
+                                main_blocks[i + 3].get());
+                        auto next_spmv_block =
+                            static_cast<preconditioner::spmv_block*>(
+                                main_blocks[i + 2].get());
+                        next_spmv_block->update(
+                            next_row_ptrs_id, next_val_col_id,
+                            spmv_block->end_row_global_,  // end of curr ==
+                                                          // start of next
+                            next_parallel_block->end_row_global_, 0,
+                            next_parallel_block->start_row_global_);
+                    }
+                    auto tmp = 0;
+                    for (auto k = nnz_in_spmv_block_row;
+                         k < nnz_in_row && tmp_perm.get_const_data()[k] <= row;
+                         k++) {
+                        bool lvl_1 = true;
+                        auto id = get_id_for_storage(
+                            parallel_block, row, tmp_perm.get_const_data()[k],
+                            &lvl_1);
+                        if (id >= 0) {
+                            l_diag_rows[id] = row;
+                            l_diag_vals[id] = tmp_mtx_vals.get_const_data()[k];
+                            // (lvl_1 && row == tmp_perm.get_const_data()[k])
+                            //     ? static_cast<ValueType>(1) /
+                            //           tmp_mtx_vals.get_const_data()[k]
+                            //     : tmp_mtx_vals.get_const_data()[k];
+                            l_diag_mtx_col_idxs[id] =
+                                tmp_mtx_col_idxs.get_const_data()[k];
+                            tmp++;
+                        }
+                    }
+                    GKO_ASSERT(tmp >
+                               0);  // at least the diagonal must be filled
                 }
-                GKO_ASSERT(tmp > 0);  // at least the diagonal must be filled
             }
         }
     }

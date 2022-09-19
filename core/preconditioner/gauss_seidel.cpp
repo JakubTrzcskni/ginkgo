@@ -374,36 +374,34 @@ void GaussSeidel<ValueType, IndexType>::generate(
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
     csr_matrix->write(mat_data);
 
-    if (use_coloring_) {
-        auto max_color =  // colors start with 0 so there are max_colors + 1
-                          // different colors
-            get_coloring(mat_data);  // matrix data is made symmetric here
-        color_ptrs_.resize_and_reset(max_color + 2);
-        permutation_idxs_.resize_and_reset(num_nodes);
-        exec->run(gauss_seidel::make_get_permutation_from_coloring(
-            num_nodes, vertex_colors_.get_data(), max_color,
-            color_ptrs_.get_data(), permutation_idxs_.get_data(),
-            static_cast<IndexType*>(nullptr)));
-    }
-
     if (!symmetric_preconditioner_) {
-        if (permutation_idxs_.get_num_elems() > 0) {
-            auto tmp = Csr::create(exec);
-            tmp->read(mat_data);
-            tmp = as<Csr>(tmp->permute(&permutation_idxs_));
-            tmp->write(mat_data);
-        }
-        utils::make_lower_triangular(mat_data);
-        lower_triangular_matrix_->read(mat_data);
         if (use_reference_) {
+            utils::make_lower_triangular(mat_data);
+            lower_triangular_matrix_->read(mat_data);
             lower_trs_ =
                 share(lower_trs_factory_->generate(lower_triangular_matrix_));
         } else {
             lower_trs_ = nullptr;
+            auto max_color =  // colors start with 0 so there are max_colors + 1
+                              // different colors
+                get_coloring(mat_data);  // matrix data is made symmetric here
+            color_ptrs_.resize_and_reset(max_color + 2);
+            permutation_idxs_.resize_and_reset(num_nodes);
+            exec->run(gauss_seidel::make_get_permutation_from_coloring(
+                num_nodes, vertex_colors_.get_data(), max_color,
+                color_ptrs_.get_data(), permutation_idxs_.get_data(),
+                static_cast<IndexType*>(nullptr)));
+            auto tmp = Csr::create(exec);
+            tmp->read(mat_data);
+            tmp = as<Csr>(tmp->permute(&permutation_idxs_));
+            tmp->write(mat_data);
+            utils::make_lower_triangular(mat_data);
+            lower_triangular_matrix_->read(mat_data);
             initialize_blocks();
             GKO_ASSERT_EQ(block_ptrs_.size(),
                           2 * color_ptrs_.get_num_elems() - 3);
         }
+
     } else
         GKO_NOT_IMPLEMENTED;
 }
@@ -423,9 +421,6 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         matrix::SparsityCsr<ValueType, IndexType>::create(exec);
     adjacency_matrix = get_adjacency_matrix(
         mat_data);  // this assumes that the matrix is not symmetric
-
-    // csr_matrix->write(mat_data);  // if matrix is not symmetric
-    // utils::make_lower_triangular
 
     auto block_ordering = generate_block_structure(
         lend(adjacency_matrix), base_block_size_,
@@ -463,10 +458,7 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
 
     // best case all blocks are dense
     const auto diag_mem_requirement =
-        num_base_blocks * base_block_size *
-        base_block_size;  // TODO only the lower tr will be saved from each
-                          // block
-    // diagonal blocks will be COO style (col info implicit)
+        num_base_blocks * base_block_size * base_block_size;
 
     // worst case all diag blocks are only a diagonal
     const auto l_spmv_val_col_mem_requirement =

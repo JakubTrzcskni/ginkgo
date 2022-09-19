@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "core/base/allocator.hpp"
 #include "cuda/base/config.hpp"
 #include "cuda/base/types.hpp"
+#include "cuda/components/cooperative_groups.cuh"
 #include "cuda/components/thread_ids.cuh"
 
 namespace gko {
@@ -121,8 +122,30 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                   const ValueType* l_spmv_vals,
                   const IndexType* permutation_idxs,
                   const preconditioner::storage_scheme& storage_scheme,
-                  matrix::Dense<ValueType>* b_perm,
-                  matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
+                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
+{
+    // GKO_ASSERT(!storage_scheme.symm_);
+    // const auto block_ptrs = storage_scheme.forward_solve_;
+    // const auto num_blocks = storage_scheme.num_blocks_;
+
+    // // first diag block
+    // auto first_p_block =
+    //     static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
+    // apply_l_p_block(first_p_block, l_diag_rows, l_diag_vals, b_perm, x,
+    //                 permutation_idxs);
+    // for (auto block = 1; block < num_blocks - 1; block += 2) {
+    //     auto spmv_block =
+    //         static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
+    //     apply_l_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+    //                        l_spmv_vals, b_perm, x, permutation_idxs);
+
+
+    //     auto p_block = static_cast<preconditioner::parallel_block*>(
+    //         block_ptrs[block + 1].get());
+    //     apply_l_p_block(p_block, l_diag_rows, l_diag_vals, b_perm, x,
+    //                     permutation_idxs);
+    // }
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 

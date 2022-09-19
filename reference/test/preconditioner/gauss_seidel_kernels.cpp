@@ -68,7 +68,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace {
 template <typename ValueIndexType>
-class GaussSeidel : public ::testing ::Test {
+class GaussSeidel : public ::testing ::Test,
+                    public ::testing::WithParamInterface<std::tuple<int, int>> {
 protected:
     using value_type =
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
@@ -90,10 +91,8 @@ protected:
         : exec{gko::ReferenceExecutor::create()},
           rand_engine{15},
           iter_logger(Log::create()),
-          gs_factory(GS::build().with_use_coloring(true).on(exec)),
-          ref_gs_factory(
-              GS::build().with_use_reference(true).with_use_coloring(false).on(
-                  exec)),
+          gs_factory(GS::build().on(exec)),
+          ref_gs_factory(GS::build().with_use_reference(true).on(exec)),
           iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
           res_norm_criterion_factory(
               ResNorm::build()
@@ -466,8 +465,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
 
     gko::matrix_data<ValueType, IndexType> ref_data;
     gs->get_ltr_matrix()->write(ref_data);
-    ref_data.ensure_row_major_order();  // without row major order ltrs won't
-                                        // work correctly
+    ref_data.ensure_row_major_order();
+
     auto ref_mtx = share(Csr::create(exec));
     ref_mtx->read(ref_data);
     auto ref_ltrs = ltrs_factory->generate(ref_mtx);
@@ -484,11 +483,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_rand_mat_spd)
     auto ref_ans = Vec::create(exec);
     ref_ans->copy_from(
         std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs_view))));
-
-    // auto colors = gs->get_color_ptrs();
-    // std::cout << "sum of colors = "
-    //           << gko::reduce_add(gs->get_vertex_colors(), IndexType{0})
-    //           << "\nmax color = " << colors.get_num_elems() - 2 << std::endl;
 
     GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
 }
@@ -518,7 +512,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyDiagonalMatrix)
         r<ValueType>::value);
 }
 
-
 TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
 {
     using Vec = typename TestFixture::Vec;
@@ -533,15 +526,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_multi_rhs)
     auto ans = Vec::create_with_config_of(gko::lend(rhs));
     ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(mtx);
-
-    // auto v_colors = gs->get_vertex_colors();
-    // auto p_idxs = gs->get_permutation_idxs();
-    // auto col_ptrs = gs->get_color_ptrs();
-
-    // this->print_array(v_colors);
-    // this->print_array(p_idxs);
-    // this->print_array(col_ptrs);
-    // this->print_csr(lend(gs->get_ltr_matrix()));
 
     gs->apply(gko::lend(rhs), gko::lend(ans));
 
@@ -601,8 +585,7 @@ TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
     GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<ValueType>::value);
 }
 
-// TODO
-TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
+/* TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
 {
     using CG = typename TestFixture::CG;
     using Csr = typename TestFixture::Csr;
@@ -645,7 +628,7 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
 
     GKO_ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
     // GKO_ASSERT_MTX_NEAR(x, x_clone, r<ValueType>::value);
-}
+} */
 
 TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 {
@@ -679,7 +662,7 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
     GKO_ASSERT_ARRAY_EQ(vertex_colors, ans);
 }
 
-// TODO
+// TODO not sure if this test is needed anymore
 // TYPED_TEST(GaussSeidel, CorrectReorderingRegularGrid)
 // {
 //     using IndexType = typename TestFixture::index_type;
@@ -693,7 +676,6 @@ TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 //     auto perm_arr = gs->get_permutation_idxs();
 //     GKO_ASSERT_EQ(0, 1);
 // }
-
 
 TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
 {
@@ -785,7 +767,7 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
 
 // TODO
 // Test if nodes within blocks are contigous after permuting (similar
-// formulation)
+// formulation) / test assign_to_blocks
 
 TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
 {
@@ -1011,9 +993,17 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
 
     auto exec = this->exec;
     auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{1000}, IndexType{2}, IndexType{4}, ValueType{0}));
+        IndexType{1000}, IndexType{3}, IndexType{7}, ValueType{0}));
+
+    // gko::matrix_data<ValueType, IndexType> diag_data;
+    // mtx->write(diag_data);
+    // gko::utils::make_lower_triangular(diag_data);
+    // gko::utils::make_upper_triangular(diag_data);
+    // mtx->read(diag_data);
+
     auto rhs =
         gko::share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+
 
     auto x = Vec::create_with_config_of(gko::lend(rhs));
     x->fill(ValueType{0});
@@ -1023,7 +1013,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     auto gs_HBMC_factory = GS::build()
                                .with_use_HBMC(true)
                                .with_base_block_size(4u)
-                               .with_lvl_2_block_size(8u)
+                               .with_lvl_2_block_size(32u)
                                .on(exec);
     auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
@@ -1040,6 +1030,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     const auto rhs_perm =
         gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
 
+    // this->print_array(perm_idxs);
+
     auto ltrs_factory =
         gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
     auto ref_ltrs = ltrs_factory->generate(ref_mtx);
@@ -1052,6 +1044,11 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     ref_ans->copy_from(
         std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
 
+    // std::ofstream x_hbmc{"data/x_hbmc.mtx"};
+    // std::ofstream x_ref{"data/x_ref.mtx"};
+    // gko::write(x_hbmc, lend(x));
+
+    // gko::write(x_ref, lend(ref_ans));
 
     GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
 }
