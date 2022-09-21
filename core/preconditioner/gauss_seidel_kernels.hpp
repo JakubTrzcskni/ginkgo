@@ -68,25 +68,25 @@ constexpr auto lut(Generator&& f)
     return lut_impl<Length>(std::forward<Generator>(f),
                             std::make_index_sequence<Length>{});
 }
-constexpr auto max_block_size = 8;
+constexpr auto max_block_size = 32;
 constexpr auto max_nz_block = get_nz_block(max_block_size);
-constexpr unsigned diag(unsigned n)
+constexpr int diag(int n)
 {
-    unsigned result = 0;
-    for (unsigned i = 0; i <= n; i++) {
+    int result = 0;
+    for (int i = 0; i <= n; i++) {
         result += i;
     }
     return result - 1;
 }
 constexpr auto diag_lut = lut<max_block_size + 1>(diag);
 
-constexpr unsigned sub_block(unsigned n)
+constexpr int sub_block(int n)
 {
-    unsigned result = 0;
-    for (unsigned i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1; i++) {
+    int result = 0;
+    for (int i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1; i++) {
         result = i;
     }
-    unsigned tmp = n - diag_lut[result + 1];
+    int tmp = n - diag_lut[result + 1];
     return tmp == 0 ? result : tmp - 1;
 }
 
@@ -95,12 +95,17 @@ constexpr auto sub_block_lut = lut<max_nz_block + 1>(sub_block);
 /// @brief equal to {0, 0, 1, 0, 1, 2, 0, 1, 2, 3, ...}
 /// @param n storage scheme id of the subblock(/entry in a base block)
 /// @return relative id of the diagonal entry above (/of the subblock itself)
-unsigned precomputed_block(unsigned n) { return sub_block_lut[n]; }
+int precomputed_block(int n) { return sub_block_lut[n]; }
 
 /// @brief equal to {0, 2, 5, 9, 14, ...}
 /// @param n relative id of the diagonal entry
 /// @return id of the diagonal entry in the rowwise storage scheme
-unsigned precomputed_diag(unsigned n) { return diag_lut[n + 1]; }
+int precomputed_diag(int n) { return diag_lut[n + 1]; }
+
+/// @brief equal to {0, 1, 3, 6, 9, ...}
+/// @param n block size
+/// @return number of nonzeros in a triangular block of given size
+int precomputed_nz_p_b(int n) { return diag_lut[n] + 1; }
 
 #define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType) \
     void apply(std::shared_ptr<const DefaultExecutor> exec,         \

@@ -70,7 +70,7 @@ namespace gauss_seidel {
 
 namespace {
 /// @brief equivalent to number of full blocks up to the current node * number
-/// of nz per block of size
+/// of nz per block of size + the one potential residual block
 /// @tparam IndexType
 /// @param curr_node
 /// @param base_block_size
@@ -81,27 +81,32 @@ IndexType get_curr_storage_offset(const IndexType curr_node,
                                   const IndexType num_nodes = 0)
 {
     if (num_nodes == 0) {
-        return static_cast<IndexType>(
-            static_cast<float>(curr_node) *
-            (static_cast<float>(base_block_size + 1) / 2));
+        // return static_cast<IndexType>(
+        //     static_cast<float>(curr_node) *
+        //     (static_cast<float>(base_block_size + 1) /
+        //      2));
+        return curr_node / base_block_size *
+                   precomputed_nz_p_b(base_block_size) +
+               precomputed_nz_p_b(curr_node % base_block_size);
     } else {  // storage offset backward
-        return static_cast<IndexType>(
-            static_cast<float>(num_nodes - curr_node) *
-            (static_cast<float>(base_block_size + 1) / 2));
+        // return static_cast<IndexType>(
+        //     static_cast<float>(num_nodes - curr_node) *
+        //     (static_cast<float>(base_block_size + 1) / 2));
+        return get_curr_storage_offset(num_nodes - curr_node, base_block_size);
     }
 }
 
 int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                          const int32 row, const int32 col, bool* lvl_1)
 {
-    if (row<p_block->start_row_global_ | row> p_block->end_row_global_ |
-        col<p_block->start_row_global_ | col> p_block->end_row_global_)
+    if (row < p_block->start_row_global_ | row >= p_block->end_row_global_ |
+        col < p_block->start_row_global_ | col >= p_block->end_row_global_)
         return -1;
-    const auto b_block_size = p_block->base_block_size_;
+    const auto b_s = p_block->base_block_size_;
     const auto local_row =
         row - p_block->start_row_global_;  // local row within the p_block
     const auto block_id = local_row / p_block->lvl_1_block_size_;
-    const auto row_id_block =
+    const auto row_id_block =  //== curr_block->start_row_global_ - row
         local_row %
         p_block
             ->lvl_1_block_size_;  // local row within the lvl1/block_agg block
@@ -111,15 +116,15 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     const auto col_offs = row - col;
     if (p_block->residual_ && block_id == p_block->degree_of_parallelism_ -
                                               1) {  // case base_block_agg
-        if (col_offs > row_id_block % b_block_size | col_offs < 0) return -1;
+        if (col_offs > row_id_block % b_s | col_offs < 0) return -1;
         *lvl_1 = false;
-        return base_offset + (row_id_block / b_block_size) * nz_per_block +
-               precomputed_diag(row_id_block % b_block_size) - col_offs;
+        return base_offset + (row_id_block / b_s) * nz_per_block +
+               precomputed_diag(row_id_block % b_s) - col_offs;
 
     } else {  // case lvl_1_block
         const auto l2_block_size = p_block->lvl_2_block_size_;
         if (col_offs % l2_block_size != 0 |
-            col_offs > l2_block_size * (b_block_size - 1) | col_offs < 0)
+            col_offs > l2_block_size * (b_s - 1) | col_offs < 0)
             return -1;
         *lvl_1 = true;
         return base_offset +
@@ -139,10 +144,11 @@ enum struct seedSelectionPolicy { noPolicy, minDegree };
 
 template <typename IndexType>
 IndexType find_next_candidate(
-    const IndexType* block_ordering, const IndexType curr_block,
-    std::list<IndexType>& candidates, const IndexType num_nodes,
-    const IndexType block_size, const IndexType* degrees, int8* visited,
-    const IndexType* row_ptrs, const IndexType* col_idxs,
+    const IndexType* block_ordering, const IndexType* curr_block,
+    const IndexType block_fill_level, std::list<IndexType>& candidates,
+    const IndexType num_nodes, const IndexType block_size,
+    const IndexType* degrees, int8* visited, const IndexType* row_ptrs,
+    const IndexType* col_idxs,
     nodeSelectionPolicy policy = nodeSelectionPolicy::fifo,
     seedSelectionPolicy seed_policy = seedSelectionPolicy::minDegree)
 {
@@ -222,9 +228,8 @@ IndexType find_next_candidate(
                     for (auto i = row_ptrs[candidate];
                          i < row_ptrs[candidate + 1]; i++) {
                         auto candidate_neighbour = col_idxs[i];
-                        for (auto node = curr_block;
-                             node < curr_block + block_size && node < num_nodes;
-                             node++) {
+                        for (auto i = 0; i < block_fill_level; ++i) {
+                            auto node = curr_block[i];
                             if (candidate_neighbour == node) curr_joint_edges++;
                         }
                     }
@@ -318,7 +323,9 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
     for (auto i = 0; i < b_s; i++) {
         // solve
         for (auto local_offs = precomputed_diag(i) * w;
-             local_offs < precomputed_diag(i) * w + w; local_offs++) {
+             local_offs < precomputed_diag(i) * w + w;
+             local_offs++) {  // auto j=0;j<w;++j, local_offs =
+                              // precomputed_diag(i)+j
             const auto row = l_diag_rows[block_offs + local_offs];
             GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
@@ -333,16 +340,25 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
         if (i < b_s - 1) {
             // multiply
             for (auto row_offs = 0; row_offs < w; row_offs++) {
-                const auto write_offs =
+                auto write_offs =
                     block_offs + precomputed_diag(i) * w + w + row_offs;
-                const auto row_write =
-                    l_diag_rows[write_offs];  // row is same as the
+                // const auto row_write =
+                //     l_diag_rows[write_offs];  // row is same as the
                 // following diag block
-                if (row_write >= 0) {
-                    for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                        auto val = ValueType{0};
-                        for (auto subblock = precomputed_diag(i) + 1;
-                             subblock < precomputed_diag(i + 1); subblock++) {
+                for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
+                    auto val = ValueType{0};
+                    const auto first_subblock =
+                        precomputed_diag(i) +
+                        1;  // move above, depending only on i
+                    const auto next_diag_subblock = precomputed_diag(i + 1);
+                    for (auto subblock = first_subblock;
+                         subblock < next_diag_subblock; ++subblock) {
+                        auto final_w_offs =
+                            write_offs +
+                            (subblock - first_subblock) *
+                                w;  // in which subblock in the row are we
+                        const auto row_write = l_diag_rows[final_w_offs];
+                        if (row_write >= 0) {
                             const auto row_read =
                                 l_diag_rows[block_offs +
                                             precomputed_diag(
@@ -351,10 +367,16 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                                             row_offs];
                             GKO_ASSERT(row_read >= 0);
                             const auto x_row_read = permutation_idxs[row_read];
-                            val +=
-                                l_diag_vals[write_offs] * x->at(x_row_read, k);
+                            // val +=
+                            // l_diag_vals[write_offs] *
+                            // x->at(x_row_read, k);  // write offs is wrong,
+                            // subblock offs missing
+                            auto a_val = l_diag_vals[final_w_offs];
+                            auto x_val = x->at(x_row_read, k);
+                            b_perm->at(row_write, k) -= a_val * x_val;
+                            // l_diag_vals[write_offs] *
+                            // x->at(x_row_read, k);  // val;
                         }
-                        b_perm->at(row_write, k) -= val;
                     }
                 }
             }
@@ -400,10 +422,11 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
 {
     const auto num_blocks = agg_block->num_base_blocks_;
     const auto base_offs = agg_block->val_storage_id_;
-    const auto nz_p_b = agg_block->nz_p_b_block_;
+    // const auto nz_p_b = agg_block->nz_p_b_block_;
     const auto max_rows =
         agg_block->end_row_global_ - agg_block->start_row_global_;
     const auto b_s = agg_block->base_block_size_;
+    const auto nz_p_b = precomputed_nz_p_b(b_s);
     for (auto block_id = 0; block_id < num_blocks; ++block_id) {
         const auto block_offs = base_offs + block_id * nz_p_b;
 
@@ -420,7 +443,7 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
             }
             if (i < b_s - 1 && block_id * b_s + i < max_rows - 1) {
                 for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    auto val = ValueType{0};
+                    // auto val = ValueType{0};
                     for (auto id = precomputed_diag(i) + 1;
                          id < precomputed_diag(i + 1); ++id) {
                         const auto write_offs = block_offs + id;
@@ -432,9 +455,11 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
                                                 precomputed_block(id))];
                             GKO_ASSERT(row_read >= 0);
                             const auto x_row_read = permutation_idxs[row_read];
-                            val +=
-                                l_diag_vals[write_offs] * x->at(x_row_read, k);
-                            b_perm->at(row_write, k) -= val;
+                            // val +=
+                            // l_diag_vals[write_offs] * x->at(x_row_read, k);
+                            b_perm->at(row_write, k) -=
+                                l_diag_vals[write_offs] *
+                                x->at(x_row_read, k);  // val;
                         }
                     }
                 }
@@ -584,9 +609,11 @@ void get_block_coloring(
                  j++) {
                 auto col = col_idxs[j];
                 auto adjacent_vertex_color = colors[col];
-                neighbour_colors.insert(adjacent_vertex_color);
-                if (adjacent_vertex_color > highest_color)
-                    highest_color = adjacent_vertex_color;
+                if (adjacent_vertex_color >= 0) {
+                    neighbour_colors.insert(adjacent_vertex_color);
+                    if (adjacent_vertex_color > highest_color)
+                        highest_color = adjacent_vertex_color;
+                }
             }
         }
         bool color_found = false;
@@ -600,7 +627,7 @@ void get_block_coloring(
             }
         }
         if (!color_found) {
-            highest_color++;
+            ++highest_color;
             best_color_found = highest_color;
         }
         for (auto i = 0; i < block_size && k + i < num_nodes; i++) {
@@ -628,10 +655,11 @@ void assign_to_blocks(
         std::list<IndexType>
             candidates;  // not sure if std::list is the right one
         auto curr_block = &(block_ordering[k]);
-        for (auto i = 0; i < block_size && k + i < num_nodes; i++) {
-            auto next_node = find_next_candidate(
-                block_ordering, k, candidates, num_nodes, block_size, degrees,
-                visited, row_ptrs, col_idxs, nodeSelectionPolicy::maxNumEdges,
+        for (IndexType i = 0; i < block_size && k + i < num_nodes; i++) {
+            IndexType next_node = find_next_candidate(
+                block_ordering, curr_block, i, candidates, num_nodes,
+                block_size, degrees, visited, row_ptrs, col_idxs,
+                nodeSelectionPolicy::maxNumEdges,
                 seedSelectionPolicy::minDegree);
             if (next_node >= 0)
                 curr_block[i] = next_node;
@@ -652,19 +680,7 @@ void get_permutation_from_coloring(
     IndexType* permutation_idxs, const IndexType* block_ordering)
 {
     IndexType tmp{0};
-    if (!block_ordering) {
-        for (auto color = 0; color <= max_color; color++) {
-            for (auto i = 0; i < num_nodes; i++) {
-                if (i == 0) {
-                    color_ptrs[color] = tmp;
-                }
-                if (coloring[i] == color) {
-                    permutation_idxs[tmp] = i;
-                    tmp++;
-                }
-            }
-        }
-    } else {
+    if (block_ordering) {
         for (auto color = 0; color <= max_color; color++) {
             for (auto i = 0; i < num_nodes; i++) {
                 auto node = block_ordering[i];
@@ -677,7 +693,21 @@ void get_permutation_from_coloring(
                 }
             }
         }
+    } else {
+        for (auto color = 0; color <= max_color; color++) {
+            for (auto i = 0; i < num_nodes; i++) {
+                if (i == 0) {
+                    color_ptrs[color] = tmp;
+                }
+                if (coloring[i] == color) {
+                    permutation_idxs[tmp] = i;
+                    tmp++;
+                }
+            }
+        }
     }
+
+
     GKO_ASSERT_EQ(tmp, num_nodes);
     color_ptrs[max_color + 1] = num_nodes;
 }
@@ -1022,14 +1052,13 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             const auto l_lvl1_block_storage_offset = get_curr_storage_offset(
                 curr_color_offset + curr_lvl_1_block_offset, base_block_size);
 
-            curr_l_p_block.parallel_blocks_
-                .emplace_back(  // at curr_lvl_1_block_id hopefully
-                    std::make_shared<lvl_1_block>(lvl_1_block(
-                        l_lvl1_block_storage_offset,
-                        curr_color_offset + curr_lvl_1_block_offset,
-                        curr_color_offset + curr_lvl_1_block_offset +
-                            lvl_1_block_size,
-                        base_block_size, lvl_2_block_size)));
+            curr_l_p_block.parallel_blocks_.emplace_back(
+                std::make_shared<lvl_1_block>(
+                    lvl_1_block(l_lvl1_block_storage_offset,
+                                curr_color_offset + curr_lvl_1_block_offset,
+                                curr_color_offset + curr_lvl_1_block_offset +
+                                    lvl_1_block_size,
+                                base_block_size, lvl_2_block_size)));
             if (backward_solve) {
                 const auto u_lvl1_block_storage_offset =
                     get_curr_storage_offset(curr_color_offset +
@@ -1076,8 +1105,9 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                 full_lvl_1_blocks_in_curr_color * lvl_1_block_size;
             const auto residual_end_row_global = next_color_offset;
             const auto num_residual_blocks =
-                nodes_in_curr_color -
-                full_lvl_1_blocks_in_curr_color * lvl_1_block_size;
+                ceildiv(nodes_in_curr_color -
+                            full_lvl_1_blocks_in_curr_color * lvl_1_block_size,
+                        base_block_size);
             curr_l_p_block.parallel_blocks_
                 .emplace_back(  // at full_lvl_1_blocks_in_curr_color
                     std::make_shared<base_block_aggregation>(
@@ -1098,8 +1128,11 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
         }
         storage_scheme.forward_solve_.emplace_back(
             std::make_shared<parallel_block>(curr_l_p_block));
-        storage_scheme.forward_solve_.emplace_back(std::make_shared<spmv_block>(
-            spmv_block(next_color_offset, 0, next_color_offset)));
+        if (color < max_color) {
+            storage_scheme.forward_solve_.emplace_back(
+                std::make_shared<spmv_block>(
+                    spmv_block(next_color_offset, 0, next_color_offset)));
+        }
         if (backward_solve) {
             storage_scheme.backward_solve_.emplace(
                 storage_scheme.backward_solve_.begin(),

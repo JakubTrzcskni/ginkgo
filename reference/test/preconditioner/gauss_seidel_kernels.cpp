@@ -732,7 +732,7 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
 }
 
-TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
+TYPED_TEST(GaussSeidel, SimpleAssignToBlocksKernel)
 {
     using IndexType = typename TestFixture::index_type;
     using ValueType = typename TestFixture::value_type;
@@ -761,9 +761,57 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
 
     // for minDegree seedPolicy & maxNumEdges policy
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({5, 0, 2, 1, 4, 3}));
-
-    // Test for size == 3?
 }
+
+TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using SparsityCsr = typename gko::matrix::SparsityCsr<ValueType, IndexType>;
+
+    auto exec = this->exec;
+
+    auto adjacency_mtx =
+        gko::initialize<SparsityCsr>({{0., 0., 0., 1., 0., 0., 1., 0., 0.},
+                                      {0., 0., 1., 1., 1., 0., 0., 1., 0.},
+                                      {0., 1., 0., 1., 0., 0., 0., 0., 1.},
+                                      {1., 1., 1., 0., 1., 0., 0., 1., 0.},
+                                      {0., 1., 0., 1., 0., 0., 0., 0., 1.},
+                                      {0., 0., 0., 0., 0., 0., 1., 0., 0.},
+                                      {1., 0., 0., 0., 0., 1., 0., 1., 1.},
+                                      {0., 1., 0., 1., 0., 0., 1., 0., 0.},
+                                      {0., 0., 1., 0., 1., 0., 1., 0., 0.}},
+                                     exec);
+    auto num_nodes = adjacency_mtx->get_size()[0];
+    gko::array<IndexType> block_ordering(exec, num_nodes);
+    gko::array<IndexType> degrees(exec,
+                                  I<IndexType>({2, 4, 3, 5, 3, 1, 4, 3, 3}));
+    gko::array<gko::int8> visited(exec, num_nodes);
+    std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
+    IndexType block_size = 4;
+
+    gko::kernels::reference::gauss_seidel::assign_to_blocks(
+        exec, gko::lend(adjacency_mtx), block_ordering.get_data(),
+        degrees.get_const_data(), visited.get_data(), block_size);
+
+    // // for minDegree seedPolicy & maxNumEdges policy
+    GKO_ASSERT_ARRAY_EQ(block_ordering,
+                        I<IndexType>({5, 6, 0, 7, 2, 1, 3, 4, 8}));
+
+
+    std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
+    block_size = 6;
+    block_ordering.resize_and_reset(num_nodes);
+    gko::kernels::reference::gauss_seidel::assign_to_blocks(
+        exec, gko::lend(adjacency_mtx), block_ordering.get_data(),
+        degrees.get_const_data(), visited.get_data(), block_size);
+
+    // // for minDegree seedPolicy & maxNumEdges policy
+    GKO_ASSERT_ARRAY_EQ(block_ordering,
+                        I<IndexType>({5, 6, 0, 7, 3, 1, 2, 8, 4}));
+}
+
+TYPED_TEST(GaussSeidel, GetBlockColoringKernel) {}
 
 // TODO
 // Test if nodes within blocks are contigous after permuting (similar
@@ -904,11 +952,29 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_mtx_col_idxs, l_spmv_mtx_col_idxs_);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_col_idxs, l_spmv_col_idxs_);
 
+
+    auto rhs = Vec::create(exec, gko::dim<2>{18, 1});
+    this->template init_array<ValueType>(
+        rhs->get_values(), {1.5, 2.2, 15., 11., 10.3, 6.5, 4.7, 17.2, 4., 8.,
+                            15., 12., 9.5, 17.7, 12., 4., 12., 10.});
+    auto x = Vec::create_with_config_of(gko::lend(rhs));
+    x->fill(ValueType{0});
+    auto ref_x = Vec::create_with_config_of(gko::lend(rhs));
+    ref_x->fill(ValueType{1});
+    gko::kernels::reference::gauss_seidel::simple_apply(
+        exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
+        l_spmv_row_ptrs_.get_const_data(), l_spmv_col_idxs_.get_const_data(),
+        l_spmv_vals_.get_const_data(), perm.get_const_data(),
+        dummy_storage_scheme, lend(rhs), lend(x));
+
+    GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
+
+
     gko::remove_complex<ValueType> a = 2.5;
     auto alpha = gko::initialize<Vec>({a}, exec);
     mtx->scale(lend(alpha));
-    expected_l_diag_vals_vec->scale(lend(alpha));
-    expected_l_spmv_vals_vec->scale(lend(alpha));
+    expected_l_diag_vals_vec->scale(gko::lend(alpha));
+    expected_l_spmv_vals_vec->scale(gko::lend(alpha));
     gko::kernels::reference::gauss_seidel::fill_with_vals(
         exec, lend(mtx), perm.get_const_data(), dummy_storage_scheme,
         static_cast<IndexType>(diag_mem_requirement),
@@ -987,19 +1053,124 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
 {
     using IndexType = typename TestFixture::index_type;
     using ValueType = typename TestFixture::value_type;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using GS = typename TestFixture::GS;
+    auto exec = this->exec;
+
+    auto mtx = gko::share(Csr::create(exec, gko::dim<2>{15}, 63));
+    this->template init_array<IndexType>(
+        mtx->get_row_ptrs(),
+        {0, 3, 8, 12, 18, 20, 25, 29, 34, 39, 43, 47, 52, 56, 60, 63});
+    this->template init_array<IndexType>(
+        mtx->get_col_idxs(),
+        {0, 1, 3, 0,  1, 7,  10, 13, 2,  3,  5,  11, 0,  2,  3,  6,
+         7, 8, 4, 6,  2, 5,  7,  9,  11, 3,  4,  6,  14, 1,  3,  5,
+         7, 8, 3, 7,  8, 11, 14, 5,  9,  11, 12, 1,  10, 12, 13, 2,
+         5, 8, 9, 11, 9, 10, 12, 13, 1,  10, 12, 13, 6,  8,  14});
+    this->template init_array<ValueType>(
+        mtx->get_values(),
+        {2.,  5.,  1., 5.,  7., 1., 6., 10., 6.,  1., 4., 9.,  1., 1., 6.,  1.,
+         11., 5.,  8., 6.,  4., 1., 1., 2.,  7.,  1., 6., 3.,  4., 1., 11., 1.,
+         13., 10., 5., 10., 4., 1., 1., 2.,  3.,  8., 1., 6.,  4., 1., 9.,  9.,
+         7.,  1.,  8., 10., 1., 1., 9., 1.,  10., 9., 1., 11., 4., 1., 5.});
+    gko::array<IndexType> perm(
+        exec, I<IndexType>({5, 9, 2, 11, 0, 10, 1, 13, 6, 14, 4, 8, 3, 12, 7}));
+    gko::array<IndexType> perm_cpy{exec, 15};
+    perm_cpy = perm;
+    GKO_ASSERT_ARRAY_EQ(perm, perm_cpy);
+    gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
+    gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 11, 15}));
+
+    auto rhs = Vec::create(exec, gko::dim<2>{15, 1});
+    this->template init_array<ValueType>(
+        rhs->get_values(), {2., 85., 42., 80., 82., 6., 21., 246., 63., 42.,
+                            44., 269., 152., 273., 103.});
+    auto x = Vec::create_with_config_of(gko::lend(rhs));
+    x->fill(ValueType{0});
+    auto ref_x = Vec::create_with_config_of(gko::lend(rhs));
+    std::iota(ref_x->get_values(), ref_x->get_values() + 15, 1);
+
+    IndexType max_color = 1;
+    IndexType base_block_size = 4;
+    IndexType lvl_2_block_size = 3;
+
+    gko::preconditioner::storage_scheme dummy_no_secondary(2 * max_color + 1);
+
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, perm.get_data(), dummy_no_secondary, base_block_size,
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+
+    GKO_ASSERT_ARRAY_EQ(perm, perm_cpy);  // cannot create a single lvl 1 block
+                                          // -> no change in the perm array
+
+    lvl_2_block_size = 2;
+    gko::preconditioner::storage_scheme storage_scheme(2 * max_color + 1);
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, perm.get_data(), storage_scheme, base_block_size,
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+
+    gko::array<IndexType> perm_with_second_ordering(
+        exec, I<IndexType>({5, 0, 9, 10, 2, 1, 11, 13, 6, 14, 4, 8, 3, 12, 7}));
+    GKO_ASSERT_ARRAY_EQ(
+        perm, perm_with_second_ordering);  // with smaller lvl 2 block size
+                                           // second ordering succesful
+
+    gko::kernels::reference::csr::invert_permutation(
+        exec, perm.get_num_elems(), perm.get_const_data(), inv_perm.get_data());
+
+    IndexType* dummyInd;
+    ValueType* dummyVal;
+    const auto diag_mem_requirement = 40;
+    const auto l_spmv_val_col_mem_requirement = 24;
+    const auto l_spmv_row_mem_requirement = 15 - 11 + max_color;
+    gko::array<IndexType> l_diag_rows_(exec, diag_mem_requirement);
+    gko::array<IndexType> l_diag_mtx_col_idxs_(exec, diag_mem_requirement);
+    gko::array<ValueType> l_diag_vals_(exec, diag_mem_requirement);
+    l_diag_vals_.fill(ValueType{0});
+    l_diag_mtx_col_idxs_.fill(IndexType{-1});
+    l_diag_rows_.fill(IndexType{-1});
+    gko::array<IndexType> l_spmv_row_ptrs_(exec, l_spmv_row_mem_requirement);
+    gko::array<IndexType> l_spmv_col_idxs_(exec,
+                                           l_spmv_val_col_mem_requirement);
+    gko::array<IndexType> l_spmv_mtx_col_idxs_(exec,
+                                               l_spmv_val_col_mem_requirement);
+    gko::array<ValueType> l_spmv_vals_(exec, l_spmv_val_col_mem_requirement);
+
+    l_spmv_vals_.fill(ValueType{0});
+    l_spmv_mtx_col_idxs_.fill(IndexType{0});
+    l_spmv_col_idxs_.fill(IndexType{0});
+
+    gko::kernels::reference::gauss_seidel::setup_blocks(
+        exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
+        storage_scheme, l_diag_rows_.get_data(),
+        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
+        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
+        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(), dummyInd,
+        dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+
+    auto rhs_perm = gko::as<Vec>(rhs->row_permute(&perm));
+
+    gko::kernels::reference::gauss_seidel::simple_apply(
+        exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
+        l_spmv_row_ptrs_.get_const_data(), l_spmv_col_idxs_.get_const_data(),
+        l_spmv_vals_.get_const_data(), perm.get_const_data(), storage_scheme,
+        lend(rhs_perm), lend(x));
+
+    GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
+}
+
+TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
     using GS = typename TestFixture::GS;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
 
     auto exec = this->exec;
     auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{1000}, IndexType{3}, IndexType{7}, ValueType{0}));
-
-    // gko::matrix_data<ValueType, IndexType> diag_data;
-    // mtx->write(diag_data);
-    // gko::utils::make_lower_triangular(diag_data);
-    // gko::utils::make_upper_triangular(diag_data);
-    // mtx->read(diag_data);
+        IndexType{10003}, IndexType{5}, IndexType{15}, ValueType{0}));
 
     auto rhs =
         gko::share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
@@ -1013,7 +1184,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     auto gs_HBMC_factory = GS::build()
                                .with_use_HBMC(true)
                                .with_base_block_size(4u)
-                               .with_lvl_2_block_size(32u)
+                               .with_lvl_2_block_size(8u)
                                .on(exec);
     auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
@@ -1030,25 +1201,18 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     const auto rhs_perm =
         gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
 
-    // this->print_array(perm_idxs);
-
     auto ltrs_factory =
         gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
     auto ref_ltrs = ltrs_factory->generate(ref_mtx);
 
 
     ref_ltrs->apply(gko::lend(rhs_perm), gko::lend(ref_x));
-    gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
 
     auto ref_ans = Vec::create(exec);
     ref_ans->copy_from(
         std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
 
-    // std::ofstream x_hbmc{"data/x_hbmc.mtx"};
-    // std::ofstream x_ref{"data/x_ref.mtx"};
-    // gko::write(x_hbmc, lend(x));
-
-    // gko::write(x_ref, lend(ref_ans));
+    gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
 
     GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
 }

@@ -153,7 +153,7 @@ struct lvl_1_block : general_block {
         lvl_1_block_size_ = base_block_size * lvl_2_block_size;
     }
     int32 base_block_size_;
-    int32 num_subblocks_;
+    // int32 num_subblocks_;
     int32 lvl_2_block_size_;
     int32 lvl_1_block_size_;
 };

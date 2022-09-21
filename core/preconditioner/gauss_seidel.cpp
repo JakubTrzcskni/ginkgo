@@ -440,6 +440,9 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
         dummyInd, dummyInd, dummyVal));
 
+    GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
+               hbmc_storage_scheme_.forward_solve_.size());
+
     // for testing only
     lower_triangular_matrix_->copy_from(
         give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
