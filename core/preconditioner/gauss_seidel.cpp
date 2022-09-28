@@ -132,20 +132,22 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Diagonal = matrix::Diagonal<ValueType>;
     using dim_type = gko::dim<2>::dimension_type;
-    const auto exec = this->get_executor();
+    const auto exec = this->get_executor()->get_master();
     bool permuted = permutation_idxs_.get_num_elems() > 0;
 
     if (permuted) {
         auto b_perm = share(
             as<Dense>(as<const Dense>(b)->row_permute(&permutation_idxs_)));
         if (use_HBMC_) {
-            exec->run(gauss_seidel::make_simple_apply(
+            std::cout << "apply" << std::endl;
+            this->get_executor()->run(gauss_seidel::make_simple_apply(
                 l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
                 l_spmv_row_ptrs_.get_const_data(),
                 l_spmv_col_idxs_.get_const_data(),
                 l_spmv_vals_.get_const_data(),
                 permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
                 lend(b_perm), as<Dense>(x)));
+            // }
         } else {
             auto x_perm =
                 share(as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_)));
@@ -242,7 +244,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
 {
     using Dense = matrix::Dense<ValueType>;
     using Csr = matrix::Csr<ValueType, IndexType>;
-    const auto exec = this->get_executor();
+    const auto exec = this->get_executor()->get_master();
     bool permuted = permutation_idxs_.get_num_elems() > 0;
 
     if (use_reference_) {
@@ -283,7 +285,7 @@ GaussSeidel<ValueType, IndexType>::get_adjacency_matrix(
     using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
     using MatData = matrix_data<ValueType, IndexType>;
 
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
 
     auto tmp = SparsityMatrix::create(exec);
 
@@ -302,7 +304,7 @@ IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
     using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
     using MatData = matrix_data<ValueType, IndexType>;
 
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
 
     auto adjacency_matrix = SparsityMatrix::create(exec);
     adjacency_matrix = get_adjacency_matrix(mat_data, is_symmetric);
@@ -321,7 +323,7 @@ void GaussSeidel<ValueType, IndexType>::initialize_blocks()
 {
     using Diagonal = gko::matrix::Diagonal<ValueType>;
     using dim_type = gko::dim<2>::dimension_type;
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
     const auto block_ptrs = color_ptrs_.get_const_data();
     const auto num_rows = lower_triangular_matrix_->get_size()[0];
     const auto num_of_colors = color_ptrs_.get_num_elems() - 1;
@@ -365,7 +367,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
     std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
 {
     using Csr = matrix::Csr<ValueType, IndexType>;
-    const auto exec = this->get_executor();
+    const auto exec = this->get_executor()->get_master();
     GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix);
 
     auto csr_matrix =
@@ -411,7 +413,9 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
 {
     using Csr = matrix::Csr<ValueType, IndexType>;
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
+    const auto is_gpu_executor = this->get_executor() != exec;
+
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
 
@@ -443,6 +447,19 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
                hbmc_storage_scheme_.forward_solve_.size());
 
+    if (is_gpu_executor) {
+        std::cout << "GPU exec!" << std::endl;
+        const auto d_exec = this->get_executor();
+        l_diag_rows_.set_executor(d_exec);
+        l_diag_mtx_col_idxs_.set_executor(d_exec);
+        l_diag_vals_.set_executor(d_exec);
+        l_spmv_row_ptrs_.set_executor(d_exec);
+        l_spmv_col_idxs_.set_executor(d_exec);
+        l_spmv_mtx_col_idxs_.set_executor(d_exec);
+        l_spmv_vals_.set_executor(d_exec);
+        permutation_idxs_.set_executor(d_exec);
+    }
+
     // for testing only
     lower_triangular_matrix_->copy_from(
         give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
@@ -454,7 +471,7 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     const IndexType num_base_blocks, const IndexType base_block_size,
     const IndexType num_colors)
 {
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
     const auto num_nodes = adjacency_matrix->get_size()[0];
     const auto nnz_triangle = adjacency_matrix->get_num_nonzeros() / 2 +
                               num_nodes;  // should work if matrix is symmetric
@@ -511,7 +528,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
     const IndexType block_size, const IndexType lvl_2_block_size)
 {
-    auto exec = this->get_executor();
+    auto exec = this->get_executor()->get_master();
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
     const IndexType num_base_blocks = ceildiv(num_nodes, block_size);
 

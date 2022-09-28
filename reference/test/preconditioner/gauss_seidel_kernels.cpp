@@ -400,15 +400,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel)
     ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_4);
 
-    // auto v_colors = gs->get_vertex_colors();
-    // auto p_idxs = gs->get_permutation_idxs();
-    // auto col_ptrs = gs->get_color_ptrs();
-
-    // this->print_array(v_colors);
-    // this->print_array(p_idxs);
-    // this->print_array(col_ptrs);
-    // this->print_csr(lend(gs->get_ltr_matrix()));
-
     gs->apply(lend(this->rhs_4), lend(ans));
 
     GKO_ASSERT_MTX_NEAR(ans,
@@ -427,14 +418,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernel_2)
     ans->fill(ValueType{0});
     auto gs = this->gs_factory->generate(this->mtx_csr_3);
     gs->apply(lend(this->rhs_3), lend(ans));
-
-    // auto v_colors = gs->get_vertex_colors();
-    // auto p_idxs = gs->get_permutation_idxs();
-
-    // this->print_array(v_colors);
-    // this->print_array(p_idxs);
-
-    // this->print_csr(lend(gs->get_ltr_matrix()));
 
     GKO_ASSERT_MTX_NEAR(ans,
                         l({ValueType{6.0 / 10.0}, ValueType{799.0 / 440.0},
@@ -703,31 +686,15 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
     this->template init_array<IndexType>(block_ordering.get_data(),
                                          {0, 1, 2, 3, 4, 5, 6, 7});
 
-
     const IndexType base_block_size = 2;
     const IndexType lvl_2_block_size = 4;
     const IndexType max_color = 0;
 
     auto dummy_storage = gko::preconditioner::storage_scheme(1);
 
-
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, block_ordering.get_data(), dummy_storage, base_block_size,
         lvl_2_block_size, color_ptrs.get_const_data(), max_color);
-
-    // auto standard_label = std::string("withoutOrdering-");
-    // standard_label += typeid(ValueType).name() + std::string("-") +
-    //                   typeid(IndexType).name() + std::string("-");
-    // this->visualize(gko::lend(mtx), standard_label);
-
-    // auto perm_mtx = Csr::create(exec);
-    //
-    // perm_mtx->copy_from(gko::give(gko::as<Csr>(mtx->permute(&block_ordering))));
-
-    // auto label = std::string("SecondaryOrdering-");
-    // label += typeid(ValueType).name() + std::string("-") +
-    //          typeid(IndexType).name() + std::string("-");
-    // this->visualize(gko::lend(perm_mtx), label);
 
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
 }
@@ -788,8 +755,8 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
                                   I<IndexType>({2, 4, 3, 5, 3, 1, 4, 3, 3}));
     gko::array<gko::int8> visited(exec, num_nodes);
     std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
-    IndexType block_size = 4;
 
+    IndexType block_size = 4;
     gko::kernels::reference::gauss_seidel::assign_to_blocks(
         exec, gko::lend(adjacency_mtx), block_ordering.get_data(),
         degrees.get_const_data(), visited.get_data(), block_size);
@@ -799,8 +766,8 @@ TYPED_TEST(GaussSeidel, AssignToBlocksKernel)
                         I<IndexType>({5, 6, 0, 7, 2, 1, 3, 4, 8}));
 
 
-    std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
     block_size = 6;
+    std::fill_n(visited.get_data(), num_nodes, gko::int8{0});
     block_ordering.resize_and_reset(num_nodes);
     gko::kernels::reference::gauss_seidel::assign_to_blocks(
         exec, gko::lend(adjacency_mtx), block_ordering.get_data(),
@@ -1114,7 +1081,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
         exec, I<IndexType>({5, 0, 9, 10, 2, 1, 11, 13, 6, 14, 4, 8, 3, 12, 7}));
     GKO_ASSERT_ARRAY_EQ(
         perm, perm_with_second_ordering);  // with smaller lvl 2 block size
-                                           // second ordering succesful
+                                           // second ordering successful
 
     gko::kernels::reference::csr::invert_permutation(
         exec, perm.get_num_elems(), perm.get_const_data(), inv_perm.get_data());
@@ -1170,7 +1137,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
 
     auto exec = this->exec;
     auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{10003}, IndexType{5}, IndexType{15}, ValueType{0}));
+        IndexType{1003}, IndexType{5}, IndexType{10}, ValueType{0}));
 
     auto rhs =
         gko::share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));

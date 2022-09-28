@@ -72,6 +72,61 @@ void visualize(std::shared_ptr<const gko::Executor> exec,
 }
 
 template <typename ValueType, typename IndexType>
+std::unique_ptr<gko::matrix::Csr<ValueType, IndexType>>
+generate_2D_regular_grid_matrix(std::shared_ptr<const gko::Executor> exec,
+                                size_t size, ValueType deduction_help,
+                                IndexType deduction_help_ind,
+                                bool nine_point = false)
+{
+    gko::dim<2>::dimension_type grid_points = size * size;
+    gko::matrix_data<ValueType, IndexType> data(gko::dim<2>{grid_points});
+
+    auto matrix = gko::matrix::Csr<ValueType, IndexType>::create(
+        exec, gko::dim<2>{grid_points});
+
+    for (auto iy = 0; iy < size; iy++) {
+        for (auto ix = 0; ix < size; ix++) {
+            auto current_row = iy * size + ix;
+            for (auto ofs_y : {-1, 0, 1}) {
+                if (iy + ofs_y > -1 && iy + ofs_y < size) {
+                    for (auto ofs_x : {-1, 0, 1}) {
+                        if (ix + ofs_x > -1 && ix + ofs_x < size) {
+                            if (nine_point) {
+                                auto current_col =
+                                    current_row + ofs_y * size + ofs_x;
+                                if (current_col == current_row) {
+                                    data.nonzeros.emplace_back(
+                                        current_row, current_col, 8.0);
+                                } else {
+                                    data.nonzeros.emplace_back(
+                                        current_row, current_col, -1.0);
+                                }
+
+                            } else {
+                                if (std::abs(ofs_x) + std::abs(ofs_y) < 2) {
+                                    auto current_col =
+                                        current_row + ofs_y * size + ofs_x;
+                                    if (current_col == current_row) {
+                                        data.nonzeros.emplace_back(
+                                            current_row, current_col, 4.0);
+                                    } else {
+                                        data.nonzeros.emplace_back(
+                                            current_row, current_col, -1.0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    data.ensure_row_major_order();
+    matrix->read(data);
+    return std::move(matrix);
+}
+
+template <typename ValueType, typename IndexType>
 std::unique_ptr<gko::matrix::Csr<ValueType, IndexType>> generate_rand_matrix(
     std::shared_ptr<const gko::Executor> exec, IndexType size,
     IndexType num_elems_lo, IndexType num_elems_hi, ValueType deduction_help,
@@ -185,11 +240,11 @@ int main(int argc, char* argv[])
 
     auto mtx_rand = gko::share(generate_rand_matrix(
         exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    // auto mtx_rand = gko::share(
-    //     this->generate_2D_regular_grid_matrix(size_t{10}, ValueType{},
-    //     false));
+    auto mtx_rand_grid = gko::share(generate_2D_regular_grid_matrix(
+        exec, size_t{std::sqrt(rand_size)}, ValueType{}, IndexType{}, true));
 
     visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
+    visualize(exec, gko::lend(mtx_rand_grid), std::string("mtxRandGrid"));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)
@@ -199,13 +254,19 @@ int main(int argc, char* argv[])
 
 
     auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+    auto gs_rand_grid =
+        HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand_grid));
     auto label = std::string("mtxRandPermuted-");
+    // label += typeid(ValueType).name() + std::string("-") +
+    //                   typeid(IndexType).name() + std::string("-");
     // label += std::to_string(base_block_size) + std::string("-") +
     //          std::to_string(lvl_2_block_size);
     visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
 
-    auto label2 = std::string("mtxRandBlockOrdering-");
+    // auto label2 = std::string("mtxRandBlockOrdering-");
     // label2 += std::to_string(base_block_size) + std::string("-") +
     //           std::to_string(lvl_2_block_size);
-    visualize(exec, gko::lend(gs_rand->get_utr_matrix()), label2);
+    // visualize(exec, gko::lend(gs_rand->get_utr_matrix()), label2);
+    auto label_grid = std::string("mtxRandGridPermuted-");
+    visualize(exec, gko::lend(gs_rand_grid->get_ltr_matrix()), label_grid);
 }

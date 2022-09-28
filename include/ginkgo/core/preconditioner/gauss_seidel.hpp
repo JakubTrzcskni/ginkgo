@@ -153,7 +153,6 @@ struct lvl_1_block : general_block {
         lvl_1_block_size_ = base_block_size * lvl_2_block_size;
     }
     int32 base_block_size_;
-    // int32 num_subblocks_;
     int32 lvl_2_block_size_;
     int32 lvl_1_block_size_;
 };
@@ -178,12 +177,10 @@ struct base_block_aggregation : general_block {
 
 template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
-                    // public ConvertibleTo<matrix::Dense<ValueType>>,
-                    // public WritableToMatrixData<ValueType, IndexType>,
                     public Transposable {
     friend class EnableLinOp<GaussSeidel>;
     friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
-    // friend class
+
 
 public:
     using value_type = ValueType;
@@ -216,6 +213,13 @@ public:
 
     std::vector<index_type> get_level_ptrs() { return level_ptrs_; }
 
+    array<index_type> get_l_diag_rows() { return l_diag_rows_; }
+    array<value_type> get_l_diag_vals() { return l_diag_vals_; }
+    array<index_type> get_l_spmv_row_ptrs() { return l_spmv_row_ptrs_; }
+    array<index_type> get_l_spmv_col_idxs() { return l_spmv_col_idxs_; }
+    array<value_type> get_l_spmv_vals() { return l_spmv_vals_; }
+    storage_scheme get_storage_scheme() { return hbmc_storage_scheme_; }
+
     void update_system(value_type* values);
 
     GKO_CREATE_FACTORY_PARAMETERS(parameters, Factory)
@@ -243,7 +247,7 @@ public:
     GKO_ENABLE_BUILD_METHOD(Factory);
 
 protected:
-    // empty GS preconditioner
+    // empty GS preconditionerfactory->get_executor()
     explicit GaussSeidel(std::shared_ptr<const Executor> exec)
         : EnableLinOp<GaussSeidel>(exec),
           relaxation_factor_{parameters_.relaxation_factor},
@@ -257,39 +261,55 @@ protected:
         : EnableLinOp<GaussSeidel>(factory->get_executor(),
                                    gko::transpose(system_matrix->get_size())),
           parameters_{factory->get_parameters()},
-          lower_triangular_matrix_{Csr::create(factory->get_executor())},
-          upper_triangular_matrix_{Csr::create(factory->get_executor())},
+          lower_triangular_matrix_{
+              Csr::create(factory->get_executor()->get_master())},
+          upper_triangular_matrix_{
+              Csr::create(factory->get_executor()->get_master())},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
-          vertex_colors_{array<index_type>(factory->get_executor(),
-                                           system_matrix->get_size()[0])},
-          color_ptrs_{array<index_type>(factory->get_executor())},
-          permutation_idxs_{array<index_type>(factory->get_executor())},
-          inv_permutation_idxs_{array<index_type>(factory->get_executor())},
+          vertex_colors_{
+              array<index_type>(factory->get_executor()->get_master(),
+                                system_matrix->get_size()[0])},
+          color_ptrs_{array<index_type>(factory->get_executor()->get_master())},
+          permutation_idxs_{
+              array<index_type>(factory->get_executor()->get_master())},
+          inv_permutation_idxs_{
+              array<index_type>(factory->get_executor()->get_master())},
           base_block_size_{parameters_.base_block_size},
           lvl2_block_size_{parameters_.lvl_2_block_size},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_HBMC_{parameters_.use_HBMC},
-          l_diag_rows_{array<index_type>(factory->get_executor())},
-          l_diag_mtx_col_idxs_{array<index_type>(factory->get_executor())},
-          l_diag_vals_{array<value_type>(factory->get_executor())},
-          l_spmv_row_ptrs_{array<index_type>(factory->get_executor())},
-          l_spmv_col_idxs_{array<index_type>(factory->get_executor())},
-          l_spmv_mtx_col_idxs_{array<index_type>(factory->get_executor())},
-          l_spmv_vals_{array<value_type>(factory->get_executor())}
+          l_diag_rows_{
+              array<index_type>(factory->get_executor()->get_master())},
+          l_diag_mtx_col_idxs_{
+              array<index_type>(factory->get_executor()->get_master())},
+          l_diag_vals_{
+              array<value_type>(factory->get_executor()->get_master())},
+          l_spmv_row_ptrs_{
+              array<index_type>(factory->get_executor()->get_master())},
+          l_spmv_col_idxs_{
+              array<index_type>(factory->get_executor()->get_master())},
+          l_spmv_mtx_col_idxs_{
+              array<index_type>(factory->get_executor()->get_master())},
+          l_spmv_vals_{array<value_type>(factory->get_executor()->get_master())}
     {
         if (parameters_.use_HBMC == true) {
             if (parameters_.symmetric_preconditioner) {
-                u_diag_rows_ = array<index_type>(factory->get_executor());
+                u_diag_rows_ =
+                    array<index_type>(factory->get_executor()->get_master());
                 u_diag_mtx_col_idxs_ =
-                    array<index_type>(factory->get_executor());
-                u_diag_vals_ = array<value_type>(factory->get_executor());
-                u_spmv_row_ptrs_ = array<index_type>(factory->get_executor());
-                u_spmv_col_idxs_ = array<index_type>(factory->get_executor());
+                    array<index_type>(factory->get_executor()->get_master());
+                u_diag_vals_ =
+                    array<value_type>(factory->get_executor()->get_master());
+                u_spmv_row_ptrs_ =
+                    array<index_type>(factory->get_executor()->get_master());
+                u_spmv_col_idxs_ =
+                    array<index_type>(factory->get_executor()->get_master());
                 u_spmv_mtx_col_idxs_ =
-                    array<index_type>(factory->get_executor());
-                u_spmv_vals_ = array<value_type>(factory->get_executor());
+                    array<index_type>(factory->get_executor()->get_master());
+                u_spmv_vals_ =
+                    array<value_type>(factory->get_executor()->get_master());
             }
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
 
