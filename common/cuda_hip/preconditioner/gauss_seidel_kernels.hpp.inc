@@ -116,13 +116,6 @@ __global__ void prepare_x_kernel(const ValueType* __restrict__ orig_x,
     }
 }
 
-// template <typename ValueType, typename IndexType>
-// __global__ apply_l_spmv_block_kernel(){}
-
-// template <typename ValueType, typename IndexType>
-// __global__ apply_l_parallel_block_kernel(){}
-
-
 template <typename ValueType, typename IndexType>
 __device__ void apply_ltr(const IndexType* __restrict__ rows,
                           const ValueType* __restrict__ vals,
@@ -133,7 +126,6 @@ __device__ void apply_ltr(const IndexType* __restrict__ rows,
                           const IndexType* __restrict__ perm_idxs,
                           const int* diag_LUT, const int* subblock_LUT)
 {
-    auto tmp = zero<ValueType>();
     for (auto i = 0; i < (diag_LUT[b_s] + 1); ++i) {  // i < nz_p_b(b_s)
         const auto curr_offs = i * w;
         const auto row = rows[curr_offs];
@@ -148,9 +140,8 @@ __device__ void apply_ltr(const IndexType* __restrict__ rows,
                 const auto inv_diag_val = one<ValueType>() / val;
                 for (size_type k = 0; k < num_rhs; ++k) {
                     x[x_row * num_rhs + k] =
-                        inv_diag_val * (b_perm[row * num_rhs + k] - tmp);
+                        inv_diag_val * (b_perm[row * num_rhs + k]);
                 }
-                tmp = zero<ValueType>();
 
             } else {
                 // off the diagonal
@@ -159,7 +150,9 @@ __device__ void apply_ltr(const IndexType* __restrict__ rows,
                 if (row_read >= 0) {
                     const auto x_row_read = perm_idxs[row_read];
                     for (size_type k = 0; k < num_rhs; ++k) {
-                        tmp += vals[curr_offs] * x[x_row_read * num_rhs + k];
+                        auto tmp =
+                            vals[curr_offs] * x[x_row_read * num_rhs + k];
+                        b_perm[row * num_rhs + k] -= tmp;
                     }
                 }
             }
@@ -197,12 +190,10 @@ __global__ void apply_l_p_block_kernel(
 
     const auto nz_p_b = diag_LUT[b_s] + 1;
     const auto stride = nz_p_b * w;
-    const auto base_offs = warp_id * stride;  // TODO what when w !=
-    // warp_size?
+    const auto base_offs = warp_id * stride;
 
     if (warp_id == (num_p_blocks - 1) && res_blocks) {
         // apply base_block_agg
-        // printf("nono\n");
         const auto stride_base_block = nz_p_b;
         const auto base_block_offs = base_offs + local_tid * stride_base_block;
         apply_ltr(&(rows[base_block_offs]), &(vals[base_block_offs]), end_row,

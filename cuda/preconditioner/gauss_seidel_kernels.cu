@@ -143,12 +143,18 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
     const auto num_rhs = b_perm->get_size()[1];
     const auto num_rows = b_perm->get_size()[0];
 
-    auto diag_LUT = gko::array<int>(exec, max_block_size + 1);
-    cudaMemcpy(diag_LUT.get_data(), diag_lut.data(), max_block_size + 1,
-               cudaMemcpyHostToDevice);
-    auto subblock_LUT = gko::array<int>(exec, get_nz_block(max_block_size) + 1);
-    cudaMemcpy(subblock_LUT.get_data(), sub_block_lut.data(),
-               subblock_LUT.get_num_elems(), cudaMemcpyHostToDevice);
+    auto diag_LUT = gko::array<int>(
+        exec, make_array_view(exec->get_master(), max_block_size + 1,
+                              diag_lut.data()));
+
+    // cudaMemcpy(diag_LUT.get_data(), diag_lut.data(), max_block_size + 1,
+    //            cudaMemcpyHostToDevice);
+    auto subblock_LUT =
+        gko::array<int>(exec, make_array_view(exec->get_master(),
+                                              get_nz_block(max_block_size) + 1,
+                                              sub_block_lut.data()));
+    // cudaMemcpy(subblock_LUT.get_data(), sub_block_lut.data(),
+    //            subblock_LUT.get_num_elems(), cudaMemcpyHostToDevice);
 
     auto first_p_block =
         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());

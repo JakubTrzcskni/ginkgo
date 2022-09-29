@@ -447,18 +447,17 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
                hbmc_storage_scheme_.forward_solve_.size());
 
-    if (is_gpu_executor) {
-        std::cout << "GPU exec!" << std::endl;
-        const auto d_exec = this->get_executor();
-        l_diag_rows_.set_executor(d_exec);
-        l_diag_mtx_col_idxs_.set_executor(d_exec);
-        l_diag_vals_.set_executor(d_exec);
-        l_spmv_row_ptrs_.set_executor(d_exec);
-        l_spmv_col_idxs_.set_executor(d_exec);
-        l_spmv_mtx_col_idxs_.set_executor(d_exec);
-        l_spmv_vals_.set_executor(d_exec);
-        permutation_idxs_.set_executor(d_exec);
-    }
+
+    const auto d_exec = this->get_executor();
+    l_diag_rows_.set_executor(d_exec);
+    l_diag_mtx_col_idxs_.set_executor(d_exec);
+    l_diag_vals_.set_executor(d_exec);
+    l_spmv_row_ptrs_.set_executor(d_exec);
+    l_spmv_col_idxs_.set_executor(d_exec);
+    l_spmv_mtx_col_idxs_.set_executor(d_exec);
+    l_spmv_vals_.set_executor(d_exec);
+    permutation_idxs_.set_executor(d_exec);
+
 
     // for testing only
     lower_triangular_matrix_->copy_from(

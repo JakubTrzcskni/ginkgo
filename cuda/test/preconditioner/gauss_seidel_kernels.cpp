@@ -138,9 +138,9 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1000;
+    gko::size_type num_rows = 3008;
     gko::size_type row_limit = 5;
-    gko::size_type num_rhs = 1;
+    gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
         std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.);
@@ -165,7 +165,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
 
     auto ref_gs_factory = GS::build()
                               .with_use_HBMC(true)
-                              .with_base_block_size(3u)
+                              .with_base_block_size(4u)
                               .with_lvl_2_block_size(32u)
                               .on(ref_exec);
 
@@ -252,9 +252,9 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1000;
+    gko::size_type num_rows = 3008;
     gko::size_type row_limit = 5;
-    gko::size_type num_rhs = 1;
+    gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
         std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.);
@@ -276,7 +276,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
 
     auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
     mtx->read(mat_data);
-    auto d_mtx = gko::share(gko::clone(cuda_exec, mtx));
+    // auto d_mtx = gko::share(gko::clone(cuda_exec, mtx));
 
     gko::size_type b_s = 4;
     gko::size_type w = 32;
@@ -295,7 +295,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
                                  .with_lvl_2_block_size(w)
                                  .on(cuda_exec);
     std::cout << "generate cuda" << std::endl;
-    auto device_gs = device_gs_factory->generate(d_mtx);
+    auto device_gs = device_gs_factory->generate(mtx);
 
     ref_gs->apply(gko::lend(rhs), gko::lend(x));
 

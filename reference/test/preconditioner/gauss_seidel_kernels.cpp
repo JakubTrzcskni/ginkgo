@@ -1150,7 +1150,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
 
     auto gs_HBMC_factory = GS::build()
                                .with_use_HBMC(true)
-                               .with_base_block_size(4u)
+                               .with_base_block_size(2u)
                                .with_lvl_2_block_size(8u)
                                .on(exec);
     auto gs_HBMC = gs_HBMC_factory->generate(mtx);
