@@ -55,21 +55,21 @@ namespace preconditioner {
 
 struct general_block {
     general_block() = default;
-    general_block(int32 start_val_storage_id, int32 start_row_global,
-                  int32 end_row_global)
+    general_block(size_type start_val_storage_id, size_type start_row_global,
+                  size_type end_row_global)
         : val_storage_id_{start_val_storage_id},
           start_row_global_{start_row_global},
           end_row_global_{end_row_global}
     {}
-    int32 val_storage_id_ = 0;
-    int32 start_row_global_ = 0;
-    int32 end_row_global_ = 0;
+    size_type val_storage_id_ = 0;
+    size_type start_row_global_ = 0;
+    size_type end_row_global_ = 0;
 };
 
 
 struct storage_scheme {
     storage_scheme() = default;
-    storage_scheme(int32 num_blocks, bool symm = false)
+    storage_scheme(size_type num_blocks, bool symm = false)
         : num_blocks_{num_blocks}, symm_{symm}
     {
         forward_solve_.reserve(num_blocks);
@@ -77,30 +77,32 @@ struct storage_scheme {
             backward_solve_.reserve(num_blocks);
         }
     }
-    int32 num_blocks_;
+    size_type num_blocks_;
     bool symm_;
     std::vector<std::shared_ptr<general_block>> forward_solve_;
     std::vector<std::shared_ptr<general_block>> backward_solve_;
 };
 
 struct spmv_block : general_block {
-    spmv_block(int32 start_row_global, int32 start_col_global,
-               int32 end_col_global)
+    spmv_block(size_type start_row_global, size_type start_col_global,
+               size_type end_col_global)
         : general_block(0, start_row_global, 0),
           start_col_global_{start_col_global},
           end_col_global_{end_col_global}
     {}
-    spmv_block(int32 start_row_ptrs_storage_id, int32 start_val_storage_id,
-               int32 start_row_global, int32 end_row_global,
-               int32 start_col_global, int32 end_col_global)
+    spmv_block(size_type start_row_ptrs_storage_id,
+               size_type start_val_storage_id, size_type start_row_global,
+               size_type end_row_global, size_type start_col_global,
+               size_type end_col_global)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
           row_ptrs_storage_id_{start_row_ptrs_storage_id},
           start_col_global_{start_col_global},
           end_col_global_{end_col_global}
     {}
-    void update(int32 start_row_ptrs_storage_id, int32 start_val_storage_id,
-                int32 start_row_global, int32 end_row_global,
-                int32 start_col_global, int32 end_col_global)
+    void update(size_type start_row_ptrs_storage_id,
+                size_type start_val_storage_id, size_type start_row_global,
+                size_type end_row_global, size_type start_col_global,
+                size_type end_col_global)
     {
         row_ptrs_storage_id_ = start_row_ptrs_storage_id;
         val_storage_id_ = start_val_storage_id;
@@ -109,16 +111,17 @@ struct spmv_block : general_block {
         end_row_global_ = end_row_global;
         end_col_global_ = end_col_global;
     }
-    int32 row_ptrs_storage_id_ = 0;
-    int32 start_col_global_ = 0;
-    int32 end_col_global_ = 0;
+    size_type row_ptrs_storage_id_ = 0;
+    size_type start_col_global_ = 0;
+    size_type end_col_global_ = 0;
 };
 
 struct parallel_block : general_block {
     parallel_block() = default;
-    parallel_block(int32 start_val_storage_id, int32 start_row_global,
-                   int32 end_row_global, int32 degree_of_parallelism,
-                   int32 base_block_size, int32 lvl_2_block_size, bool residual)
+    parallel_block(size_type start_val_storage_id, size_type start_row_global,
+                   size_type end_row_global, size_type degree_of_parallelism,
+                   size_type base_block_size, size_type lvl_2_block_size,
+                   bool residual)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
           degree_of_parallelism_{degree_of_parallelism},
           base_block_size_{base_block_size},
@@ -131,11 +134,11 @@ struct parallel_block : general_block {
             (base_block_size * base_block_size - base_block_size) / 2 +
             base_block_size;
     }
-    int32 degree_of_parallelism_;
-    int32 base_block_size_ = 4;
-    int32 nz_p_b_block_ = 10;
-    int32 lvl_2_block_size_ = 32;
-    int32 lvl_1_block_size_ = 128;
+    size_type degree_of_parallelism_;
+    size_type base_block_size_ = 4;
+    size_type nz_p_b_block_ = 10;
+    size_type lvl_2_block_size_ = 32;
+    size_type lvl_1_block_size_ = 128;
     bool residual_;  // true if there are trailing base blocks, false if current
                      // color consists only of lvl 1 blocks
     std::vector<std::shared_ptr<general_block>> parallel_blocks_;
@@ -143,25 +146,25 @@ struct parallel_block : general_block {
 
 // template <int base_block_size  =4, int lvl_2_block_size = 32>
 struct lvl_1_block : general_block {
-    lvl_1_block(int32 start_val_storage_id, int32 start_row_global,
-                int32 end_row_global, int32 base_block_size,
-                int32 lvl_2_block_size)
+    lvl_1_block(size_type start_val_storage_id, size_type start_row_global,
+                size_type end_row_global, size_type base_block_size,
+                size_type lvl_2_block_size)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
           base_block_size_{base_block_size},
           lvl_2_block_size_{lvl_2_block_size}
     {
         lvl_1_block_size_ = base_block_size * lvl_2_block_size;
     }
-    int32 base_block_size_;
-    int32 lvl_2_block_size_;
-    int32 lvl_1_block_size_;
+    size_type base_block_size_;
+    size_type lvl_2_block_size_;
+    size_type lvl_1_block_size_;
 };
 
 // template <int base_block_size = 4>
 struct base_block_aggregation : general_block {
-    base_block_aggregation(int32 start_val_storage_id, int32 start_row_global,
-                           int32 end_row_global, int32 num_base_blocks,
-                           int32 base_block_size)
+    base_block_aggregation(size_type start_val_storage_id,
+                           size_type start_row_global, size_type end_row_global,
+                           size_type num_base_blocks, size_type base_block_size)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
           num_base_blocks_{num_base_blocks},
           base_block_size_{base_block_size}
@@ -170,9 +173,9 @@ struct base_block_aggregation : general_block {
             (base_block_size * base_block_size - base_block_size) / 2 +
             base_block_size;
     }
-    int32 num_base_blocks_;
-    int32 base_block_size_;
-    int32 nz_p_b_block_;
+    size_type num_base_blocks_;
+    size_type base_block_size_;
+    size_type nz_p_b_block_;
 };
 
 template <typename ValueType = default_precision, typename IndexType = int32>
