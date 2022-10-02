@@ -55,14 +55,14 @@ constexpr IndexType get_nz_block(const IndexType block_size)
 }
 
 // Source: https://joelfilho.com/blog/2020/compile_time_lookup_tables_in_cpp/
-template <std::size_t Length, typename Generator, std::size_t... Indexes>
+template <gko::size_type Length, typename Generator, std::size_t... Indexes>
 constexpr auto lut_impl(Generator&& f, std::index_sequence<Indexes...>)
 {
     using content_type = decltype(f(std::size_t{0}));
     return std::array<content_type, Length>{{f(Indexes)...}};
 }
 
-template <std::size_t Length, typename Generator>
+template <gko::size_type Length, typename Generator>
 constexpr auto lut(Generator&& f)
 {
     return lut_impl<Length>(std::forward<Generator>(f),
@@ -70,23 +70,24 @@ constexpr auto lut(Generator&& f)
 }
 constexpr auto max_block_size = 32;
 constexpr auto max_nz_block = get_nz_block(max_block_size);
-constexpr int diag(int n)
+constexpr gko::int32 diag(gko::int32 n)
 {
-    int result = 0;
-    for (int i = 0; i <= n; i++) {
+    gko::int32 result = 0;
+    for (gko::int32 i = 0; i <= n; i++) {
         result += i;
     }
     return result - 1;
 }
 constexpr auto diag_lut = lut<max_block_size + 1>(diag);
 
-constexpr int sub_block(int n)
+constexpr gko::int32 sub_block(gko::int32 n)
 {
-    int result = 0;
-    for (int i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1; i++) {
+    gko::int32 result = 0;
+    for (gko::int32 i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1;
+         i++) {
         result = i;
     }
-    int tmp = n - diag_lut[result + 1];
+    gko::int32 tmp = n - diag_lut[result + 1];
     return tmp == 0 ? result : tmp - 1;
 }
 
@@ -95,17 +96,17 @@ constexpr auto sub_block_lut = lut<max_nz_block + 1>(sub_block);
 /// @brief equal to {0, 0, 1, 0, 1, 2, 0, 1, 2, 3, ...}
 /// @param n storage scheme id of the subblock(/entry in a base block)
 /// @return relative id of the diagonal entry above (/of the subblock itself)
-int precomputed_block(int n) { return sub_block_lut[n]; }
+gko::int32 precomputed_block(gko::int32 n) { return sub_block_lut[n]; }
 
 /// @brief equal to {0, 2, 5, 9, 14, ...}
 /// @param n relative id of the diagonal entry
 /// @return id of the diagonal entry in the rowwise storage scheme
-int precomputed_diag(int n) { return diag_lut[n + 1]; }
+gko::int32 precomputed_diag(gko::int32 n) { return diag_lut[n + 1]; }
 
 /// @brief equal to {0, 1, 3, 6, 9, ...}
 /// @param n block size
 /// @return number of nonzeros in a triangular block of given size
-int precomputed_nz_p_b(int n) { return diag_lut[n] + 1; }
+gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
 
 #define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType) \
     void apply(std::shared_ptr<const DefaultExecutor> exec,         \

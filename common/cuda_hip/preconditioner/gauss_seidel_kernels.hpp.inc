@@ -126,7 +126,8 @@ __device__ void apply_ltr(const IndexType* __restrict__ rows,
                           const IndexType* __restrict__ perm_idxs,
                           const int* diag_LUT, const int* subblock_LUT)
 {
-    for (auto i = 0; i < (diag_LUT[b_s] + 1); ++i) {  // i < nz_p_b(b_s)
+    for (auto i = 0; i < (diag_LUT[b_s] + 1);
+         ++i) {  // equivalent to i < nz_p_b(b_s)
         const auto curr_offs = i * w;
         const auto row = rows[curr_offs];
         const auto x_row = perm_idxs[row];
@@ -172,21 +173,14 @@ __global__ void apply_l_p_block_kernel(
 {
     constexpr int warp_size = config::warp_size;
     // const auto warp =
-    //     group::tiled_partition<config::warp_size>(group::this_thread_block());
+    //     group::tiled_partition<warp_size>(group::this_thread_block());
     // const auto local_tid = warp.thread_rank();
-    // const auto warp_id = thread::get_subwarp_id_flat<warp_size>();
+    // const auto warp_id = thread::get_subwarp_id_flat<warp_size, size_type>();
     const auto tid = thread::get_thread_id_flat<int>();
     const auto warp_id = tid / warp_size;
     const auto local_tid = tid % warp_size;
 
     if (warp_id >= num_p_blocks) return;
-    // printf(
-    //     "warp_size = %d, warp_id = %d, local_tid= %u, tid_flat = %d, end_row
-    //     = "
-    //     "%d\n",
-    //     warp_size, static_cast<int>(warp_id), local_tid,
-    //     static_cast<int>(thread::get_thread_id_flat<int>()),
-    //     static_cast<int>(end_row));
 
     const auto nz_p_b = diag_LUT[b_s] + 1;
     const auto stride = nz_p_b * w;

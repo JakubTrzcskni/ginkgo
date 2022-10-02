@@ -138,8 +138,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 3008;
-    gko::size_type row_limit = 5;
+    gko::size_type num_rows = 1001;
+    gko::size_type row_limit = 7;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -189,40 +189,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto d_perm_idxs = make_temporary_clone(cuda_exec, &perm_idxs);
     auto d_rhs_perm = gko::clone(cuda_exec, rhs_perm);
 
-    // storage_scheme.forward_solve_.erase(
-    //     storage_scheme.forward_solve_.begin() + 1,
-    //     storage_scheme.forward_solve_.end());
-    // storage_scheme.num_blocks_ = 1;
-    // auto first_p_block = static_cast<gko::preconditioner::parallel_block*>(
-    //     storage_scheme.forward_solve_[0].get());
-    // GKO_ASSERT(first_p_block->degree_of_parallelism_ > 1 ||
-    //            first_p_block->residual_ != true);
-    // first_p_block->parallel_blocks_.erase(
-    //     first_p_block->parallel_blocks_.begin() + 1,
-    //     first_p_block->parallel_blocks_.end());
-    // first_p_block->residual_ = false;
-    // first_p_block->degree_of_parallelism_ = 1;
-    // first_p_block->end_row_global_ = 128;
-
-    // IndexType* dummyInd = nullptr;
-    // ValueType* dummyVal = nullptr;
-
-    // gko::kernels::reference::gauss_seidel::simple_apply(
-    //     ref_exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
-    //     dummyInd, dummyInd, dummyVal, perm_idxs.get_const_data(),
-    //     storage_scheme, gko::lend(rhs_perm), gko::lend(x));
-
-    // cuda_exec->synchronize();
-    // gko::kernels::cuda::gauss_seidel::simple_apply(
-    //     cuda_exec, d_l_diag_rows->get_const_data(),
-    //     d_l_diag_vals->get_const_data(), dummyInd, dummyInd, dummyVal,
-    //     d_perm_idxs->get_const_data(), storage_scheme, gko::lend(d_rhs_perm),
-    //     gko::lend(d_x));
-    // cuda_exec->synchronize();
-
-    // second stage full p_block apply
-    // done
-    // third stage full p_block + spmv_block apply
     gko::kernels::reference::gauss_seidel::simple_apply(
         ref_exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
         l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
@@ -252,8 +218,8 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 3008;
-    gko::size_type row_limit = 5;
+    gko::size_type num_rows = 1001;
+    gko::size_type row_limit = 7;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -276,7 +242,6 @@ TYPED_TEST(GaussSeidel, SimpleApply)
 
     auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
     mtx->read(mat_data);
-    // auto d_mtx = gko::share(gko::clone(cuda_exec, mtx));
 
     gko::size_type b_s = 4;
     gko::size_type w = 32;

@@ -1137,10 +1137,11 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
 
     auto exec = this->exec;
     auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{1003}, IndexType{5}, IndexType{10}, ValueType{0}));
+        IndexType{3007}, IndexType{5}, IndexType{10}, ValueType{0}));
 
-    auto rhs =
-        gko::share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+    gko::size_type num_rhs = 5;
+    auto rhs = gko::share(
+        this->generate_rand_dense(ValueType{0}, mtx->get_size()[0], num_rhs));
 
 
     auto x = Vec::create_with_config_of(gko::lend(rhs));
@@ -1150,8 +1151,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
 
     auto gs_HBMC_factory = GS::build()
                                .with_use_HBMC(true)
-                               .with_base_block_size(2u)
-                               .with_lvl_2_block_size(8u)
+                               .with_base_block_size(4u)
+                               .with_lvl_2_block_size(32u)
                                .on(exec);
     auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
