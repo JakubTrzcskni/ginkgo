@@ -32,13 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
-#include <thrust/copy.h>
-#include <thrust/execution_policy.h>
-#include <thrust/host_vector.h>
-#include <thrust/iterator/zip_iterator.h>
-#include <thrust/sequence.h>
-#include <thrust/sort.h>
-#include <thrust/tuple.h>
+// #include <thrust/copy.h>
+// #include <thrust/execution_policy.h>
+// #include <thrust/host_vector.h>
+// #include <thrust/iterator/zip_iterator.h>
+// #include <thrust/sequence.h>
+// #include <thrust/sort.h>
+// #include <thrust/tuple.h>
 
 // for testing LUTs
 #include <array>
@@ -795,8 +795,8 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                                           &mtx_vals[mtx_end_id]);
             array<IndexType> tmp_mtx_col_idxs(exec, nnz_in_row);
 
-            thrust::sequence(tmp_mtx_col_idxs.get_data(),
-                             tmp_mtx_col_idxs.get_data() + nnz_in_row);
+            std::iota(tmp_mtx_col_idxs.get_data(),
+                      tmp_mtx_col_idxs.get_data() + nnz_in_row, 0);
 
             array<IndexType> tmp_perm(exec, nnz_in_row);
 
@@ -805,9 +805,24 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
             }
 
-            thrust::sort_by_key(tmp_perm.get_data(),
-                                tmp_perm.get_data() + nnz_in_row,
-                                tmp_mtx_col_idxs.get_data());
+            // thrust::sort_by_key(tmp_perm.get_data(),
+            //                     tmp_perm.get_data() + nnz_in_row,
+            //                     tmp_mtx_col_idxs.get_data());
+            std::sort(tmp_mtx_col_idxs.get_data(),
+                      tmp_mtx_col_idxs.get_data() + nnz_in_row,
+                      [&](IndexType const a, IndexType const b) {
+                          return tmp_perm.get_data()[a] <
+                                 tmp_perm.get_data()[b];
+                      });
+            {
+                gko::array<IndexType> tmp_perm_clone;
+                tmp_perm_clone = tmp_perm;
+                for (auto j = 0; j < nnz_in_row; j++) {
+                    tmp_perm.get_data()[j] =
+                        tmp_perm_clone.get_const_data()
+                            [tmp_mtx_col_idxs.get_const_data()[j]];
+                }
+            }
             // after that tmp_perm holds the global column idxs in our permuted
             // matrix and tmp_mtx_col_idxs the storage idxs to those values in
             // in the input matrix
@@ -880,8 +895,8 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                                                   &mtx_vals[mtx_end_id]);
                     array<IndexType> tmp_mtx_col_idxs(exec, nnz_in_row);
 
-                    thrust::sequence(tmp_mtx_col_idxs.get_data(),
-                                     tmp_mtx_col_idxs.get_data() + nnz_in_row);
+                    std::iota(tmp_mtx_col_idxs.get_data(),
+                              tmp_mtx_col_idxs.get_data() + nnz_in_row, 0);
 
                     array<IndexType> tmp_perm(exec, nnz_in_row);
 
@@ -890,9 +905,24 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                             inv_permutation_idxs[mtx_col_idxs[mtx_start_id +
                                                               j]];
                     }
-                    thrust::sort_by_key(tmp_perm.get_data(),
-                                        tmp_perm.get_data() + nnz_in_row,
-                                        tmp_mtx_col_idxs.get_data());
+                    // thrust::sort_by_key(tmp_perm.get_data(),
+                    //                     tmp_perm.get_data() + nnz_in_row,
+                    //                     tmp_mtx_col_idxs.get_data());
+                    std::sort(tmp_mtx_col_idxs.get_data(),
+                              tmp_mtx_col_idxs.get_data() + nnz_in_row,
+                              [&](IndexType const a, IndexType const b) {
+                                  return tmp_perm.get_data()[a] <
+                                         tmp_perm.get_data()[b];
+                              });
+                    {
+                        gko::array<IndexType> tmp_perm_clone;
+                        tmp_perm_clone = tmp_perm;
+                        for (auto j = 0; j < nnz_in_row; j++) {
+                            tmp_perm.get_data()[j] =
+                                tmp_perm_clone.get_const_data()
+                                    [tmp_mtx_col_idxs.get_const_data()[j]];
+                        }
+                    }
                     for (auto j = 0; j < nnz_in_row; j++) {
                         tmp_mtx_vals.get_data()[j] =
                             mtx_vals[mtx_start_id +
