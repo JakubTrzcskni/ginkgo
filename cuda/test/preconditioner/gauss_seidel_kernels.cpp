@@ -138,8 +138,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1001;
-    gko::size_type row_limit = 7;
+    gko::size_type num_rows = 36;
+    gko::size_type row_limit = 3;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -218,7 +218,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1001;
+    gko::size_type num_rows = 1000;
     gko::size_type row_limit = 7;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);

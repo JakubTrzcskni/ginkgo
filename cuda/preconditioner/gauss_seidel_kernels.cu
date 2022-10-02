@@ -179,11 +179,20 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                                 : num_involved_threads;
     const auto grid_size = ceildiv(num_involved_threads, block_size);
 
+    std::cout << "p_block size = "
+              << first_p_block->end_row_global_ -
+                     first_p_block->start_row_global_
+              << std::endl;
+    std::cout << "block, grid = " << block_size << ", " << grid_size
+              << std::endl;
+    const auto num_rows_fp_block =
+        first_p_block->end_row_global_ - first_p_block->start_row_global_;
+
     kernel::apply_l_p_block_kernel<<<block_size, grid_size>>>(
         l_diag_rows, as_cuda_type(l_diag_vals), first_p_block->end_row_global_,
-        first_p_block->base_block_size_, first_p_block->lvl_2_block_size_,
-        first_p_block->degree_of_parallelism_, first_p_block->residual_,
-        num_rhs, as_cuda_type(b_perm->get_values()),
+        num_rows_fp_block, first_p_block->base_block_size_,
+        first_p_block->lvl_2_block_size_, first_p_block->degree_of_parallelism_,
+        first_p_block->residual_, num_rhs, as_cuda_type(b_perm->get_values()),
         as_cuda_type(x->get_values()), permutation_idxs,
         diag_LUT.get_const_data(), subblock_LUT.get_const_data());
 
@@ -247,13 +256,24 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                 : num_involved_threads;
         const auto grid_size_p = ceildiv(num_involved_threads, block_size);
 
+        std::cout << "p_block size = "
+                  << p_block->end_row_global_ - p_block->start_row_global_
+                  << ", end row = " << p_block->end_row_global_
+                  << "id_offs = " << id_offs << std::endl;
+        std::cout << "block, grid = " << block_size_p << ", " << grid_size_p
+                  << std::endl;
+
+        const auto num_rows_p_block =
+            p_block->end_row_global_ - p_block->start_row_global_;
+
         kernel::apply_l_p_block_kernel<<<block_size_p, grid_size_p>>>(
             &(l_diag_rows[id_offs]), as_cuda_type(&(l_diag_vals[id_offs])),
-            p_block->end_row_global_, p_block->base_block_size_,
-            p_block->lvl_2_block_size_, p_block->degree_of_parallelism_,
-            p_block->residual_, num_rhs, as_cuda_type(b_perm->get_values()),
-            as_cuda_type(x->get_values()), permutation_idxs,
-            diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+            p_block->end_row_global_, num_rows_p_block,
+            p_block->base_block_size_, p_block->lvl_2_block_size_,
+            p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
+            as_cuda_type(b_perm->get_values()), as_cuda_type(x->get_values()),
+            permutation_idxs, diag_LUT.get_const_data(),
+            subblock_LUT.get_const_data());
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

@@ -477,7 +477,9 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
 
     // best case all blocks are dense
     const auto diag_mem_requirement =
-        num_base_blocks * base_block_size * base_block_size;
+        num_base_blocks *
+        kernels::precomputed_nz_p_b(
+            base_block_size);  //*base_block_size * base_block_size;
 
     // worst case all diag blocks are only a diagonal
     const auto l_spmv_val_col_mem_requirement =
