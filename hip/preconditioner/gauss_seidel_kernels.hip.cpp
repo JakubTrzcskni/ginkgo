@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
+#include <hip/hip_runtime.h>
 #include <thrust/copy.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -48,21 +49,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/dense.hpp>
 
 #include "core/base/allocator.hpp"
-#include "hip/base/config.hpp"
-#include "hip/base/math.hpp"
-#include "hip/base/types.hpp"
-#include "hip/components/cooperative_groups.cuh"
-#include "hip/components/merging.cuh"
-#include "hip/components/reduction.cuh"
-#include "hip/components/thread_ids.cuh"
-#include "hip/components/uninitialized_array.hpp"
-#include "hip/components/warp_blas.cuh"
-#include "hip/matrix/csr_kernels.cu"
+#include "hip/base/config.hip.hpp"
+#include "hip/base/math.hip.hpp"
+#include "hip/base/types.hip.hpp"
+#include "hip/components/cooperative_groups.hip.hpp"
+#include "hip/components/merging.hip.hpp"
+#include "hip/components/reduction.hip.hpp"
+#include "hip/components/thread_ids.hip.hpp"
+#include "hip/components/uninitialized_array.hip.hpp"
+#include "hip/components/warp_blas.hip.hpp"
+#include "hip/matrix/csr_kernels.hip.cpp"
 
 namespace gko {
 namespace kernels {
 namespace hip {
 namespace gauss_seidel {
+
+#include "common/cuda_hip/preconditioner/gauss_seidel_kernels.hpp.inc"
 
 template <typename IndexType>
 void get_degree_of_nodes(std::shared_ptr<const HipExecutor> exec,
@@ -75,6 +78,8 @@ void get_degree_of_nodes(std::shared_ptr<const HipExecutor> exec,
     kernel::get_degree_of_nodes_kernel<<<grid_size, block_size>>>(
         num_vertices, row_ptrs, degrees);
 }
+GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
 
 template <typename ValueType>
 void ref_apply(std::shared_ptr<const HipExecutor> exec, const LinOp* solver,

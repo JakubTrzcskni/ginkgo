@@ -201,55 +201,55 @@ __global__ void apply_l_p_block_kernel(
     }
 }
 
-template <typename ValueType,
-          typename IndexType>  // rows&vals passed already with offset
-__global__ void apply_l_lvl_1_kernel(
-    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
-    const size_type b_s, const size_type w, const size_type num_rows,
-    const size_type num_p_blocks, const size_type num_rhs,
-    ValueType* __restrict__ b_perm, ValueType* __restrict__ x,
-    const IndexType* __restrict__ perm_idxs)
-{
-    constexpr int warp_size = config::warp_size;
-    const auto warp =
-        group::tiled_partition<warp_size>(group::this_thread_block());
-    const auto local_tid = warp.thread_rank();
-    const auto warp_id = thread::get_subwarp_id_flat<warp_size>();
+// template <typename ValueType,
+//           typename IndexType>  // rows&vals passed already with offset
+// __global__ void apply_l_lvl_1_kernel(
+//     const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
+//     const size_type b_s, const size_type w, const size_type num_rows,
+//     const size_type num_p_blocks, const size_type num_rhs,
+//     ValueType* __restrict__ b_perm, ValueType* __restrict__ x,
+//     const IndexType* __restrict__ perm_idxs)
+// {
+//     constexpr int warp_size = config::warp_size;
+//     const auto warp =
+//         group::tiled_partition<warp_size>(group::this_thread_block());
+//     const auto local_tid = warp.thread_rank();
+//     const auto warp_id = thread::get_subwarp_id_flat<warp_size>();
 
-    if (warp_id >= num_p_blocks) const auto lvl_1_size = b_s * w;
-    const auto stride = precomputed_nz_p_b(b_s) * w;
-    const auto base_offs =
-        warp_id * stride + local_tid;  // TODO what when w != warp_size?
+//     if (warp_id >= num_p_blocks) const auto lvl_1_size = b_s * w;
+//     const auto stride = precomputed_nz_p_b(b_s) * w;
+//     const auto base_offs =
+//         warp_id * stride + local_tid;  // TODO what when w != warp_size?
 
-    ValueType tmp{0};
-    for (auto i = 0; i < b_s; ++i) {
-        const auto curr_offs = base_offs + i * w;
-        const auto row = rows[curr_offs];
-        const auto x_row = perm_idxs[row];
+//     ValueType tmp{0};
+//     for (auto i = 0; i < b_s; ++i) {
+//         const auto curr_offs = base_offs + i * w;
+//         const auto row = rows[curr_offs];
+//         const auto x_row = perm_idxs[row];
 
-        if (row >= 0) {
-            if (i == precomputed_diag(precomputed_block(i))) {
-                // on the diagonal
-                const auto inv_diag_val = ValueType{1} / vals[curr_offs];
-                for (size_type k = 0; k < num_rhs; ++k) {
-                    x[x_row * num_rhs + k] =
-                        inv_diag_val * (b_perm[row * num_rhs + k] - tmp);
-                }
-                tmp = ValueType{0};
+//         if (row >= 0) {
+//             if (i == precomputed_diag(precomputed_block(i))) {
+//                 // on the diagonal
+//                 const auto inv_diag_val = ValueType{1} / vals[curr_offs];
+//                 for (size_type k = 0; k < num_rhs; ++k) {
+//                     x[x_row * num_rhs + k] =
+//                         inv_diag_val * (b_perm[row * num_rhs + k] - tmp);
+//                 }
+//                 tmp = ValueType{0};
 
-            } else {
-                // off the diagonal
-                const auto read_offs =
-                    base_offs + precomputed_diag(precomputed_block(i)) * w;
-                const auto row_read = rows[read_offs];
-                if (row_read >= 0) {
-                    const auto x_row_read = perm_idxs[row_read];
-                    for (size_type k = 0; k < num_rhs; ++k) {
-                        tmp += vals[curr_offs] * x[x_row_read * num_rhs + k];
-                    }
-                }
-            }
-        }
-    }
-}
+//             } else {
+//                 // off the diagonal
+//                 const auto read_offs =
+//                     base_offs + precomputed_diag(precomputed_block(i)) * w;
+//                 const auto row_read = rows[read_offs];
+//                 if (row_read >= 0) {
+//                     const auto x_row_read = perm_idxs[row_read];
+//                     for (size_type k = 0; k < num_rhs; ++k) {
+//                         tmp += vals[curr_offs] * x[x_row_read * num_rhs + k];
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 }  // namespace kernel
