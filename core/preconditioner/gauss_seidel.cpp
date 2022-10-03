@@ -467,7 +467,9 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
 template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
-    const IndexType num_base_blocks, const IndexType base_block_size,
+    const IndexType num_base_blocks,
+    const IndexType
+        base_block_size,  // not needed, access the factory param instead?
     const IndexType num_colors)
 {
     auto exec = this->get_executor()->get_master();
@@ -476,10 +478,20 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
                               num_nodes;  // should work if matrix is symmetric
 
     // best case all blocks are dense
-    const auto diag_mem_requirement =
-        num_base_blocks *
-        kernels::precomputed_nz_p_b(
-            base_block_size);  //*base_block_size * base_block_size;
+    auto diag_mem_requirement =
+        num_base_blocks * kernels::precomputed_nz_p_b(base_block_size);
+    if (use_padding_) {
+        auto tmp = 0;
+        const auto nz_per_lvl_1_block =
+            lvl2_block_size_ * kernels::precomputed_nz_p_b(base_block_size);
+        const auto lvl_1_size = lvl2_block_size_ * base_block_size_;
+        for (auto i = 0; i < num_colors; ++i) {
+            auto nodes_in_color = color_ptrs_.get_const_data()[i + 1] -
+                                  color_ptrs_.get_const_data()[i];
+            tmp += nz_per_lvl_1_block * ceildiv(nodes_in_color, lvl_1_size);
+        }
+        diag_mem_requirement = tmp;
+    }
 
     // worst case all diag blocks are only a diagonal
     const auto l_spmv_val_col_mem_requirement =
@@ -558,14 +570,15 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         num_nodes, vertex_colors_.get_data(), max_color, color_ptrs_.get_data(),
         permutation_idxs_.get_data(), block_ordering.get_const_data()));
 
-    if (lvl_2_block_size > 0) {
+    if (lvl_2_block_size > 0) {  // Asserted on factory generation
         reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
                                         block_size, max_color + 1);
 
         // secondary ordering
         exec->run(gauss_seidel::make_get_secondary_ordering(
             permutation_idxs_.get_data(), hbmc_storage_scheme_, block_size,
-            lvl_2_block_size, color_ptrs_.get_const_data(), max_color));
+            lvl_2_block_size, color_ptrs_.get_const_data(), max_color,
+            use_padding_));
 
         inv_permutation_idxs_.resize_and_reset(num_nodes);
         exec->run(gauss_seidel::make_invert_permutation(

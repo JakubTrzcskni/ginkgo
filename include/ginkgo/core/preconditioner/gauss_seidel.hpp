@@ -236,6 +236,8 @@ public:
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
 
+        bool GKO_FACTORY_PARAMETER_SCALAR(pad_to_lvl_1, false);
+
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
         bool GKO_FACTORY_PARAMETER_SCALAR(use_reference, false);
@@ -279,6 +281,7 @@ protected:
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_HBMC_{parameters_.use_HBMC},
+          use_padding_{parameters_.pad_to_lvl_1},
           l_diag_rows_{array<index_type>(host_exec_)},
           l_diag_mtx_col_idxs_{array<index_type>(host_exec_)},
           l_diag_vals_{array<value_type>(host_exec_)},
@@ -288,6 +291,9 @@ protected:
           l_spmv_vals_{array<value_type>(host_exec_)}
     {
         if (parameters_.use_HBMC == true) {
+            GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
+                       lvl2_block_size_ > 0 && lvl2_block_size_ < 33);
+            GKO_ASSERT_IS_POWER_OF_TWO(lvl2_block_size_);
             if (parameters_.symmetric_preconditioner) {
                 u_diag_rows_ = array<index_type>(host_exec_);
                 u_diag_mtx_col_idxs_ = array<index_type>(host_exec_);
@@ -356,6 +362,7 @@ private:
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_HBMC_;
+    bool use_padding_;
     storage_scheme hbmc_storage_scheme_{};
     array<index_type> l_diag_rows_;
     array<index_type> l_diag_mtx_col_idxs_;

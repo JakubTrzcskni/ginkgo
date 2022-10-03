@@ -694,7 +694,7 @@ TYPED_TEST(GaussSeidel, GetSecondaryOrderingKernel)
 
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, block_ordering.get_data(), dummy_storage, base_block_size,
-        lvl_2_block_size, color_ptrs.get_const_data(), max_color);
+        lvl_2_block_size, color_ptrs.get_const_data(), max_color, false);
 
     GKO_ASSERT_ARRAY_EQ(block_ordering, I<IndexType>({0, 2, 4, 6, 1, 3, 5, 7}));
 }
@@ -863,7 +863,7 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
 
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, perm.get_data(), dummy_storage_scheme, base_block_size,
-        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color, false);
 
     GKO_ASSERT_ARRAY_EQ(perm, perm_after_2nd_ordering);
 
@@ -1066,7 +1066,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
 
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, perm.get_data(), dummy_no_secondary, base_block_size,
-        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color, false);
 
     GKO_ASSERT_ARRAY_EQ(perm, perm_cpy);  // cannot create a single lvl 1 block
                                           // -> no change in the perm array
@@ -1075,7 +1075,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     gko::preconditioner::storage_scheme storage_scheme(2 * max_color + 1);
     gko::kernels::reference::gauss_seidel::get_secondary_ordering(
         exec, perm.get_data(), storage_scheme, base_block_size,
-        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color);
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color, false);
 
     gko::array<IndexType> perm_with_second_ordering(
         exec, I<IndexType>({5, 0, 9, 10, 2, 1, 11, 13, 6, 14, 4, 8, 3, 12, 7}));
