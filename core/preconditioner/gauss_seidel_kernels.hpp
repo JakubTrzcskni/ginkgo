@@ -157,7 +157,8 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         IndexType* permutation_idxs,                                       \
         preconditioner::storage_scheme& storage_scheme,                    \
         const IndexType base_block_size, const IndexType lvl_2_block_size, \
-        const IndexType* color_block_ptrs, const IndexType max_color)
+        const IndexType* color_block_ptrs, const IndexType max_color,      \
+        const bool use_padding)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL(ValueType, IndexType) \
     void assign_to_blocks(                                                     \

@@ -504,7 +504,6 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
                   const preconditioner::storage_scheme& storage_scheme,
                   matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
 {
-    std::cout << "apply ref" << std::endl;
     GKO_ASSERT(!storage_scheme.symm_);
     const auto block_ptrs = storage_scheme.forward_solve_;
     const auto num_blocks = storage_scheme.num_blocks_;
@@ -805,9 +804,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
             }
 
-            // thrust::sort_by_key(tmp_perm.get_data(),
-            //                     tmp_perm.get_data() + nnz_in_row,
-            //                     tmp_mtx_col_idxs.get_data());
             std::sort(tmp_mtx_col_idxs.get_data(),
                       tmp_mtx_col_idxs.get_data() + nnz_in_row,
                       [&](IndexType const a, IndexType const b) {
@@ -843,10 +839,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     if (id >= 0) {
                         l_diag_rows[id] = row;
                         l_diag_vals[id] = tmp_mtx_vals.get_const_data()[k];
-                        // (lvl_1 && row == tmp_perm.get_const_data()[k])
-                        //     ? static_cast<ValueType>(1) /
-                        //           tmp_mtx_vals.get_const_data()[k]
-                        //     : tmp_mtx_vals.get_const_data()[k];
                         l_diag_mtx_col_idxs[id] =
                             tmp_mtx_col_idxs.get_const_data()[k];
                         tmp++;
@@ -905,9 +897,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                             inv_permutation_idxs[mtx_col_idxs[mtx_start_id +
                                                               j]];
                     }
-                    // thrust::sort_by_key(tmp_perm.get_data(),
-                    //                     tmp_perm.get_data() + nnz_in_row,
-                    //                     tmp_mtx_col_idxs.get_data());
                     std::sort(tmp_mtx_col_idxs.get_data(),
                               tmp_mtx_col_idxs.get_data() + nnz_in_row,
                               [&](IndexType const a, IndexType const b) {
@@ -993,10 +982,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                         if (id >= 0) {
                             l_diag_rows[id] = row;
                             l_diag_vals[id] = tmp_mtx_vals.get_const_data()[k];
-                            // (lvl_1 && row == tmp_perm.get_const_data()[k])
-                            //     ? static_cast<ValueType>(1) /
-                            //           tmp_mtx_vals.get_const_data()[k]
-                            //     : tmp_mtx_vals.get_const_data()[k];
                             l_diag_mtx_col_idxs[id] =
                                 tmp_mtx_col_idxs.get_const_data()[k];
                             tmp++;
@@ -1019,7 +1004,7 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
-                            const IndexType max_color)
+                            const IndexType max_color, const bool use_padding)
 {
     using namespace preconditioner;
 
@@ -1028,17 +1013,23 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
     auto lvl_1_block_size = lvl_2_block_size * base_block_size;
     const auto num_nodes = color_block_ptrs[max_color + 1];
     const bool backward_solve = storage_scheme.symm_;
-
+    auto last_p_block_storage_offs = 0;
     for (auto color = 0; color <= max_color; color++) {
         const auto curr_color_offset = color_block_ptrs[color];
         const auto next_color_offset = color_block_ptrs[color + 1];
         const auto nodes_in_curr_color = next_color_offset - curr_color_offset;
-        const auto full_lvl_1_blocks_in_curr_color =
+        auto full_lvl_1_blocks_in_curr_color =
             nodes_in_curr_color / lvl_1_block_size;
-        const auto base_block_residual =
-            (nodes_in_curr_color % lvl_1_block_size) > 0;
+        auto base_block_residual = (nodes_in_curr_color % lvl_1_block_size) > 0;
 
-        const auto l_p_block_storage_offset =
+        if (use_padding) {
+            full_lvl_1_blocks_in_curr_color =
+                ceildiv(nodes_in_curr_color, lvl_1_block_size);
+            base_block_residual = false;
+        }
+
+
+        auto l_p_block_storage_offset =
             get_curr_storage_offset(curr_color_offset, base_block_size);
         auto curr_l_p_block = parallel_block(
             l_p_block_storage_offset, curr_color_offset, next_color_offset,

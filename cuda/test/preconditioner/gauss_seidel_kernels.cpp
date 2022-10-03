@@ -138,8 +138,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1001;
-    gko::size_type row_limit = 7;
+    gko::size_type num_rows = 35;
+    gko::size_type row_limit = 3;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -218,8 +218,8 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1001;
-    gko::size_type row_limit = 7;
+    gko::size_type num_rows = 1002;
+    gko::size_type row_limit = 10;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -251,7 +251,6 @@ TYPED_TEST(GaussSeidel, SimpleApply)
                               .with_base_block_size(b_s)
                               .with_lvl_2_block_size(w)
                               .on(ref_exec);
-    std::cout << "generate host" << std::endl;
     auto ref_gs = ref_gs_factory->generate(mtx);
 
     auto device_gs_factory = GS::build()
@@ -259,7 +258,6 @@ TYPED_TEST(GaussSeidel, SimpleApply)
                                  .with_base_block_size(b_s)
                                  .with_lvl_2_block_size(w)
                                  .on(cuda_exec);
-    std::cout << "generate cuda" << std::endl;
     auto device_gs = device_gs_factory->generate(mtx);
 
     ref_gs->apply(gko::lend(rhs), gko::lend(x));

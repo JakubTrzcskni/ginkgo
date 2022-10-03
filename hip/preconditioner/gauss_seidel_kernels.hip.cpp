@@ -272,7 +272,8 @@ void get_secondary_ordering(std::shared_ptr<const HipExecutor> exec,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
-                            const IndexType max_color) GKO_NOT_IMPLEMENTED;
+                            const IndexType max_color,
+                            const bool use_padding) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
 

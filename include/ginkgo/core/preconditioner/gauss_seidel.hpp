@@ -236,6 +236,8 @@ public:
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
 
+        bool GKO_FACTORY_PARAMETER_SCALAR(pad_to_lvl_1, false);
+
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
         bool GKO_FACTORY_PARAMETER_SCALAR(use_reference, false);
@@ -263,56 +265,43 @@ protected:
                          std::shared_ptr<const LinOp> system_matrix)
         : EnableLinOp<GaussSeidel>(factory->get_executor(),
                                    gko::transpose(system_matrix->get_size())),
+          host_exec_{factory->get_executor()->get_master()},
           parameters_{factory->get_parameters()},
-          lower_triangular_matrix_{
-              Csr::create(factory->get_executor()->get_master())},
-          upper_triangular_matrix_{
-              Csr::create(factory->get_executor()->get_master())},
+          lower_triangular_matrix_{Csr::create(host_exec_)},
+          upper_triangular_matrix_{Csr::create(host_exec_)},
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{
-              array<index_type>(factory->get_executor()->get_master(),
-                                system_matrix->get_size()[0])},
-          color_ptrs_{array<index_type>(factory->get_executor()->get_master())},
-          permutation_idxs_{
-              array<index_type>(factory->get_executor()->get_master())},
-          inv_permutation_idxs_{
-              array<index_type>(factory->get_executor()->get_master())},
+              array<index_type>(host_exec_, system_matrix->get_size()[0])},
+          color_ptrs_{array<index_type>(host_exec_)},
+          permutation_idxs_{array<index_type>(host_exec_)},
+          inv_permutation_idxs_{array<index_type>(host_exec_)},
           base_block_size_{parameters_.base_block_size},
           lvl2_block_size_{parameters_.lvl_2_block_size},
           relaxation_factor_{parameters_.relaxation_factor},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_HBMC_{parameters_.use_HBMC},
-          l_diag_rows_{
-              array<index_type>(factory->get_executor()->get_master())},
-          l_diag_mtx_col_idxs_{
-              array<index_type>(factory->get_executor()->get_master())},
-          l_diag_vals_{
-              array<value_type>(factory->get_executor()->get_master())},
-          l_spmv_row_ptrs_{
-              array<index_type>(factory->get_executor()->get_master())},
-          l_spmv_col_idxs_{
-              array<index_type>(factory->get_executor()->get_master())},
-          l_spmv_mtx_col_idxs_{
-              array<index_type>(factory->get_executor()->get_master())},
-          l_spmv_vals_{array<value_type>(factory->get_executor()->get_master())}
+          use_padding_{parameters_.pad_to_lvl_1},
+          l_diag_rows_{array<index_type>(host_exec_)},
+          l_diag_mtx_col_idxs_{array<index_type>(host_exec_)},
+          l_diag_vals_{array<value_type>(host_exec_)},
+          l_spmv_row_ptrs_{array<index_type>(host_exec_)},
+          l_spmv_col_idxs_{array<index_type>(host_exec_)},
+          l_spmv_mtx_col_idxs_{array<index_type>(host_exec_)},
+          l_spmv_vals_{array<value_type>(host_exec_)}
     {
         if (parameters_.use_HBMC == true) {
+            GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
+                       lvl2_block_size_ > 0 && lvl2_block_size_ < 33);
+            GKO_ASSERT_IS_POWER_OF_TWO(lvl2_block_size_);
             if (parameters_.symmetric_preconditioner) {
-                u_diag_rows_ =
-                    array<index_type>(factory->get_executor()->get_master());
-                u_diag_mtx_col_idxs_ =
-                    array<index_type>(factory->get_executor()->get_master());
-                u_diag_vals_ =
-                    array<value_type>(factory->get_executor()->get_master());
-                u_spmv_row_ptrs_ =
-                    array<index_type>(factory->get_executor()->get_master());
-                u_spmv_col_idxs_ =
-                    array<index_type>(factory->get_executor()->get_master());
-                u_spmv_mtx_col_idxs_ =
-                    array<index_type>(factory->get_executor()->get_master());
-                u_spmv_vals_ =
-                    array<value_type>(factory->get_executor()->get_master());
+                u_diag_rows_ = array<index_type>(host_exec_);
+                u_diag_mtx_col_idxs_ = array<index_type>(host_exec_);
+                u_diag_vals_ = array<value_type>(host_exec_);
+                u_spmv_row_ptrs_ = array<index_type>(host_exec_);
+                u_spmv_col_idxs_ = array<index_type>(host_exec_);
+                u_spmv_mtx_col_idxs_ = array<index_type>(host_exec_);
+                u_spmv_vals_ = array<value_type>(host_exec_);
             }
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
 
@@ -352,6 +341,7 @@ protected:
 
 
 private:
+    std::shared_ptr<const Executor> host_exec_;
     std::shared_ptr<Csr>
         lower_triangular_matrix_{};  // aka matrix used in the preconditioner
     std::shared_ptr<Csr> upper_triangular_matrix_{};
@@ -372,6 +362,7 @@ private:
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_HBMC_;
+    bool use_padding_;
     storage_scheme hbmc_storage_scheme_{};
     array<index_type> l_diag_rows_;
     array<index_type> l_diag_mtx_col_idxs_;
