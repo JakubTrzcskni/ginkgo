@@ -244,7 +244,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     mtx->read(mat_data);
 
     gko::size_type b_s = 4;
-    gko::size_type w = 32;
+    gko::size_type w = 8;
 
     auto ref_gs_factory = GS::build()
                               .with_use_HBMC(true)

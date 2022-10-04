@@ -163,7 +163,7 @@ __device__ void apply_ltr(
     }
 }
 
-template <int subwarp_size, typename ValueType,
+template <typename ValueType,
           typename IndexType>  // rows&vals passed already with offset
 __global__ void apply_l_p_block_kernel(
     const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
@@ -174,15 +174,15 @@ __global__ void apply_l_p_block_kernel(
     const IndexType* __restrict__ perm_idxs, const int* diag_LUT,
     const int* subblock_LUT)
 {
-    // GKO_ASSERT(subwarp_size == w);
-    constexpr int warp_size = config::warp_size;
-    const auto subwarp =
-        group::tiled_partition<subwarp_size>(group::this_thread_block());
-    // const auto local_tid = subwarp.thread_rank();
-    const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
+    const auto subwarp_size = w;
+    // constexpr int warp_size = config::warp_size;
+    // const auto subwarp =
+    //     group::tiled_partition<subwarp_size>(group::this_thread_block());
+    // // const auto local_tid = subwarp.thread_rank();
+    // const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
     const auto tid = thread::get_thread_id_flat<int>();
-    const auto warp_id = tid / warp_size;
-    const auto local_tid = tid % warp_size;
+    const auto warp_id = tid / subwarp_size;
+    const auto local_tid = tid % subwarp_size;
 
     if (warp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
     const auto nz_p_b = diag_LUT[b_s] + 1;

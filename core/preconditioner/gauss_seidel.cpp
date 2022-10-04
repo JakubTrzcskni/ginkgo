@@ -139,7 +139,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         auto b_perm = share(
             as<Dense>(as<const Dense>(b)->row_permute(&permutation_idxs_)));
         if (use_HBMC_) {
-            std::cout << "apply" << std::endl;
             this->get_executor()->run(gauss_seidel::make_simple_apply(
                 l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
                 l_spmv_row_ptrs_.get_const_data(),

@@ -115,14 +115,21 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                precomputed_diag(row_id_block % b_s) - col_offs;
 
     } else {  // case lvl_1_block
-        const auto l2_block_size = p_block->lvl_2_block_size_;
-        if (col_offs % l2_block_size != 0 |
-            col_offs > l2_block_size * (b_s - 1) | col_offs < 0)
+        const auto lvl_2_block_size =
+            static_cast<preconditioner::lvl_1_block*>(curr_block)
+                ->lvl_2_block_size_;  // p_block->lvlvl_2_block_size_;
+        const auto lvl_2_block_size_setup =
+            static_cast<preconditioner::lvl_1_block*>(curr_block)
+                ->lvl_2_block_size_setup_;
+        if (col_offs % lvl_2_block_size_setup != 0 |
+            col_offs > lvl_2_block_size_setup * (b_s - 1) | col_offs < 0)
             return -1;
         *lvl_1 = true;
         return base_offset +
-               precomputed_diag(row_id_block / l2_block_size) * l2_block_size +
-               row_id_block % l2_block_size - col_offs;  //* l2_block_size;
+               precomputed_diag(row_id_block / lvl_2_block_size_setup) *
+                   lvl_2_block_size +
+               row_id_block % lvl_2_block_size_setup -
+               col_offs;  //* lvl_2_block_size;
     }
 }
 
@@ -319,13 +326,16 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
         for (auto j = 0; j < w; ++j) {
             auto local_offs = precomputed_diag(i) * w + j;
             const auto row = l_diag_rows[block_offs + local_offs];
-            GKO_ASSERT(row >= 0);
-            const auto x_row = permutation_idxs[row];
-            GKO_ASSERT(l_diag_vals[block_offs + local_offs] != ValueType{0});
-            const auto inv_diag_val =
-                ValueType{1} / l_diag_vals[block_offs + local_offs];
-            for (size_type k = 0; k < x->get_size()[1]; ++k) {
-                x->at(x_row, k) = inv_diag_val * b_perm->at(row, k);
+            // GKO_ASSERT(row >= 0);
+            if (row >= 0) {
+                const auto x_row = permutation_idxs[row];
+                GKO_ASSERT(l_diag_vals[block_offs + local_offs] !=
+                           ValueType{0});
+                const auto inv_diag_val =
+                    ValueType{1} / l_diag_vals[block_offs + local_offs];
+                for (size_type k = 0; k < x->get_size()[1]; ++k) {
+                    x->at(x_row, k) = inv_diag_val * b_perm->at(row, k);
+                }
             }
         }
 
@@ -352,12 +362,15 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                                                 precomputed_block(subblock)) *
                                                 w +
                                             row_offs];
-                            GKO_ASSERT(row_read >= 0);
-                            const auto x_row_read = permutation_idxs[row_read];
+                            // GKO_ASSERT(row_read >= 0);
+                            if (row_read >= 0) {
+                                const auto x_row_read =
+                                    permutation_idxs[row_read];
 
-                            b_perm->at(row_write, k) -=
-                                l_diag_vals[final_w_offs] *
-                                x->at(x_row_read, k);
+                                b_perm->at(row_write, k) -=
+                                    l_diag_vals[final_w_offs] *
+                                    x->at(x_row_read, k);
+                            }
                         }
                     }
                 }
@@ -1014,6 +1027,8 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
     const auto num_nodes = color_block_ptrs[max_color + 1];
     const bool backward_solve = storage_scheme.symm_;
     auto last_p_block_storage_offs = 0;
+    const auto lvl_1_block_storage_stride =
+        lvl_2_block_size * precomputed_nz_p_b(base_block_size);
     for (auto color = 0; color <= max_color; color++) {
         const auto curr_color_offset = color_block_ptrs[color];
         const auto next_color_offset = color_block_ptrs[color + 1];
@@ -1028,9 +1043,15 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             base_block_residual = false;
         }
 
-
         auto l_p_block_storage_offset =
             get_curr_storage_offset(curr_color_offset, base_block_size);
+
+        if (use_padding) {
+            l_p_block_storage_offset = last_p_block_storage_offs;
+            last_p_block_storage_offs +=
+                full_lvl_1_blocks_in_curr_color * lvl_1_block_storage_stride;
+        }
+
         auto curr_l_p_block = parallel_block(
             l_p_block_storage_offset, curr_color_offset, next_color_offset,
             full_lvl_1_blocks_in_curr_color + base_block_residual,
@@ -1038,8 +1059,11 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             static_cast<bool>(base_block_residual));
         parallel_block curr_u_p_block{};
         if (backward_solve) {
-            const auto u_p_block_storage_offset = get_curr_storage_offset(
+            auto u_p_block_storage_offset = get_curr_storage_offset(
                 next_color_offset, base_block_size, num_nodes);
+            if (use_padding) {
+                // TODO
+            }
             auto curr_u_p_block = parallel_block(
                 u_p_block_storage_offset, curr_color_offset, next_color_offset,
                 full_lvl_1_blocks_in_curr_color + base_block_residual,
@@ -1052,23 +1076,43 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
              curr_lvl_1_block_id++) {
             const auto curr_lvl_1_block_offset =
                 curr_lvl_1_block_id * lvl_1_block_size;
+            auto curr_lvl_1_block_size = lvl_1_block_size;
+            auto curr_lvl_2_block_size = lvl_2_block_size;
             array<IndexType> new_lvl_1_block_ordering(exec, lvl_1_block_size);
 
-            const auto l_lvl1_block_storage_offset = get_curr_storage_offset(
+            auto l_lvl_1_block_storage_offset = get_curr_storage_offset(
                 curr_color_offset + curr_lvl_1_block_offset, base_block_size);
+
+            if (use_padding) {
+                l_lvl_1_block_storage_offset =
+                    l_p_block_storage_offset +
+                    curr_lvl_1_block_id * lvl_1_block_storage_stride;
+                if (curr_lvl_1_block_id ==
+                    full_lvl_1_blocks_in_curr_color - 1) {
+                    curr_lvl_1_block_size =
+                        nodes_in_curr_color - curr_lvl_1_block_offset;
+                    GKO_ASSERT(curr_lvl_1_block_size > 0 &&
+                               curr_lvl_1_block_size <= lvl_1_block_size);
+                    curr_lvl_2_block_size =
+                        ceildiv(curr_lvl_1_block_size, base_block_size);
+                    new_lvl_1_block_ordering.resize_and_reset(
+                        curr_lvl_1_block_size);
+                }
+            }
 
             curr_l_p_block.parallel_blocks_.emplace_back(
                 std::make_shared<lvl_1_block>(
-                    lvl_1_block(l_lvl1_block_storage_offset,
+                    lvl_1_block(l_lvl_1_block_storage_offset,
                                 curr_color_offset + curr_lvl_1_block_offset,
                                 curr_color_offset + curr_lvl_1_block_offset +
-                                    lvl_1_block_size,
-                                base_block_size, lvl_2_block_size)));
+                                    curr_lvl_1_block_size,
+                                base_block_size, lvl_2_block_size,
+                                curr_lvl_2_block_size, curr_lvl_1_block_size)));
             if (backward_solve) {
                 const auto u_lvl1_block_storage_offset =
                     get_curr_storage_offset(curr_color_offset +
                                                 curr_lvl_1_block_offset +
-                                                lvl_1_block_size,
+                                                curr_lvl_1_block_size,
                                             base_block_size, num_nodes);
 
                 curr_u_p_block.parallel_blocks_.emplace_back(
@@ -1076,32 +1120,35 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                         u_lvl1_block_storage_offset,
                         curr_color_offset + curr_lvl_1_block_offset,
                         curr_color_offset + curr_lvl_1_block_offset +
-                            lvl_1_block_size,
-                        base_block_size, lvl_2_block_size)));
+                            curr_lvl_1_block_size,
+                        base_block_size, lvl_2_block_size,
+                        curr_lvl_2_block_size, curr_lvl_1_block_size)));
             }
             auto lvl_1_reordering = new_lvl_1_block_ordering.get_data();
             for (auto curr_node_base_lvl_block = 0;
                  curr_node_base_lvl_block < base_block_size;
                  curr_node_base_lvl_block++) {
                 for (auto curr_node_lvl_2_block = 0;
-                     curr_node_lvl_2_block < lvl_2_block_size;
+                     curr_node_lvl_2_block < curr_lvl_2_block_size;
                      curr_node_lvl_2_block++) {
                     const auto curr_id =
-                        curr_node_base_lvl_block * lvl_2_block_size +
+                        curr_node_base_lvl_block * curr_lvl_2_block_size +
                         curr_node_lvl_2_block;
-
                     const auto id_to_swap =
                         curr_color_offset + curr_lvl_1_block_offset +
                         curr_node_lvl_2_block * base_block_size +
                         curr_node_base_lvl_block;
-
-                    lvl_1_reordering[curr_id] = permutation_idxs[id_to_swap];
+                    if (curr_id < curr_lvl_1_block_size &&
+                        id_to_swap < next_color_offset) {
+                        lvl_1_reordering[curr_id] =
+                            permutation_idxs[id_to_swap];
+                    }
                 }
             }
             auto dest = &(
                 permutation_idxs[curr_color_offset + curr_lvl_1_block_offset]);
             const auto source = new_lvl_1_block_ordering.get_const_data();
-            auto count = sizeof(IndexType) * lvl_1_block_size;
+            auto count = sizeof(IndexType) * curr_lvl_1_block_size;
             std::memcpy(dest, source, count);
         }
         if (base_block_residual) {

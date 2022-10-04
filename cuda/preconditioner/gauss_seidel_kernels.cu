@@ -148,8 +148,7 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
     exec->copy_from<gko::int32>(exec->get_master().get(),
                                 static_cast<gko::size_type>(max_block_size + 1),
                                 diag_lut.data(), diag_LUT.get_data());
-    // cudaMemcpy(diag_LUT.get_data(), diag_lut.data(), max_block_size + 1,
-    //            cudaMemcpyHostToDevice);
+
     auto subblock_LUT =
         gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
     // exec, make_const_array_view(exec->get_master(),
@@ -159,14 +158,12 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
         exec->get_master().get(),
         static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
         sub_block_lut.data(), subblock_LUT.get_data());
-    // cudaMemcpy(subblock_LUT.get_data(), sub_block_lut.data(),
-    //            subblock_LUT.get_num_elems(), cudaMemcpyHostToDevice);
 
     auto first_p_block =
         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
 
     // for now only w == warp size is supported
-    GKO_ASSERT(first_p_block->lvl_2_block_size_ == config::warp_size);
+    // GKO_ASSERT(first_p_block->lvl_2_block_size_ == config::warp_size);
 
     const auto num_involved_warps =
         (config::min_warps_per_block > first_p_block->degree_of_parallelism_)
@@ -178,24 +175,16 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                                 : num_involved_threads;
     const auto grid_size = ceildiv(num_involved_threads, block_size);
 
-    // std::cout << "p_block size = "
-    //           << first_p_block->end_row_global_ -
-    //                  first_p_block->start_row_global_
-    //           << std::endl;
-    // std::cout << "block, grid = " << block_size << ", " << grid_size
-    //           << std::endl;
     const auto num_rows_fp_block =
         first_p_block->end_row_global_ - first_p_block->start_row_global_;
 
-    kernel::apply_l_p_block_kernel<config::warp_size / 2>
-        <<<block_size, grid_size>>>(
-            l_diag_rows, as_cuda_type(l_diag_vals),
-            first_p_block->end_row_global_, num_rows_fp_block,
-            first_p_block->base_block_size_, first_p_block->lvl_2_block_size_,
-            first_p_block->degree_of_parallelism_, first_p_block->residual_,
-            num_rhs, as_cuda_type(b_perm->get_values()),
-            as_cuda_type(x->get_values()), permutation_idxs,
-            diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+    kernel::apply_l_p_block_kernel<<<block_size, grid_size>>>(
+        l_diag_rows, as_cuda_type(l_diag_vals), first_p_block->end_row_global_,
+        num_rows_fp_block, first_p_block->base_block_size_,
+        first_p_block->lvl_2_block_size_, first_p_block->degree_of_parallelism_,
+        first_p_block->residual_, num_rhs, as_cuda_type(b_perm->get_values()),
+        as_cuda_type(x->get_values()), permutation_idxs,
+        diag_LUT.get_const_data(), subblock_LUT.get_const_data());
 
     for (auto block = 1; block < num_blocks - 1; block += 2) {
         auto spmv_block =
@@ -241,7 +230,6 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
         csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
                            lend(beta), lend(tmp_b_perm));
 
-
         auto p_block = static_cast<preconditioner::parallel_block*>(
             block_ptrs[block + 1].get());
         auto id_offs = p_block->val_storage_id_;
@@ -257,25 +245,17 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                 : num_involved_threads;
         const auto grid_size_p = ceildiv(num_involved_threads, block_size);
 
-        // std::cout << "p_block size = "
-        //           << p_block->end_row_global_ - p_block->start_row_global_
-        //           << ", end row = " << p_block->end_row_global_
-        //           << "id_offs = " << id_offs << std::endl;
-        // std::cout << "block, grid = " << block_size_p << ", " << grid_size_p
-        //           << std::endl;
-
         const auto num_rows_p_block =
             p_block->end_row_global_ - p_block->start_row_global_;
 
-        kernel::apply_l_p_block_kernel<config::warp_size / 2>
-            <<<block_size_p, grid_size_p>>>(
-                &(l_diag_rows[id_offs]), as_cuda_type(&(l_diag_vals[id_offs])),
-                p_block->end_row_global_, num_rows_p_block,
-                p_block->base_block_size_, p_block->lvl_2_block_size_,
-                p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
-                as_cuda_type(b_perm->get_values()),
-                as_cuda_type(x->get_values()), permutation_idxs,
-                diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+        kernel::apply_l_p_block_kernel<<<block_size_p, grid_size_p>>>(
+            &(l_diag_rows[id_offs]), as_cuda_type(&(l_diag_vals[id_offs])),
+            p_block->end_row_global_, num_rows_p_block,
+            p_block->base_block_size_, p_block->lvl_2_block_size_,
+            p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
+            as_cuda_type(b_perm->get_values()), as_cuda_type(x->get_values()),
+            permutation_idxs, diag_LUT.get_const_data(),
+            subblock_LUT.get_const_data());
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

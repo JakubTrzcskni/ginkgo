@@ -151,12 +151,24 @@ struct lvl_1_block : general_block {
                 size_type lvl_2_block_size)
         : general_block(start_val_storage_id, start_row_global, end_row_global),
           base_block_size_{base_block_size},
-          lvl_2_block_size_{lvl_2_block_size}
+          lvl_2_block_size_{lvl_2_block_size},
+          lvl_2_block_size_setup_{lvl_2_block_size}
     {
         lvl_1_block_size_ = base_block_size * lvl_2_block_size;
     }
+    lvl_1_block(size_type start_val_storage_id, size_type start_row_global,
+                size_type end_row_global, size_type base_block_size,
+                size_type lvl_2_block_size, size_type lvl_2_block_size_setup,
+                size_type lvl_1_block_size)
+        : general_block(start_val_storage_id, start_row_global, end_row_global),
+          base_block_size_{base_block_size},
+          lvl_2_block_size_{lvl_2_block_size},
+          lvl_2_block_size_setup_{lvl_2_block_size_setup},
+          lvl_1_block_size_{lvl_1_block_size}
+    {}
     size_type base_block_size_;
     size_type lvl_2_block_size_;
+    size_type lvl_2_block_size_setup_;
     size_type lvl_1_block_size_;
 };
 
@@ -236,7 +248,7 @@ public:
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
 
-        bool GKO_FACTORY_PARAMETER_SCALAR(pad_to_lvl_1, false);
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_padding, false);
 
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
@@ -281,7 +293,7 @@ protected:
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           use_reference_{parameters_.use_reference},
           use_HBMC_{parameters_.use_HBMC},
-          use_padding_{parameters_.pad_to_lvl_1},
+          use_padding_{parameters_.use_padding},
           l_diag_rows_{array<index_type>(host_exec_)},
           l_diag_mtx_col_idxs_{array<index_type>(host_exec_)},
           l_diag_vals_{array<value_type>(host_exec_)},
