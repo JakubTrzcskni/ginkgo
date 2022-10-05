@@ -108,13 +108,16 @@ gko::int32 precomputed_diag(gko::int32 n) { return diag_lut[n + 1]; }
 /// @return number of nonzeros in a triangular block of given size
 gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
 
-#define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType) \
-    void apply(std::shared_ptr<const DefaultExecutor> exec,         \
-               const matrix::Csr<ValueType, IndexType>* A,          \
-               const matrix::Dense<ValueType>* alpha,               \
-               const matrix::Dense<ValueType>* rhs,                 \
-               const matrix::Dense<ValueType>* beta,                \
-               matrix::Dense<ValueType>* x)
+#define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType)         \
+    void apply(                                                             \
+        std::shared_ptr<const DefaultExecutor> exec,                        \
+        const IndexType* l_diag_rows, const ValueType* l_diag_vals,         \
+        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
+        const ValueType* l_spmv_vals, const IndexType* permutation_idxs,    \
+        const preconditioner::storage_scheme& storage_scheme,               \
+        const matrix::Dense<ValueType>* alpha,                              \
+        matrix::Dense<ValueType>* b_perm,                                   \
+        const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType)             \
     void ref_apply(std::shared_ptr<const DefaultExecutor> exec,                \
