@@ -99,11 +99,12 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     const auto local_row =
         row - p_block->start_row_global_;  // local row within the p_block
     const auto block_id = local_row / p_block->lvl_1_block_size_;
-    const auto row_id_block =  //== curr_block->start_row_global_ - row
+    const auto row_id_block =
         local_row %
         p_block
             ->lvl_1_block_size_;  // local row within the lvl1/block_agg block
     const auto curr_block = p_block->parallel_blocks_[block_id].get();
+
     const auto base_offset = curr_block->val_storage_id_;
     const auto nz_per_block = p_block->nz_p_b_block_;
     const auto col_offs = row - col;
@@ -129,7 +130,8 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                precomputed_diag(row_id_block / lvl_2_block_size_setup) *
                    lvl_2_block_size +
                row_id_block % lvl_2_block_size_setup -
-               col_offs;  //* lvl_2_block_size;
+               (col_offs / lvl_2_block_size_setup) *
+                   lvl_2_block_size;  //* lvl_2_block_size;
     }
 }
 

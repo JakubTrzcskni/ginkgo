@@ -114,6 +114,7 @@ protected:
           mtx_csr_4{Csr::create(exec, gko::dim<2>{5}, 15)},
           mtx_rand{Csr::create(exec, gko::dim<2>{500})},
           mtx_secondary_ordering{Csr::create(exec, gko::dim<2>{18}, 56)},
+          mtx_secondary_ordering_2{Csr::create(exec, gko::dim<2>{15}, 63)},
           rhs_2{gko::initialize<Vec>({3.9, 9.0, 2.2}, exec)},
           ans_2{gko::initialize<Vec>({1.0, 3.0, 2.0}, exec)},
           rhs_3{gko::initialize<Vec>({6.0, 25.0, -11.0, 15.0}, exec)},
@@ -139,7 +140,10 @@ protected:
               rand_engine, exec)},
           perm_secondary_ordering{
               exec, I<index_type>({10, 12, 17, 11, 5, 1, 9, 4, 3, 7, 13, 16, 0,
-                                   2, 14, 6, 8, 15})}
+                                   2, 14, 6, 8, 15})},
+          perm_secondary_ordering_2{
+              exec,
+              I<index_type>({5, 9, 2, 11, 0, 10, 1, 13, 6, 14, 4, 8, 3, 12, 7})}
 
     {
         mtx_dense_2->convert_to(gko::lend(mtx_csr_2));
@@ -176,6 +180,23 @@ protected:
              5.2, 12., 4.,  0.5, 15., 2., 2.,  2., 4., 2., 3.,  4., 3., 3., 6.,
              1.,  12., 4.7, 1.5, 7.,  7., 1.3, 3., 9., 4., 7.,  4., 8., 4., 7.,
              1.,  1.,  5.,  4.,  2.,  3., 6.5, 6., 6., 9., 2.2});
+
+        init_array<index_type>(
+            mtx_secondary_ordering_2->get_row_ptrs(),
+            {0, 3, 8, 12, 18, 20, 25, 29, 34, 39, 43, 47, 52, 56, 60, 63});
+        init_array<index_type>(
+            mtx_secondary_ordering_2->get_col_idxs(),
+            {0, 1, 3, 0,  1, 7,  10, 13, 2,  3,  5,  11, 0,  2,  3,  6,
+             7, 8, 4, 6,  2, 5,  7,  9,  11, 3,  4,  6,  14, 1,  3,  5,
+             7, 8, 3, 7,  8, 11, 14, 5,  9,  11, 12, 1,  10, 12, 13, 2,
+             5, 8, 9, 11, 9, 10, 12, 13, 1,  10, 12, 13, 6,  8,  14});
+        init_array<value_type>(
+            mtx_secondary_ordering_2->get_values(),
+            {2., 5., 1., 5.,  7.,  1., 6.,  10., 6., 1.,  4., 9., 1.,
+             1., 6., 1., 11., 5.,  8., 6.,  4.,  1., 1.,  2., 7., 1.,
+             6., 3., 4., 1.,  11., 1., 13., 10., 5., 10., 4., 1., 1.,
+             2., 3., 8., 1.,  6.,  4., 1.,  9.,  9., 7.,  1., 8., 10.,
+             1., 1., 9., 1.,  10., 9., 1.,  11., 4., 1.,  5.});
     }
 
     template <typename ValueType, typename IndexType>
@@ -331,6 +352,7 @@ protected:
     std::shared_ptr<Csr> mtx_csr_4;
     std::shared_ptr<Csr> mtx_rand;
     std::shared_ptr<Csr> mtx_secondary_ordering;
+    std::shared_ptr<Csr> mtx_secondary_ordering_2;
     std::shared_ptr<Vec> rhs_2;
     std::shared_ptr<Vec> ans_2;
     std::shared_ptr<Vec> rhs_3;
@@ -341,6 +363,7 @@ protected:
     std::shared_ptr<Vec> ltr_ans_4;
     std::shared_ptr<Vec> rhs_rand;
     gko::array<index_type> perm_secondary_ordering;
+    gko::array<index_type> perm_secondary_ordering_2;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
@@ -815,10 +838,7 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
     auto exec = this->exec;
     auto mtx = this->mtx_secondary_ordering;
     auto perm = this->perm_secondary_ordering;
-    // gko::array<IndexType> perm(
-    //     exec, I<IndexType>({10, 12, 17, 11, 5, 1, 9, 4, 3, 7, 13, 16, 0, 2,
-    //     14,
-    //                         6, 8, 15}));
+
     gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 14, 18}));
     gko::array<IndexType> perm_after_2nd_ordering(
@@ -1032,27 +1052,11 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
     using GS = typename TestFixture::GS;
     auto exec = this->exec;
 
-    auto mtx = gko::share(Csr::create(exec, gko::dim<2>{15}, 63));
-    this->template init_array<IndexType>(
-        mtx->get_row_ptrs(),
-        {0, 3, 8, 12, 18, 20, 25, 29, 34, 39, 43, 47, 52, 56, 60, 63});
-    this->template init_array<IndexType>(
-        mtx->get_col_idxs(),
-        {0, 1, 3, 0,  1, 7,  10, 13, 2,  3,  5,  11, 0,  2,  3,  6,
-         7, 8, 4, 6,  2, 5,  7,  9,  11, 3,  4,  6,  14, 1,  3,  5,
-         7, 8, 3, 7,  8, 11, 14, 5,  9,  11, 12, 1,  10, 12, 13, 2,
-         5, 8, 9, 11, 9, 10, 12, 13, 1,  10, 12, 13, 6,  8,  14});
-    this->template init_array<ValueType>(
-        mtx->get_values(),
-        {2.,  5.,  1., 5.,  7., 1., 6., 10., 6.,  1., 4., 9.,  1., 1., 6.,  1.,
-         11., 5.,  8., 6.,  4., 1., 1., 2.,  7.,  1., 6., 3.,  4., 1., 11., 1.,
-         13., 10., 5., 10., 4., 1., 1., 2.,  3.,  8., 1., 6.,  4., 1., 9.,  9.,
-         7.,  1.,  8., 10., 1., 1., 9., 1.,  10., 9., 1., 11., 4., 1., 5.});
-    gko::array<IndexType> perm(
-        exec, I<IndexType>({5, 9, 2, 11, 0, 10, 1, 13, 6, 14, 4, 8, 3, 12, 7}));
-    gko::array<IndexType> perm_cpy{exec, 15};
+    auto mtx = this->mtx_secondary_ordering_2;
+
+    auto perm = this->perm_secondary_ordering_2;
+    gko::array<IndexType> perm_cpy;
     perm_cpy = perm;
-    GKO_ASSERT_ARRAY_EQ(perm, perm_cpy);
     gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 11, 15}));
 
@@ -1144,9 +1148,9 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
 
     auto exec = this->exec;
     auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{3007}, IndexType{5}, IndexType{15}, ValueType{0}));
+        IndexType{10000}, IndexType{5}, IndexType{15}, ValueType{0}));
 
-    gko::size_type num_rhs = 1;
+    gko::size_type num_rhs = 10;
     auto rhs = gko::share(
         this->generate_rand_dense(ValueType{0}, mtx->get_size()[0], num_rhs));
 
@@ -1159,7 +1163,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
     auto gs_HBMC_factory = GS::build()
                                .with_use_HBMC(true)
                                .with_base_block_size(4u)
-                               .with_lvl_2_block_size(16u)
+                               .with_lvl_2_block_size(32u)
+                               .with_use_padding(true)
                                .on(exec);
     auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
@@ -1258,17 +1263,60 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding)
                       12., 0.,  0.,  5.2, 0., 0.,  3., 8.,  10., 4.,  0., 2.,
                       2.,  6.5, 9.7, 1.,  3., 0.,  0., 0.,  0.,  2.,  4., 0.}));
     gko::array<IndexType> expected_l_diag_mtx_col_idxs(
-        exec, I<IndexType>({0, 3, 1,  1, 2, 2, 2, 0, 1,  2, 1, 0,  0, 0,
-                            0, 1, -1, 0, 2, 2, 1, 2, -1, 0, 1, -1, 2}));
+        exec, I<IndexType>({0, 3,  1,  1, 2,  2,  2,  0,  1,  2, -1, -1,
+                            1, -1, -1, 0, -1, -1, 0,  0,  0,  1, -1, 0,
+                            2, 2,  1,  2, 1,  -1, -1, -1, -1, 0, 2,  -1}));
     gko::array<IndexType> expected_l_diag_row(
         exec, I<IndexType>({0,  1,  2,  3,  4,  5,  3,  4,  5,  6,  -1, -1,
                             7,  -1, -1, 7,  -1, -1, 8,  9,  10, 11, -1, 13,
                             11, 12, 13, 14, 15, -1, -1, -1, -1, 16, 17, -1}));
 
-    // GKO_ASSERT_ARRAY_EQ(expected_l_diag_vals, l_diag_vals_);
-    // GKO_ASSERT_ARRAY_EQ(expected_l_diag_mtx_col_idxs, l_diag_mtx_col_idxs_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_diag_vals, l_diag_vals_);
+    GKO_ASSERT_ARRAY_EQ(expected_l_diag_mtx_col_idxs, l_diag_mtx_col_idxs_);
     GKO_ASSERT_ARRAY_EQ(expected_l_diag_row, l_diag_rows_);
 }
 
+TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding2)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using GS = typename TestFixture::GS;
+    auto exec = this->exec;
+
+    auto mtx = this->mtx_secondary_ordering_2;
+
+    auto perm = this->perm_secondary_ordering_2;
+    gko::array<IndexType> perm_cpy;
+    perm_cpy = perm;
+    gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
+    gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 11, 15}));
+
+    IndexType max_color = 1;
+    IndexType base_block_size = 4;
+    IndexType lvl_2_block_size = 2;
+    gko::preconditioner::storage_scheme secondary_padding_easy(2 * max_color +
+                                                               1);
+
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, perm.get_data(), secondary_padding_easy, base_block_size,
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color, true);
+
+    gko::array<IndexType> perm_with_second_ordering_ez(
+        exec, I<IndexType>({5, 0, 9, 10, 2, 1, 11, 13, 6, 14, 4, 8, 3, 12, 7}));
+    GKO_ASSERT_ARRAY_EQ(perm, perm_with_second_ordering_ez);
+
+    lvl_2_block_size = 3;
+    gko::preconditioner::storage_scheme secondary_padding_medium(2 * max_color +
+                                                                 1);
+
+    gko::kernels::reference::gauss_seidel::get_secondary_ordering(
+        exec, perm_cpy.get_data(), secondary_padding_medium, base_block_size,
+        lvl_2_block_size, color_block_ptrs.get_const_data(), max_color, true);
+    gko::array<IndexType> perm_with_second_ordering_med(
+        exec, I<IndexType>({5, 0, 6, 9, 10, 14, 2, 1, 4, 11, 13, 8, 3, 12, 7}));
+    GKO_ASSERT_ARRAY_EQ(perm_cpy, perm_with_second_ordering_med);
+}
 
 }  // namespace
