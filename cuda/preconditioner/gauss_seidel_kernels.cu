@@ -165,9 +165,6 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
     auto first_p_block =
         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
 
-    // for now only w == warp size is supported
-    // GKO_ASSERT(first_p_block->lvl_2_block_size_ == config::warp_size);
-
     const auto num_involved_warps =
         (config::min_warps_per_block > first_p_block->degree_of_parallelism_)
             ? config::min_warps_per_block

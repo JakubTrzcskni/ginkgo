@@ -339,4 +339,8 @@ __global__ void apply_l_p_block_kernel(
     }
 }
 
+template <typename ValueType, typename IndexType>
+__global__ void fill_with_vals_kernel()
+{}
+
 }  // namespace kernel

@@ -70,14 +70,19 @@ struct general_block {
 struct storage_scheme {
     storage_scheme() = default;
     storage_scheme(size_type num_blocks, bool symm = false)
-        : num_blocks_{num_blocks}, symm_{symm}
+        : num_blocks_{num_blocks}, symm_{symm}, combined_nnz_spmv_blocks_{0}
     {
         forward_solve_.reserve(num_blocks);
         if (symm) {
             backward_solve_.reserve(num_blocks);
         }
     }
+    void update_nnz(size_type nnz_in_curr_block)
+    {
+        combined_nnz_spmv_blocks_ += nnz_in_curr_block;
+    }
     size_type num_blocks_;
+    size_type combined_nnz_spmv_blocks_;
     bool symm_;
     std::vector<std::shared_ptr<general_block>> forward_solve_;
     std::vector<std::shared_ptr<general_block>> backward_solve_;

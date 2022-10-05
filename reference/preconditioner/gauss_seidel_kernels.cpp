@@ -732,7 +732,7 @@ void fill_with_vals(
     if (storage_scheme.symm_) {
         GKO_NOT_IMPLEMENTED;
     } else {
-        // fill the diagonal blokcs
+        // fill the diagonal blocks
         for (auto i = 0; i < diag_num_elems; i++) {
             if (l_diag_rows[i] >= 0) {
                 const auto mtx_row = permutation_idxs[l_diag_rows[i]];
