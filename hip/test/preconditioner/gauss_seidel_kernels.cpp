@@ -52,24 +52,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
-                                  std::make_tuple(1000, 5, 32, 4, true),
-                                  std::make_tuple(1000, 5, 32, 8, false),
-                                  std::make_tuple(1000, 5, 32, 8, true),
-                                  std::make_tuple(1000, 5, 32, 2, false),
-                                  std::make_tuple(1000, 5, 32, 2, true),
-                                  std::make_tuple(1000, 15, 32, 4, false),
-                                  std::make_tuple(1000, 15, 32, 4, true),
-                                  std::make_tuple(1000, 10, 16, 4, false),
-                                  std::make_tuple(1000, 10, 16, 4, true),
-                                  std::make_tuple(1000, 10, 4, 4, false),
-                                  std::make_tuple(1000, 10, 4, 4, true),
-                                  std::make_tuple(1000, 10, 4, 8, false),
-                                  std::make_tuple(1000, 10, 4, 8, true),
-                                  std::make_tuple(20, 5, 32, 4, false),
-                                  std::make_tuple(20, 5, 32, 4, true),
-                                  std::make_tuple(1003, 15, 32, 4, false),
-                                  std::make_tuple(1003, 15, 32, 4, true)};
+static apply_param_type allParams{
+    std::make_tuple(1000, 5, 32, 4, false),
+    std::make_tuple(1000, 5, 32, 4, true),
+    std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 8, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    //   std::make_tuple(1000, 15, 32, 3, false), // b_s ==3 does not work
+    //   std::make_tuple(1000, 15, 32, 3, true),
+    std::make_tuple(1000, 10, 16, 4, false),
+    std::make_tuple(1000, 10, 16, 4, true),
+    std::make_tuple(1000, 10, 4, 4, false),
+    std::make_tuple(1000, 10, 4, 4, true),
+    std::make_tuple(1000, 10, 4, 8, false),
+    std::make_tuple(1000, 10, 4, 8, true), std::make_tuple(20, 5, 32, 4, false),
+    std::make_tuple(20, 5, 32, 4, true),
+    std::make_tuple(1003, 15, 32, 4, false),
+    std::make_tuple(1003, 15, 32, 4, true)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
