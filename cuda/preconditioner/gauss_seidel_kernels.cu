@@ -243,7 +243,7 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
             (num_involved_threads > config::max_block_size)
                 ? config::max_block_size
                 : num_involved_threads;
-        const auto grid_size_p = ceildiv(num_involved_threads, block_size);
+        const auto grid_size_p = ceildiv(num_involved_threads, block_size_p);
 
         const auto num_rows_p_block =
             p_block->end_row_global_ - p_block->start_row_global_;
