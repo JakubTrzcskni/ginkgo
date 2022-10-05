@@ -50,6 +50,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "hip/test/utils.hip.hpp"
 
 namespace {
+
+using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
+static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
+                                  std::make_tuple(1000, 5, 32, 4, true),
+                                  std::make_tuple(1000, 5, 32, 8, false),
+                                  std::make_tuple(1000, 5, 32, 8, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 15, 32, 4, false),
+                                  std::make_tuple(1000, 15, 32, 4, true),
+                                  std::make_tuple(1000, 10, 16, 4, false),
+                                  std::make_tuple(1000, 10, 16, 4, true),
+                                  std::make_tuple(1000, 10, 4, 4, false),
+                                  std::make_tuple(1000, 10, 4, 4, true),
+                                  std::make_tuple(1000, 10, 4, 8, false),
+                                  std::make_tuple(1000, 10, 4, 8, true),
+                                  std::make_tuple(20, 5, 32, 4, false),
+                                  std::make_tuple(20, 5, 32, 4, true),
+                                  std::make_tuple(1003, 15, 32, 4, false),
+                                  std::make_tuple(1003, 15, 32, 4, true)};
+
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
 protected:
@@ -58,7 +79,7 @@ protected:
     using index_type =
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
-    GaussSeidel() : rand_engine(42) {}
+    GaussSeidel() : rand_engine(42), apply_params_{allParams} {}
 
     void SetUp()
     {
@@ -77,10 +98,12 @@ protected:
     std::default_random_engine rand_engine;
     std::shared_ptr<gko::ReferenceExecutor> ref;
     std::shared_ptr<gko::HipExecutor> hip;
+    apply_param_type apply_params_;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
+
 
 TYPED_TEST(GaussSeidel, GetDegreeOfNodesKernel)
 {
@@ -103,7 +126,7 @@ TYPED_TEST(GaussSeidel, GetDegreeOfNodesKernel)
     GKO_ASSERT_ARRAY_EQ(degrees, I<IndexType>({1, 2, 3, 4}));
 }
 
-TYPED_TEST(GaussSeidel, SimpleApply)
+TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
 {
     using ValueType = typename TestFixture::value_type;
     using IndexType = typename TestFixture::index_type;
@@ -114,8 +137,8 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto hip_exec = this->hip;
 
-    gko::size_type num_rows = 1001;
-    gko::size_type row_limit = 7;
+    gko::size_type num_rows = 35;
+    gko::size_type row_limit = 3;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -130,7 +153,6 @@ TYPED_TEST(GaussSeidel, SimpleApply)
         std::uniform_int_distribution<IndexType>(num_rows * num_rhs,
                                                  num_rows * num_rhs),
         val_dist, this->rand_engine, ref_exec, gko::dim<2>{num_rows, num_rhs});
-    auto d_rhs = gko::clone(hip_exec, rhs);
 
     auto x = Vec::create_with_config_of(gko::lend(rhs));
     x->fill(ValueType{0});
@@ -138,31 +160,119 @@ TYPED_TEST(GaussSeidel, SimpleApply)
 
     auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
     mtx->read(mat_data);
-
-    gko::size_type b_s = 4;
-    gko::size_type w = 32;
+    auto d_mtx = gko::clone(hip_exec, mtx);
 
     auto ref_gs_factory = GS::build()
                               .with_use_HBMC(true)
-                              .with_base_block_size(b_s)
-                              .with_lvl_2_block_size(w)
+                              .with_base_block_size(4u)
+                              .with_lvl_2_block_size(32u)
+                              .with_use_padding(true)
                               .on(ref_exec);
-    std::cout << "generate host" << std::endl;
+
     auto ref_gs = ref_gs_factory->generate(mtx);
+    auto perm_idxs =
+        gko::array<IndexType>(ref_exec, ref_gs->get_permutation_idxs());
+    auto rhs_perm = gko::as<Vec>(gko::lend(rhs)->row_permute(&perm_idxs));
 
-    auto device_gs_factory = GS::build()
-                                 .with_use_HBMC(true)
-                                 .with_base_block_size(b_s)
-                                 .with_lvl_2_block_size(w)
-                                 .on(hip_exec);
-    std::cout << "generate hip" << std::endl;
-    auto device_gs = device_gs_factory->generate(mtx);
+    auto storage_scheme = ref_gs->get_storage_scheme();
+    auto l_diag_rows = ref_gs->get_l_diag_rows();
+    auto d_l_diag_rows = make_temporary_clone(hip_exec, &l_diag_rows);
+    auto l_diag_vals = ref_gs->get_l_diag_vals();
+    auto d_l_diag_vals = make_temporary_clone(hip_exec, &l_diag_vals);
+    auto l_spmv_row_ptrs = ref_gs->get_l_spmv_row_ptrs();
+    auto d_l_spmv_row_ptrs = make_temporary_clone(hip_exec, &l_spmv_row_ptrs);
+    auto l_spmv_col_idxs = ref_gs->get_l_spmv_col_idxs();
+    auto d_l_spmv_col_idxs = make_temporary_clone(hip_exec, &l_spmv_col_idxs);
+    auto l_spmv_vals = ref_gs->get_l_spmv_vals();
+    auto d_l_spmv_vals = make_temporary_clone(hip_exec, &l_spmv_vals);
 
-    ref_gs->apply(gko::lend(rhs), gko::lend(x));
+    auto d_perm_idxs = make_temporary_clone(hip_exec, &perm_idxs);
+    auto d_rhs_perm = gko::clone(hip_exec, rhs_perm);
 
-    device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+    gko::kernels::reference::gauss_seidel::simple_apply(
+        ref_exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
+        l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
+        l_spmv_vals.get_const_data(), perm_idxs.get_const_data(),
+        storage_scheme, gko::lend(rhs_perm), gko::lend(x));
+
+    hip_exec->synchronize();
+    gko::kernels::hip::gauss_seidel::simple_apply(
+        hip_exec, d_l_diag_rows->get_const_data(),
+        d_l_diag_vals->get_const_data(), d_l_spmv_row_ptrs->get_const_data(),
+        d_l_spmv_col_idxs->get_const_data(), d_l_spmv_vals->get_const_data(),
+        d_perm_idxs->get_const_data(), storage_scheme, gko::lend(d_rhs_perm),
+        gko::lend(d_x));
+    hip_exec->synchronize();
 
     GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+}
+
+TYPED_TEST(GaussSeidel, SimpleApply)
+{
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using GS = typename TestFixture::GS;
+    using Csr = gko::matrix::Csr<ValueType, IndexType>;
+    using Vec = gko::matrix::Dense<ValueType>;
+    auto ref_exec = this->ref;
+    auto hip_exec = this->hip;
+
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        gko::size_type num_rhs = 10;
+        auto nz_dist = std::uniform_int_distribution<IndexType>(
+            1, static_cast<gko::size_type>(row_limit));
+        auto val_dist =
+            std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1.,
+                                                                           1.);
+        auto mat_data =
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
+                static_cast<gko::size_type>(num_rows),
+                static_cast<gko::size_type>(num_rows), nz_dist, val_dist,
+                this->rand_engine);
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        auto rhs = gko::test::generate_random_matrix<Vec>(
+            static_cast<gko::size_type>(num_rows), num_rhs,
+            std::uniform_int_distribution<IndexType>(
+                static_cast<gko::size_type>(num_rows) * num_rhs,
+                static_cast<gko::size_type>(num_rows) * num_rhs),
+            val_dist, this->rand_engine, ref_exec,
+            gko::dim<2>{static_cast<gko::size_type>(num_rows), num_rhs});
+        auto d_rhs = gko::clone(hip_exec, rhs);
+
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto d_x = gko::clone(hip_exec, x);
+
+        auto mtx = gko::share(Csr::create(
+            ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
+        mtx->read(mat_data);
+
+        auto ref_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .on(ref_exec);
+        auto ref_gs = ref_gs_factory->generate(mtx);
+
+        auto device_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .on(hip_exec);
+        auto device_gs = device_gs_factory->generate(mtx);
+
+        ref_gs->apply(gko::lend(rhs), gko::lend(x));
+
+        device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+
+        GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+    }
 }
 
 

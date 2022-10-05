@@ -304,9 +304,12 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
 
 template <typename ValueType, typename IndexType>
 void apply(std::shared_ptr<const ReferenceExecutor> exec,
-           const matrix::Csr<ValueType, IndexType>* A,
+           const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+           const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
+           const ValueType* l_spmv_vals, const IndexType* permutation_idxs,
+           const preconditioner::storage_scheme& storage_scheme,
            const matrix::Dense<ValueType>* alpha,
-           const matrix::Dense<ValueType>* b,
+           matrix::Dense<ValueType>* b_perm,
            const matrix::Dense<ValueType>* beta,
            matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

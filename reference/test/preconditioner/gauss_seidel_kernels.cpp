@@ -67,9 +67,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "matrices/config.hpp"
 
 namespace {
+
+using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
+static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
+                                  std::make_tuple(1000, 5, 32, 4, true),
+                                  std::make_tuple(1000, 5, 32, 8, false),
+                                  std::make_tuple(1000, 5, 32, 8, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 15, 32, 4, false),
+                                  std::make_tuple(1000, 15, 32, 4, true),
+                                  std::make_tuple(1000, 10, 16, 4, false),
+                                  std::make_tuple(1000, 10, 16, 4, true),
+                                  std::make_tuple(1000, 10, 4, 4, false),
+                                  std::make_tuple(1000, 10, 4, 4, true),
+                                  std::make_tuple(1000, 10, 4, 8, false),
+                                  std::make_tuple(1000, 10, 4, 8, true),
+                                  std::make_tuple(20, 5, 32, 4, false),
+                                  std::make_tuple(20, 5, 32, 4, true),
+                                  std::make_tuple(1003, 15, 32, 4, false),
+                                  std::make_tuple(1003, 15, 32, 4, true),
+                                  std::make_tuple(10000, 20, 32, 4, false),
+                                  std::make_tuple(10000, 20, 32, 4, true),
+                                  std::make_tuple(10000, 20, 16, 8, false)};
+
 template <typename ValueIndexType>
-class GaussSeidel : public ::testing ::Test,
-                    public ::testing::WithParamInterface<std::tuple<int, int>> {
+class GaussSeidel : public ::testing ::Test {
 protected:
     using value_type =
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
@@ -142,8 +165,9 @@ protected:
               exec, I<index_type>({10, 12, 17, 11, 5, 1, 9, 4, 3, 7, 13, 16, 0,
                                    2, 14, 6, 8, 15})},
           perm_secondary_ordering_2{
-              exec,
-              I<index_type>({5, 9, 2, 11, 0, 10, 1, 13, 6, 14, 4, 8, 3, 12, 7})}
+              exec, I<index_type>(
+                        {5, 9, 2, 11, 0, 10, 1, 13, 6, 14, 4, 8, 3, 12, 7})},
+          apply_params_{allParams}
 
     {
         mtx_dense_2->convert_to(gko::lend(mtx_csr_2));
@@ -364,6 +388,7 @@ protected:
     std::shared_ptr<Vec> rhs_rand;
     gko::array<index_type> perm_secondary_ordering;
     gko::array<index_type> perm_secondary_ordering_2;
+    apply_param_type apply_params_;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
@@ -1145,56 +1170,58 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
     using GS = typename TestFixture::GS;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-
     auto exec = this->exec;
-    auto mtx = gko::share(this->generate_rand_matrix(
-        IndexType{10000}, IndexType{5}, IndexType{15}, ValueType{0}));
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        auto mtx = gko::share(
+            this->generate_rand_matrix(IndexType{num_rows}, IndexType{1},
+                                       IndexType{row_limit}, ValueType{0}));
 
-    gko::size_type num_rhs = 10;
-    auto rhs = gko::share(
-        this->generate_rand_dense(ValueType{0}, mtx->get_size()[0], num_rhs));
+        gko::size_type num_rhs = 10;
+        auto rhs = gko::share(this->generate_rand_dense(
+            ValueType{0}, mtx->get_size()[0], num_rhs));
 
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto ref_x = Vec::create_with_config_of(gko::lend(rhs));
+        ref_x->fill(ValueType{0});
 
-    auto x = Vec::create_with_config_of(gko::lend(rhs));
-    x->fill(ValueType{0});
-    auto ref_x = Vec::create_with_config_of(gko::lend(rhs));
-    ref_x->fill(ValueType{0});
+        auto gs_HBMC_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))  // 4u)
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))   // 32u)
+                .with_use_padding(padding)  // true)
+                .on(exec);
+        auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
-    auto gs_HBMC_factory = GS::build()
-                               .with_use_HBMC(true)
-                               .with_base_block_size(4u)
-                               .with_lvl_2_block_size(32u)
-                               .with_use_padding(true)
-                               .on(exec);
-    auto gs_HBMC = gs_HBMC_factory->generate(mtx);
+        auto perm_idxs =
+            gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
 
-    auto perm_idxs =
-        gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
+        auto mtx_perm = gko::as<Csr>(mtx->permute(&perm_idxs));
+        gko::matrix_data<ValueType, IndexType> ref_data;
+        mtx_perm->write(ref_data);
+        gko::utils::make_lower_triangular(ref_data);
+        ref_data.ensure_row_major_order();
+        auto ref_mtx = gko::share(Csr::create(exec));
+        ref_mtx->read(ref_data);
+        const auto rhs_perm =
+            gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
 
-    auto mtx_perm = gko::as<Csr>(mtx->permute(&perm_idxs));
-    gko::matrix_data<ValueType, IndexType> ref_data;
-    mtx_perm->write(ref_data);
-    gko::utils::make_lower_triangular(ref_data);
-    ref_data.ensure_row_major_order();
-    auto ref_mtx = gko::share(Csr::create(exec));
-    ref_mtx->read(ref_data);
-    const auto rhs_perm =
-        gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
+        auto ltrs_factory =
+            gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+        auto ref_ltrs = ltrs_factory->generate(ref_mtx);
 
-    auto ltrs_factory =
-        gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
-    auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+        ref_ltrs->apply(gko::lend(rhs_perm), gko::lend(ref_x));
 
+        auto ref_ans = Vec::create(exec);
+        ref_ans->copy_from(
+            std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
 
-    ref_ltrs->apply(gko::lend(rhs_perm), gko::lend(ref_x));
+        gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
 
-    auto ref_ans = Vec::create(exec);
-    ref_ans->copy_from(
-        std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
-
-    gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
-
-    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
+        GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
+    }
 }
 
 TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding)
