@@ -138,8 +138,8 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 35;
-    gko::size_type row_limit = 3;
+    gko::size_type num_rows = 1000;
+    gko::size_type row_limit = 10;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
@@ -161,7 +161,6 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
 
     auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
     mtx->read(mat_data);
-    auto d_mtx = gko::clone(cuda_exec, mtx);
 
     auto ref_gs_factory = GS::build()
                               .with_use_HBMC(true)
@@ -170,6 +169,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
                               .on(ref_exec);
 
     auto ref_gs = ref_gs_factory->generate(mtx);
+
     auto perm_idxs =
         gko::array<IndexType>(ref_exec, ref_gs->get_permutation_idxs());
     auto rhs_perm = gko::as<Vec>(gko::lend(rhs)->row_permute(&perm_idxs));
@@ -196,6 +196,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
         storage_scheme, gko::lend(rhs_perm), gko::lend(x));
 
     cuda_exec->synchronize();
+    std::cout << "hm test " << d_l_spmv_row_ptrs->get_num_elems() << std::endl;
     gko::kernels::cuda::gauss_seidel::simple_apply(
         cuda_exec, d_l_diag_rows->get_const_data(),
         d_l_diag_vals->get_const_data(), d_l_spmv_row_ptrs->get_const_data(),
@@ -218,7 +219,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1002;
+    gko::size_type num_rows = 1004;
     gko::size_type row_limit = 10;
     gko::size_type num_rhs = 5;
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
@@ -244,19 +245,22 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     mtx->read(mat_data);
 
     gko::size_type b_s = 4;
-    gko::size_type w = 8;
+    gko::size_type w = 16;
 
     auto ref_gs_factory = GS::build()
                               .with_use_HBMC(true)
                               .with_base_block_size(b_s)
                               .with_lvl_2_block_size(w)
+                              .with_use_padding(true)
                               .on(ref_exec);
     auto ref_gs = ref_gs_factory->generate(mtx);
+
 
     auto device_gs_factory = GS::build()
                                  .with_use_HBMC(true)
                                  .with_base_block_size(b_s)
                                  .with_lvl_2_block_size(w)
+                                 .with_use_padding(true)
                                  .on(cuda_exec);
     auto device_gs = device_gs_factory->generate(mtx);
 

@@ -75,11 +75,10 @@ void visualize(std::shared_ptr<const gko::Executor> exec,
 template <typename ValueType, typename IndexType>
 std::unique_ptr<gko::matrix::Csr<ValueType, IndexType>>
 generate_2D_regular_grid_matrix(std::shared_ptr<const gko::Executor> exec,
-                                size_t size, ValueType deduction_help,
-                                IndexType deduction_help_ind,
+                                const IndexType size, ValueType deduction_help,
                                 bool nine_point = false)
 {
-    gko::dim<2>::dimension_type grid_points = size * size;
+    const auto grid_points = size * size;
     gko::matrix_data<ValueType, IndexType> data(gko::dim<2>{grid_points});
 
     auto matrix = gko::matrix::Csr<ValueType, IndexType>::create(
@@ -199,6 +198,7 @@ int main(int argc, char* argv[])
     const auto rand_size_arg = argc >= 5 ? argv[4] : "1000";
     const auto rand_nnz_row_lo_arg = argc >= 6 ? argv[5] : "1";
     const auto rand_nnz_row_hi_arg = argc >= 7 ? argv[6] : "10";
+    const auto use_padding_arg = argc >= 8 ? argv[7] : "0";
     IndexType base_block_size;
     std::stringstream ss_1(base_block_size_arg);
     if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
@@ -208,13 +208,15 @@ int main(int argc, char* argv[])
     IndexType rand_size;
     IndexType rand_nnz_row_lo;
     IndexType rand_nnz_row_hi;
+    bool use_padding;
     std::stringstream ss_3(rand_size_arg);
     std::stringstream ss_4(rand_nnz_row_lo_arg);
     std::stringstream ss_5(rand_nnz_row_hi_arg);
+    std::stringstream ss_6(use_padding_arg);
     if (!(ss_3 >> rand_size)) GKO_NOT_SUPPORTED(rand_size_arg);
     if (!(ss_4 >> rand_nnz_row_lo)) GKO_NOT_SUPPORTED(rand_nnz_row_lo_arg);
     if (!(ss_5 >> rand_nnz_row_hi)) GKO_NOT_SUPPORTED(rand_nnz_row_hi_arg);
-
+    if (!(ss_6 >> use_padding)) GKO_NOT_SUPPORTED(use_padding_arg);
 
     // Figure out where to run the code
     std::map<std::string, std::function<std::shared_ptr<gko::Executor>()>>
@@ -240,12 +242,13 @@ int main(int argc, char* argv[])
     // executor where Ginkgo will perform the computation
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
-    // auto mtx_rand = gko::share(generate_rand_matrix(
-    //     exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
-        exec, size_t{std::sqrt(rand_size)}, ValueType{}, IndexType{}, true));
+    auto mtx_rand = gko::share(generate_rand_matrix(
+        exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
+    // auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
+    //     exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{},
+    //     true));
 
-    // visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
+    visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
     // visualize(exec, gko::lend(mtx_rand_grid), std::string("mtxRandGrid"));
 
 
@@ -253,6 +256,7 @@ int main(int argc, char* argv[])
                                .with_use_HBMC(true)
                                .with_base_block_size(base_block_size)
                                .with_lvl_2_block_size(lvl_2_block_size)
+                               .with_use_padding(use_padding)
                                .on(exec);
 
     exec->synchronize();
@@ -297,7 +301,7 @@ int main(int argc, char* argv[])
     //                   typeid(IndexType).name() + std::string("-");
     // label += std::to_string(base_block_size) + std::string("-") +
     //          std::to_string(lvl_2_block_size);
-    // visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
+    visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
 
     // auto label2 = std::string("mtxRandBlockOrdering-");
     // label2 += std::to_string(base_block_size) + std::string("-") +
