@@ -109,60 +109,6 @@ void ref_simple_apply(std::shared_ptr<const HipExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL);
 
-namespace host_kernel {
-
-template <int subwarp_size, typename ValueType, typename IndexType>
-void apply_hbmc(syn::value_list<int, subwarp_size>,
-                std::shared_ptr<const HipExecutor> exec,
-                const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                const IndexType* permutation_idxs,
-                const preconditioner::parallel_block* p_block,
-                matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
-                const int* diag_LUT, const int* subblock_LUT,
-                const matrix::Dense<ValueType>* alpha = nullptr,
-                const matrix::Dense<ValueType>* beta = nullptr)
-{
-    const auto num_rows_p_block =
-        p_block->end_row_global_ - p_block->start_row_global_;
-    const auto num_rhs = b_perm->get_size()[1];
-    const auto num_rows = b_perm->get_size()[0];
-    auto id_offs = p_block->val_storage_id_;
-    const auto num_involved_subwarps = p_block->degree_of_parallelism_;
-    const auto min_num_threads =
-        config::min_warps_per_block * config::warp_size;
-    const auto num_involved_threads =
-        num_involved_subwarps * subwarp_size < min_num_threads
-            ? min_num_threads
-            : num_involved_subwarps * subwarp_size;
-    const auto block_size = (num_involved_threads > config::max_block_size)
-                                ? config::max_block_size
-                                : num_involved_threads;
-    const auto grid_size = ceildiv(num_involved_threads, block_size);
-    if (alpha == nullptr && beta == nullptr) {
-        kernel::apply_l_p_block_kernel<subwarp_size><<<block_size, grid_size>>>(
-            &(l_diag_rows[id_offs]), as_hip_type(&(l_diag_vals[id_offs])),
-            p_block->end_row_global_, num_rows_p_block,
-            p_block->base_block_size_, p_block->degree_of_parallelism_,
-            p_block->residual_, num_rhs, as_hip_type(b_perm->get_values()),
-            as_hip_type(x->get_values()), permutation_idxs, diag_LUT,
-            subblock_LUT);
-    } else if (alpha != nullptr && beta != nullptr) {
-        kernel::apply_l_p_block_kernel<subwarp_size><<<block_size, grid_size>>>(
-            &(l_diag_rows[id_offs]), as_hip_type(&(l_diag_vals[id_offs])),
-            p_block->end_row_global_, num_rows_p_block,
-            p_block->base_block_size_, p_block->degree_of_parallelism_,
-            p_block->residual_, num_rhs, as_hip_type(b_perm->get_values()),
-            as_hip_type(alpha->get_const_values()),
-            as_hip_type(x->get_values()), as_hip_type(beta->get_const_values()),
-            permutation_idxs, diag_LUT, subblock_LUT);
-    } else {
-        GKO_KERNEL_NOT_FOUND;
-    }
-}
-GKO_ENABLE_IMPLEMENTATION_SELECTION(select_apply_hbmc, apply_hbmc);
-
-}  // namespace host_kernel
-
 template <typename ValueType, typename IndexType>
 void apply(std::shared_ptr<const HipExecutor> exec,
            const IndexType* l_diag_rows, const ValueType* l_diag_vals,

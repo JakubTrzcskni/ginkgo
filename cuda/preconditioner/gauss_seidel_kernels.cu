@@ -164,27 +164,15 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
 
     auto first_p_block =
         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
+    const auto w = first_p_block->lvl_2_block_size_;
 
-    const auto num_involved_warps =
-        (config::min_warps_per_block > first_p_block->degree_of_parallelism_)
-            ? config::min_warps_per_block
-            : first_p_block->degree_of_parallelism_;
-    const auto num_involved_threads = num_involved_warps * config::warp_size;
-    const auto block_size = (num_involved_threads > config::max_block_size)
-                                ? config::max_block_size
-                                : num_involved_threads;
-    const auto grid_size = ceildiv(num_involved_threads, block_size);
-
-    const auto num_rows_fp_block =
-        first_p_block->end_row_global_ - first_p_block->start_row_global_;
-
-    kernel::apply_l_p_block_kernel<<<block_size, grid_size>>>(
-        l_diag_rows, as_cuda_type(l_diag_vals), first_p_block->end_row_global_,
-        num_rows_fp_block, first_p_block->base_block_size_,
-        first_p_block->lvl_2_block_size_, first_p_block->degree_of_parallelism_,
-        first_p_block->residual_, num_rhs, as_cuda_type(b_perm->get_values()),
-        as_cuda_type(x->get_values()), permutation_idxs,
+    host_kernel::select_apply_hbmc(
+        hbmc_kernels(),
+        [&](int compiled_subwarp_size) { return compiled_subwarp_size == w; },
+        syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
+        l_diag_vals, permutation_idxs, first_p_block, b_perm, x,
         diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+
 
     for (auto block = 1; block < num_blocks - 1; block += 2) {
         auto spmv_block =
@@ -232,30 +220,16 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
 
         auto p_block = static_cast<preconditioner::parallel_block*>(
             block_ptrs[block + 1].get());
-        auto id_offs = p_block->val_storage_id_;
-        const auto num_involved_warps =
-            (config::min_warps_per_block > p_block->degree_of_parallelism_)
-                ? config::min_warps_per_block
-                : p_block->degree_of_parallelism_;
-        const auto num_involved_threads =
-            num_involved_warps * config::warp_size;
-        const auto block_size_p =
-            (num_involved_threads > config::max_block_size)
-                ? config::max_block_size
-                : num_involved_threads;
-        const auto grid_size_p = ceildiv(num_involved_threads, block_size_p);
+        const auto w = p_block->lvl_2_block_size_;
 
-        const auto num_rows_p_block =
-            p_block->end_row_global_ - p_block->start_row_global_;
-
-        kernel::apply_l_p_block_kernel<<<block_size_p, grid_size_p>>>(
-            &(l_diag_rows[id_offs]), as_cuda_type(&(l_diag_vals[id_offs])),
-            p_block->end_row_global_, num_rows_p_block,
-            p_block->base_block_size_, p_block->lvl_2_block_size_,
-            p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
-            as_cuda_type(b_perm->get_values()), as_cuda_type(x->get_values()),
-            permutation_idxs, diag_LUT.get_const_data(),
-            subblock_LUT.get_const_data());
+        host_kernel::select_apply_hbmc(
+            hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
+            l_diag_vals, permutation_idxs, p_block, b_perm, x,
+            diag_LUT.get_const_data(), subblock_LUT.get_const_data());
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
