@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/dense.hpp>
 
 #include "core/base/allocator.hpp"
+#include "core/synthesizer/implementation_selection.hpp"
 #include "cuda/base/config.hpp"
 #include "cuda/base/math.hpp"
 #include "cuda/base/types.hpp"
@@ -75,6 +76,10 @@ constexpr int default_grid_size = 32 * 32 * 128;
 
 
 }  // namespace
+
+using hbmc_kernels =
+    syn::value_list<int, config::warp_size, 32, 16, 8, 4, 2, 1>;
+
 #include "common/cuda_hip/preconditioner/gauss_seidel_kernels.hpp.inc"
 
 
@@ -168,7 +173,9 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
 
     host_kernel::select_apply_hbmc(
         hbmc_kernels(),
-        [&](int compiled_subwarp_size) { return compiled_subwarp_size == w; },
+        [&](int compiled_subwarp_size) {
+            return compiled_subwarp_size == static_cast<int>(w);
+        },
         syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
         l_diag_vals, permutation_idxs, first_p_block, b_perm, x,
         diag_LUT.get_const_data(), subblock_LUT.get_const_data());
@@ -205,7 +212,7 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
             (config::max_block_size < spmv_size_col)
                 ? config::max_block_size
                 : (config::min_warps_per_block * config::warp_size);
-        const auto grid_size_spmv = ceildiv(spmv_size_col, block_size);
+        const auto grid_size_spmv = ceildiv(spmv_size_col, block_size_spmv);
 
         kernel::prepare_x_kernel<<<block_size_spmv, grid_size_spmv>>>(
             x->get_const_values(), tmp_x->get_values(), permutation_idxs,
@@ -225,7 +232,7 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
         host_kernel::select_apply_hbmc(
             hbmc_kernels(),
             [&](int compiled_subwarp_size) {
-                return compiled_subwarp_size == w;
+                return compiled_subwarp_size == static_cast<int>(w);
             },
             syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
             l_diag_vals, permutation_idxs, p_block, b_perm, x,

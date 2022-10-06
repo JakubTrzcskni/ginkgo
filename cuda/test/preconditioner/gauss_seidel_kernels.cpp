@@ -196,7 +196,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
         storage_scheme, gko::lend(rhs_perm), gko::lend(x));
 
     cuda_exec->synchronize();
-    std::cout << "hm test " << d_l_spmv_row_ptrs->get_num_elems() << std::endl;
+
     gko::kernels::cuda::gauss_seidel::simple_apply(
         cuda_exec, d_l_diag_rows->get_const_data(),
         d_l_diag_vals->get_const_data(), d_l_spmv_row_ptrs->get_const_data(),

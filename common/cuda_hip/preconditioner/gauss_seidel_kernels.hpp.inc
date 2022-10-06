@@ -349,7 +349,7 @@ namespace host_kernel {
 
 template <int subwarp_size, typename ValueType, typename IndexType>
 void apply_hbmc(syn::value_list<int, subwarp_size>,
-                std::shared_ptr<const HipExecutor> exec,
+                std::shared_ptr<const Executor> exec,
                 const IndexType* l_diag_rows, const ValueType* l_diag_vals,
                 const IndexType* permutation_idxs,
                 const preconditioner::parallel_block* p_block,
@@ -376,21 +376,22 @@ void apply_hbmc(syn::value_list<int, subwarp_size>,
     const auto grid_size = ceildiv(num_involved_threads, block_size);
     if (alpha == nullptr && beta == nullptr) {
         kernel::apply_l_p_block_kernel<subwarp_size><<<block_size, grid_size>>>(
-            &(l_diag_rows[id_offs]), as_hip_type(&(l_diag_vals[id_offs])),
+            &(l_diag_rows[id_offs]), as_device_type(&(l_diag_vals[id_offs])),
             p_block->end_row_global_, num_rows_p_block,
             p_block->base_block_size_, p_block->degree_of_parallelism_,
-            p_block->residual_, num_rhs, as_hip_type(b_perm->get_values()),
-            as_hip_type(x->get_values()), permutation_idxs, diag_LUT,
+            p_block->residual_, num_rhs, as_device_type(b_perm->get_values()),
+            as_device_type(x->get_values()), permutation_idxs, diag_LUT,
             subblock_LUT);
     } else if (alpha != nullptr && beta != nullptr) {
         kernel::apply_l_p_block_kernel<subwarp_size><<<block_size, grid_size>>>(
-            &(l_diag_rows[id_offs]), as_hip_type(&(l_diag_vals[id_offs])),
+            &(l_diag_rows[id_offs]), as_device_type(&(l_diag_vals[id_offs])),
             p_block->end_row_global_, num_rows_p_block,
             p_block->base_block_size_, p_block->degree_of_parallelism_,
-            p_block->residual_, num_rhs, as_hip_type(b_perm->get_values()),
-            as_hip_type(alpha->get_const_values()),
-            as_hip_type(x->get_values()), as_hip_type(beta->get_const_values()),
-            permutation_idxs, diag_LUT, subblock_LUT);
+            p_block->residual_, num_rhs, as_device_type(b_perm->get_values()),
+            as_device_type(alpha->get_const_values()),
+            as_device_type(x->get_values()),
+            as_device_type(beta->get_const_values()), permutation_idxs,
+            diag_LUT, subblock_LUT);
     } else {
         GKO_KERNEL_NOT_FOUND;
     }
