@@ -119,8 +119,15 @@ std::string encode_parameters(const char* precond_name)
              return std::string{"general-isai-"} +
                     std::to_string(FLAGS_isai_power);
          }},
-        {"spd-isai", [] {
+        {"spd-isai",
+         [] {
              return std::string{"spd-isai-"} + std::to_string(FLAGS_isai_power);
+         }},
+        {"gauss-seidel", [] {
+             std::ostringstream oss;
+             oss << "gauss-seidel-" << FLAGS_gs_base_block_size << '-'
+                 << FLAGS_gs_lvl_2_block_size << '-' << FLAGS_gs_use_padding;
+             return oss.str();
          }}};
     if (encoder.find(precond_name) == encoder.end()) {
         return precond_name;

@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
+#include <ginkgo/core/preconditioner/jacobi.hpp>
 #include <ginkgo/core/solver/cg.hpp>
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
@@ -638,51 +639,6 @@ TYPED_TEST(GaussSeidel, SystemSolveIRRefGS)
     GKO_ASSERT_MTX_NEAR(result, this->ans_3, r<ValueType>::value);
 }
 
-/* TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
-{
-    using CG = typename TestFixture::CG;
-    using Csr = typename TestFixture::Csr;
-    using Vec = typename TestFixture::Vec;
-    using GS = typename TestFixture::GS;
-    using ValueType = typename TestFixture::value_type;
-    using IndexType = typename TestFixture::index_type;
-    using Log = typename TestFixture::Log;
-    using namespace gko;
-
-    auto exec = this->exec;
-
-    auto mtx = share(this->generate_rand_matrix(IndexType{1000}, IndexType{5},
-                                                IndexType{15}, ValueType{0}));
-    auto rhs =
-        share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
-    auto x = Vec::create_with_config_of(lend(rhs));
-    x->fill(0.0);
-    auto x_clone = clone(exec, x);
-    auto rhs_clone = clone(exec, rhs);
-
-    auto iter_crit = this->iter_criterion_factory;
-    iter_crit->add_logger(this->iter_logger);
-    auto res_norm = this->res_norm_criterion_factory;
-    res_norm->add_logger(this->iter_logger);
-
-    auto cg_factory = CG::build().with_criteria(iter_crit, res_norm).on(exec);
-    auto cg = cg_factory->generate(mtx);
-    cg->apply(lend(rhs), lend(x));
-    auto cg_num_iters = this->iter_logger->get_num_iterations();
-
-    auto pcg_factory = CG::build()
-                           .with_criteria(iter_crit, res_norm)
-                           .with_preconditioner(this->gs_factory)
-                           .on(exec);
-    auto pcg = pcg_factory->generate(mtx);
-    pcg->apply(lend(rhs_clone), lend(x_clone));
-
-    auto pcg_num_iters = this->iter_logger->get_num_iterations();
-
-    GKO_ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
-    // GKO_ASSERT_MTX_NEAR(x, x_clone, r<ValueType>::value);
-} */
-
 TYPED_TEST(GaussSeidel, CorrectColoringRegularGrid)
 {
     using IndexType = typename TestFixture::index_type;
@@ -1189,9 +1145,9 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
         auto gs_HBMC_factory =
             GS::build()
                 .with_use_HBMC(true)
-                .with_base_block_size(static_cast<gko::size_type>(b_s))  // 4u)
-                .with_lvl_2_block_size(static_cast<gko::size_type>(w))   // 32u)
-                .with_use_padding(padding)  // true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
                 .on(exec);
         auto gs_HBMC = gs_HBMC_factory->generate(mtx);
 
@@ -1344,6 +1300,62 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding2)
     gko::array<IndexType> perm_with_second_ordering_med(
         exec, I<IndexType>({5, 0, 6, 9, 10, 14, 2, 1, 4, 11, 13, 8, 3, 12, 7}));
     GKO_ASSERT_ARRAY_EQ(perm_cpy, perm_with_second_ordering_med);
+}
+
+TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
+{
+    using CG = typename TestFixture::CG;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using GS = typename TestFixture::GS;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using Log = typename TestFixture::Log;
+    using BJ = gko::preconditioner::Jacobi<ValueType, IndexType>;
+    using namespace gko;
+
+    auto exec = this->exec;
+
+    auto mtx = share(this->generate_rand_matrix(IndexType{1000}, IndexType{5},
+                                                IndexType{15}, ValueType{0}));
+    auto rhs =
+        share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+    auto x = Vec::create_with_config_of(lend(rhs));
+    x->fill(0.0);
+    auto x_clone = clone(exec, x);
+    auto rhs_clone = clone(exec, rhs);
+
+    auto iter_crit = this->iter_criterion_factory;
+    iter_crit->add_logger(this->iter_logger);
+    auto res_norm = this->res_norm_criterion_factory;
+    res_norm->add_logger(this->iter_logger);
+
+    auto cg_factory = CG::build().with_criteria(iter_crit, res_norm).on(exec);
+    auto cg = cg_factory->generate(mtx);
+    cg->apply(lend(rhs), lend(x));
+    auto cg_num_iters = this->iter_logger->get_num_iterations();
+
+    auto gs_hbmc = share(GS::build()
+                             .with_use_HBMC(true)
+                             .with_base_block_size(4u)
+                             .with_lvl_2_block_size(32u)
+                             .with_use_padding(true)
+                             .on(exec));
+
+    auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
+    auto ltrs_factory =
+        share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
+
+    auto pcg_factory = CG::build()
+                           .with_criteria(iter_crit, res_norm)
+                           .with_preconditioner(ltrs_factory)
+                           .on(exec);
+    auto pcg = pcg_factory->generate(mtx);
+    pcg->apply(lend(rhs_clone), lend(x_clone));
+
+    auto pcg_num_iters = this->iter_logger->get_num_iterations();
+
+    ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
 }
 
 }  // namespace

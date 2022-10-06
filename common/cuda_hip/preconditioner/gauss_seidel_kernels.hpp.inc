@@ -225,6 +225,10 @@ __global__ void apply_l_p_block_kernel(
     const auto tid = thread::get_thread_id_flat<int>();
     const auto subwarp_id = tid / subwarp_size;
     const auto local_tid = tid % subwarp_size;
+    // auto subwarp =
+    //     group::tiled_partition<subwarp_size>(group::this_thread_block());
+    // const auto local_tid = subwarp.thread_rank();
+    // const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
 
     if (subwarp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
     const auto nz_p_b = diag_LUT[b_s] + 1;
@@ -263,6 +267,10 @@ __global__ void apply_l_p_block_kernel(
     const auto tid = thread::get_thread_id_flat<int>();
     const auto subwarp_id = tid / subwarp_size;
     const auto local_tid = tid % subwarp_size;
+    // auto subwarp =
+    //     group::tiled_partition<subwarp_size>(group::this_thread_block());
+    // const auto local_tid = subwarp.thread_rank();
+    // const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
     if (subwarp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
 
     const auto nz_p_b = diag_LUT[b_s] + 1;
@@ -282,7 +290,6 @@ __global__ void apply_l_p_block_kernel(
             });
     } else {
         // apply lvl 1
-
         apply_ltr<subwarp_size>(
             &(rows[base_offs + local_tid]), &(vals[base_offs + local_tid]),
             end_row, num_rows_in_block, b_s, subwarp_size, num_rhs, b_perm, x,
@@ -304,21 +311,18 @@ __global__ void apply_l_p_block_kernel(
     const IndexType* __restrict__ perm_idxs, const int* diag_LUT,
     const int* subblock_LUT)
 {
-    const int subwarp_size = w;
-    // constexpr int warp_size = config::warp_size;
-    auto subwarp =
-        group::tiled_partition<config::warp_size>(group::this_thread_block());
+    constexpr int warp_size = config::warp_size;
+    auto warp = group::tiled_partition<warp_size>(group::this_thread_block());
 
     // const auto local_tid = subwarp.thread_rank();
-    // const auto warp_id = thread::get_subwarp_id_flat<config::warp_size,
+    // const auto warp_id = thread::get_subwarp_id_flat<warp_size,
     // int>();
     const auto tid = thread::get_thread_id_flat<int>();
-    const auto warp_id = tid / subwarp_size;
-    const auto local_tid = tid % subwarp_size;
+    const auto warp_id = tid / warp_size;
+    const auto local_tid = tid % warp_size;
 
     if (warp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
-    // printf("subw id = %d, thread rank in subwarp = %d\n", subwarp_id,
-    // subwarp.thread_rank());
+
     const auto nz_p_b = diag_LUT[b_s] + 1;
     const auto stride = nz_p_b * w;
     const auto base_offs = warp_id * stride;

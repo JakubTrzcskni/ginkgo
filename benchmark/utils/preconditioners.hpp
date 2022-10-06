@@ -80,6 +80,16 @@ DEFINE_double(jacobi_accuracy, 1e-1,
 DEFINE_uint32(jacobi_max_block_size, 32,
               "Maximal block size of the block-Jacobi preconditioner");
 
+DEFINE_uint64(gs_base_block_size, 4,
+              "Base block size of the HBMC Gauss Seidel.");
+
+DEFINE_uint64(
+    gs_lvl_2_block_size, 32,
+    "Lvl 2 block size of the HBMC Gauss Seidel. Preferably warp size");
+
+DEFINE_bool(gs_use_padding, true,
+            "Defines if the blocks of the HBMC Gauss Seidel should be "
+            "padded to the lvl 2 size");
 
 // parses the Jacobi storage optimization command line argument
 gko::precision_reduction parse_storage_optimization(const std::string& flag)
@@ -321,6 +331,15 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
          [](std::shared_ptr<const gko::Executor> exec) {
              return gko::preconditioner::SpdIsai<etype, itype>::build()
                  .with_sparsity_power(FLAGS_isai_power)
+                 .on(exec);
+         }},
+        {"gauss-seidel",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(FLAGS_gs_base_block_size)
+                 .with_use_HBMC(true)
                  .on(exec);
          }},
         {"overhead", [](std::shared_ptr<const gko::Executor> exec) {

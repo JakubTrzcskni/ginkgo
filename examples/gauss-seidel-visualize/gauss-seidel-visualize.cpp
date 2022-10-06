@@ -248,7 +248,7 @@ int main(int argc, char* argv[])
     //     exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{},
     //     true));
 
-    visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
+    // visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
     // visualize(exec, gko::lend(mtx_rand_grid), std::string("mtxRandGrid"));
 
 
@@ -266,7 +266,7 @@ int main(int argc, char* argv[])
     auto g_tac = std::chrono::steady_clock::now();
     auto generate_time =
         std::chrono::duration_cast<std::chrono::nanoseconds>(g_tac - g_tic);
-    std::cout << "Generate time GS for random matrix(ns): "
+    std::cout << "Generate time GS for random matrix(ns):   "
               << generate_time.count() << std::endl;
 
     auto perm_idxs =
@@ -301,7 +301,7 @@ int main(int argc, char* argv[])
     //                   typeid(IndexType).name() + std::string("-");
     // label += std::to_string(base_block_size) + std::string("-") +
     //          std::to_string(lvl_2_block_size);
-    visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
+    // visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
 
     // auto label2 = std::string("mtxRandBlockOrdering-");
     // label2 += std::to_string(base_block_size) + std::string("-") +
@@ -326,33 +326,52 @@ int main(int argc, char* argv[])
     auto ref_x = gko::clone(exec, x);
 
 
-    // warmup run
+    // warmup run GS
     {
-        auto x_clone = gko::clone(x);
-        gs_rand->apply(gko::lend(rhs_rand), gko::lend(x_clone));
+        for (auto i = 0; i < 5; ++i) {
+            auto x_clone = gko::clone(x);
+            gs_rand->apply(gko::lend(rhs_rand), gko::lend(x_clone));
+        }
+    }
+
+    const auto num_runs = 20;
+    // apply GS
+    std::chrono::nanoseconds apply_time{};
+    for (auto run = 0; run < num_runs; ++run) {
+        exec->synchronize();
+        auto a_tic = std::chrono::steady_clock::now();
+        gs_rand->apply(gko::lend(rhs_rand), gko::lend(x));
+        exec->synchronize();
+        auto a_tac = std::chrono::steady_clock::now();
+        apply_time +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(a_tac - a_tic);
+    }
+    std::cout << "Apply time " << num_runs
+              << " num runs GS for random matrix(ns):   " << apply_time.count()
+              << std::endl;
+
+    // warmup run LTRS
+    {
+        for (auto i = 0; i < 5; ++i) {
+            auto x_clone = gko::clone(ref_x);
+            ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(x_clone));
+        }
+    }
+
+    // apply LTRS
+    std::chrono::nanoseconds apply_time_ltrs{};
+    for (auto run = 0; run < num_runs; ++run) {
+        exec->synchronize();
+        auto a_ltrs_tic = std::chrono::steady_clock::now();
+        ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(ref_x));
+        exec->synchronize();
+        auto a_ltrs_tac = std::chrono::steady_clock::now();
+        apply_time_ltrs += std::chrono::duration_cast<std::chrono::nanoseconds>(
+            a_ltrs_tac - a_ltrs_tic);
     }
 
 
-    // apply
-
-    exec->synchronize();
-    auto a_tic = std::chrono::steady_clock::now();
-    gs_rand->apply(gko::lend(rhs_rand), gko::lend(x));
-    exec->synchronize();
-    auto a_tac = std::chrono::steady_clock::now();
-    auto apply_time =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(a_tac - a_tic);
-    std::cout << "Apply time GS for random matrix(ns): " << apply_time.count()
-              << std::endl;
-
-
-    exec->synchronize();
-    auto a_ltrs_tic = std::chrono::steady_clock::now();
-    ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(ref_x));
-    exec->synchronize();
-    auto a_ltrs_tac = std::chrono::steady_clock::now();
-    auto apply_time_ltrs = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        a_ltrs_tac - a_ltrs_tic);
-    std::cout << "Apply time LTRS for random matrix(ns): "
+    std::cout << "Apply time " << num_runs
+              << " num runs LTRS for random matrix(ns): "
               << apply_time_ltrs.count() << std::endl;
 }

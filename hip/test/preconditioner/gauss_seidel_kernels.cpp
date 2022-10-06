@@ -62,7 +62,7 @@ static apply_param_type allParams{
     std::make_tuple(1000, 5, 32, 2, false),
     std::make_tuple(1000, 5, 32, 2, true),
     //   std::make_tuple(1000, 15, 32, 3, false), // b_s ==3 does not work
-    //   std::make_tuple(1000, 15, 32, 3, true),
+    //   std::make_tuple(1000, 15, 32, 3, true),   // maybe because 1000%3!=0
     std::make_tuple(1000, 10, 16, 4, false),
     std::make_tuple(1000, 10, 16, 4, true),
     std::make_tuple(1000, 10, 4, 4, false),
