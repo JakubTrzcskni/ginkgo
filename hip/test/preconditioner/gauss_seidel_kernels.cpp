@@ -341,9 +341,9 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
         auto d_x = Vec::create_with_config_of(gko::lend(d_rhs));
         d_x->fill(ValueType{0});
         auto d_permuted_x = gko::clone(hip_exec, d_x);
-
+        std::cout << "ref:" << std::endl;
         perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
-
+        std::cout << "prepermuted:" << std::endl;
         preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
 
         auto ans =

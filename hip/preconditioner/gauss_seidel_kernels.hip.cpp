@@ -72,7 +72,10 @@ using hbmc_kernels =
     syn::value_list<int, config::warp_size, 32, 16, 8, 4, 2, 1>;
 
 using hbmc_block_sizes =
-    syn::value_list<int, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>;
+    syn::value_list<int, 1, 2, 3, 4, 5, 6, 7,
+                    8>;  //, 9, 10, 11, 12, 13, 14, 15, 16>;
+
+constexpr int default_kernel_version = 1;
 
 #include "common/cuda_hip/preconditioner/gauss_seidel_kernels.hpp.inc"
 
@@ -112,192 +115,197 @@ void ref_simple_apply(std::shared_ptr<const HipExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL);
 
-template <typename ValueType, typename IndexType>
-void apply(std::shared_ptr<const HipExecutor> exec,
-           const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-           const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
-           const ValueType* l_spmv_vals, const IndexType* permutation_idxs,
-           const preconditioner::storage_scheme& storage_scheme,
-           const matrix::Dense<ValueType>* alpha,
-           matrix::Dense<ValueType>* b_perm,
-           const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
-{
-    GKO_ASSERT(!storage_scheme.symm_);
-    const auto block_ptrs = storage_scheme.forward_solve_;
-    const auto num_blocks = storage_scheme.num_blocks_;
-    const auto num_rhs = b_perm->get_size()[1];
-    const auto num_rows = b_perm->get_size()[0];
+// template <typename ValueType, typename IndexType>
+// void apply(std::shared_ptr<const HipExecutor> exec,
+//            const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+//            const IndexType* l_spmv_row_ptrs, const IndexType*
+//            l_spmv_col_idxs, const ValueType* l_spmv_vals, const IndexType*
+//            permutation_idxs, const preconditioner::storage_scheme&
+//            storage_scheme, const matrix::Dense<ValueType>* alpha,
+//            matrix::Dense<ValueType>* b_perm,
+//            const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
+// {
+//     GKO_ASSERT(!storage_scheme.symm_);
+//     const auto block_ptrs = storage_scheme.forward_solve_;
+//     const auto num_blocks = storage_scheme.num_blocks_;
+//     const auto num_rhs = b_perm->get_size()[1];
+//     const auto num_rows = b_perm->get_size()[0];
 
-    auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
+//     auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_block_size + 1),
-                                diag_lut.data(), diag_LUT.get_data());
-    auto subblock_LUT =
-        gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
+//     exec->copy_from<gko::int32>(exec->get_master().get(),
+//                                 static_cast<gko::size_type>(max_block_size +
+//                                 1), diag_lut.data(), diag_LUT.get_data());
+//     auto subblock_LUT =
+//         gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
 
-    exec->copy_from<gko::int32>(
-        exec->get_master().get(),
-        static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
-        sub_block_lut.data(), subblock_LUT.get_data());
+//     exec->copy_from<gko::int32>(
+//         exec->get_master().get(),
+//         static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
+//         sub_block_lut.data(), subblock_LUT.get_data());
 
-    for (auto block = 0; block < num_blocks; block += 2) {
-        auto p_block = static_cast<preconditioner::parallel_block*>(
-            block_ptrs[block].get());
-        const auto w = p_block->lvl_2_block_size_;
+//     for (auto block = 0; block < num_blocks; block += 2) {
+//         auto p_block = static_cast<preconditioner::parallel_block*>(
+//             block_ptrs[block].get());
+//         const auto w = p_block->lvl_2_block_size_;
 
-        host_kernel::select_apply_hbmc(
-            hbmc_kernels(),
-            [&](int compiled_subwarp_size) {
-                return compiled_subwarp_size == w;
-            },
-            syn::value_list<int, false>(), syn::type_list<>(), exec,
-            l_diag_rows, l_diag_vals, p_block, b_perm, x,
-            diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
-            permutation_idxs, alpha, beta);
-        if (block < num_blocks - 1) {
-            auto spmv_block = static_cast<preconditioner::spmv_block*>(
-                block_ptrs[block + 1].get());
-            const auto spmv_size_row =
-                spmv_block->end_row_global_ - spmv_block->start_row_global_;
-            const auto spmv_size_col =
-                spmv_block->end_col_global_ - spmv_block->start_col_global_;
-            const auto spmv_nnz =
-                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
-                                spmv_size_row];
+//         host_kernel::select_apply_hbmc(
+//             hbmc_kernels(),
+//             [&](int compiled_subwarp_size) {
+//                 return compiled_subwarp_size == w;
+//             },
+//             syn::value_list<int, false>(), syn::type_list<>(), exec,
+//             l_diag_rows, l_diag_vals, p_block, b_perm, x,
+//             diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+//             permutation_idxs, alpha, beta);
+//         if (block < num_blocks - 1) {
+//             auto spmv_block = static_cast<preconditioner::spmv_block*>(
+//                 block_ptrs[block + 1].get());
+//             const auto spmv_size_row =
+//                 spmv_block->end_row_global_ - spmv_block->start_row_global_;
+//             const auto spmv_size_col =
+//                 spmv_block->end_col_global_ - spmv_block->start_col_global_;
+//             const auto spmv_nnz =
+//                 l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+//                                 spmv_size_row];
 
-            auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
-                exec, gko::dim<2>{spmv_size_row, spmv_size_col},
-                gko::array<ValueType>::const_view(
-                    exec, spmv_nnz,
-                    &(l_spmv_vals[spmv_block->val_storage_id_])),
-                gko::array<IndexType>::const_view(
-                    exec, spmv_nnz,
-                    &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
-                gko::array<IndexType>::const_view(
-                    exec, spmv_size_row + 1,
-                    &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
-            auto tmp_b_perm = b_perm->create_submatrix(
-                gko::span{spmv_block->start_row_global_,
-                          spmv_block->end_row_global_},
-                gko::span{0, num_rhs});
+//             auto tmp_csr = gko::matrix::Csr<ValueType,
+//             IndexType>::create_const(
+//                 exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+//                 gko::array<ValueType>::const_view(
+//                     exec, spmv_nnz,
+//                     &(l_spmv_vals[spmv_block->val_storage_id_])),
+//                 gko::array<IndexType>::const_view(
+//                     exec, spmv_nnz,
+//                     &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+//                 gko::array<IndexType>::const_view(
+//                     exec, spmv_size_row + 1,
+//                     &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+//             auto tmp_b_perm = b_perm->create_submatrix(
+//                 gko::span{spmv_block->start_row_global_,
+//                           spmv_block->end_row_global_},
+//                 gko::span{0, num_rhs});
 
-            const auto perm_view = gko::array<IndexType>::view(
-                exec, spmv_size_col,
-                const_cast<IndexType*>(
-                    &permutation_idxs[spmv_block->start_col_global_]));
+//             const auto perm_view = gko::array<IndexType>::view(
+//                 exec, spmv_size_col,
+//                 const_cast<IndexType*>(
+//                     &permutation_idxs[spmv_block->start_col_global_]));
 
-            auto tmp_x = x->row_gather(&perm_view);
+//             auto tmp_x = x->row_gather(&perm_view);
 
-            auto alpha =
-                gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
-            auto beta =
-                gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+//             auto alpha =
+//                 gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+//             auto beta =
+//                 gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
 
-            csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
-                               lend(beta), lend(tmp_b_perm));
-        }
-    }
-}
-GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
+//             csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
+//                                lend(beta), lend(tmp_b_perm));
+//         }
+//     }
+// }
+// GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+//     GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
 
-template <typename ValueType, typename IndexType>
-void simple_apply(std::shared_ptr<const HipExecutor> exec,
-                  const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                  const IndexType* l_spmv_row_ptrs,
-                  const IndexType* l_spmv_col_idxs,
-                  const ValueType* l_spmv_vals,
-                  const IndexType* permutation_idxs,
-                  const preconditioner::storage_scheme& storage_scheme,
-                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
-{
-    GKO_ASSERT(!storage_scheme.symm_);
-    const auto block_ptrs = storage_scheme.forward_solve_;
-    const auto num_blocks = storage_scheme.num_blocks_;
-    const auto num_rhs = b_perm->get_size()[1];
-    const auto num_rows = b_perm->get_size()[0];
+// template <typename ValueType, typename IndexType>
+// void simple_apply(std::shared_ptr<const HipExecutor> exec,
+//                   const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+//                   const IndexType* l_spmv_row_ptrs,
+//                   const IndexType* l_spmv_col_idxs,
+//                   const ValueType* l_spmv_vals,
+//                   const IndexType* permutation_idxs,
+//                   const preconditioner::storage_scheme& storage_scheme,
+//                   matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>*
+//                   x)
+// {
+//     GKO_ASSERT(!storage_scheme.symm_);
+//     const auto block_ptrs = storage_scheme.forward_solve_;
+//     const auto num_blocks = storage_scheme.num_blocks_;
+//     const auto num_rhs = b_perm->get_size()[1];
+//     const auto num_rows = b_perm->get_size()[0];
 
-    auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
+//     auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_block_size + 1),
-                                diag_lut.data(), diag_LUT.get_data());
-    auto subblock_LUT =
-        gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
+//     exec->copy_from<gko::int32>(exec->get_master().get(),
+//                                 static_cast<gko::size_type>(max_block_size +
+//                                 1), diag_lut.data(), diag_LUT.get_data());
+//     auto subblock_LUT =
+//         gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
 
-    exec->copy_from<gko::int32>(
-        exec->get_master().get(),
-        static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
-        sub_block_lut.data(), subblock_LUT.get_data());
+//     exec->copy_from<gko::int32>(
+//         exec->get_master().get(),
+//         static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
+//         sub_block_lut.data(), subblock_LUT.get_data());
 
-    auto first_p_block =
-        static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
-    const auto w = first_p_block->lvl_2_block_size_;
+//     auto first_p_block =
+//         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
+//     const auto w = first_p_block->lvl_2_block_size_;
 
-    host_kernel::select_apply_hbmc(
-        hbmc_kernels(),
-        [&](int compiled_subwarp_size) { return compiled_subwarp_size == w; },
-        syn::value_list<int, false>(), syn::type_list<>(), exec, l_diag_rows,
-        l_diag_vals, first_p_block, b_perm, x, diag_LUT.get_const_data(),
-        subblock_LUT.get_const_data(), permutation_idxs);
+//     host_kernel::select_apply_hbmc(
+//         hbmc_kernels(),
+//         [&](int compiled_subwarp_size) { return compiled_subwarp_size == w;
+//         }, syn::value_list<int, false>(), syn::type_list<>(), exec,
+//         l_diag_rows, l_diag_vals, first_p_block, b_perm, x,
+//         diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+//         permutation_idxs);
 
-    for (auto block = 1; block < num_blocks - 1; block += 2) {
-        auto spmv_block =
-            static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
-        const auto spmv_size_row =
-            spmv_block->end_row_global_ - spmv_block->start_row_global_;
-        const auto spmv_size_col =
-            spmv_block->end_col_global_ - spmv_block->start_col_global_;
-        const auto spmv_nnz =
-            l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ + spmv_size_row];
+//     for (auto block = 1; block < num_blocks - 1; block += 2) {
+//         auto spmv_block =
+//             static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
+//         const auto spmv_size_row =
+//             spmv_block->end_row_global_ - spmv_block->start_row_global_;
+//         const auto spmv_size_col =
+//             spmv_block->end_col_global_ - spmv_block->start_col_global_;
+//         const auto spmv_nnz =
+//             l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+//             spmv_size_row];
 
-        auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
-            exec, gko::dim<2>{spmv_size_row, spmv_size_col},
-            gko::array<ValueType>::const_view(
-                exec, spmv_nnz, &(l_spmv_vals[spmv_block->val_storage_id_])),
-            gko::array<IndexType>::const_view(
-                exec, spmv_nnz,
-                &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
-            gko::array<IndexType>::const_view(
-                exec, spmv_size_row + 1,
-                &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
-        auto tmp_b_perm =
-            b_perm->create_submatrix(gko::span{spmv_block->start_row_global_,
-                                               spmv_block->end_row_global_},
-                                     gko::span{0, num_rhs});
+//         auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
+//             exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+//             gko::array<ValueType>::const_view(
+//                 exec, spmv_nnz, &(l_spmv_vals[spmv_block->val_storage_id_])),
+//             gko::array<IndexType>::const_view(
+//                 exec, spmv_nnz,
+//                 &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+//             gko::array<IndexType>::const_view(
+//                 exec, spmv_size_row + 1,
+//                 &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+//         auto tmp_b_perm =
+//             b_perm->create_submatrix(gko::span{spmv_block->start_row_global_,
+//                                                spmv_block->end_row_global_},
+//                                      gko::span{0, num_rhs});
 
-        const auto perm_view = gko::array<IndexType>::view(
-            exec, spmv_size_col,
-            const_cast<IndexType*>(
-                &permutation_idxs[spmv_block->start_col_global_]));
+//         const auto perm_view = gko::array<IndexType>::view(
+//             exec, spmv_size_col,
+//             const_cast<IndexType*>(
+//                 &permutation_idxs[spmv_block->start_col_global_]));
 
-        auto tmp_x = x->row_gather(&perm_view);
+//         auto tmp_x = x->row_gather(&perm_view);
 
-        auto alpha =
-            gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
-        auto beta = gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+//         auto alpha =
+//             gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+//         auto beta = gko::initialize<gko::matrix::Dense<ValueType>>({1.},
+//         exec);
 
-        csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
-                           lend(beta), lend(tmp_b_perm));
+//         csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
+//                            lend(beta), lend(tmp_b_perm));
 
-        auto p_block = static_cast<preconditioner::parallel_block*>(
-            block_ptrs[block + 1].get());
-        const auto w = p_block->lvl_2_block_size_;
+//         auto p_block = static_cast<preconditioner::parallel_block*>(
+//             block_ptrs[block + 1].get());
+//         const auto w = p_block->lvl_2_block_size_;
 
-        host_kernel::select_apply_hbmc(
-            hbmc_kernels(),
-            [&](int compiled_subwarp_size) {
-                return compiled_subwarp_size == w;
-            },
-            syn::value_list<int, false>(), syn::type_list<>(), exec,
-            l_diag_rows, l_diag_vals, p_block, b_perm, x,
-            diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
-            permutation_idxs);
-    }
-}
-GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
+//         host_kernel::select_apply_hbmc(
+//             hbmc_kernels(),
+//             [&](int compiled_subwarp_size) {
+//                 return compiled_subwarp_size == w;
+//             },
+//             syn::value_list<int, false>(), syn::type_list<>(), exec,
+//             l_diag_rows, l_diag_vals, p_block, b_perm, x,
+//             diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+//             permutation_idxs);
+//     }
+// }
+// GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+//     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 
 template <typename ValueType, typename IndexType>
 void get_coloring(

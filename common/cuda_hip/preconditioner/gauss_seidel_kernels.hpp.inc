@@ -341,6 +341,58 @@ __device__ void apply_ltr_v3(
     }
 }
 
+template <int subwarp_size, int b_s, typename ValueType, typename IndexType,
+          typename Closure>
+__device__ void apply_ltr_v4(
+    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
+    const size_type end_row, const size_type num_rows_in_block,
+    const size_type w, const size_type num_rhs,
+    const ValueType* __restrict__ b_perm, ValueType* __restrict__ x_perm,
+    const IndexType* __restrict__ perm_idxs, const int* diag_LUT,
+    const int* subblock_LUT, Closure scale)
+{
+    const auto tid = thread::get_thread_id_flat<int>();
+    const auto curr_b_s = (num_rows_in_block - tid * b_s) < b_s
+                              ? (num_rows_in_block - tid * b_s)
+                              : b_s;
+    const auto nz_p_b = (diag_LUT[curr_b_s] + 1);
+    ValueType tmp_rhs[b_s];
+    const auto base_row = rows[0];
+    for (size_type k = 0; k < num_rhs; ++k) {
+        for (auto i = 0; i < b_s; ++i) {
+            tmp_rhs[i] = 0;
+        }
+        for (auto i = 0; i < nz_p_b; ++i) {
+            const auto curr_offs = i * w;
+            const auto row = rows[curr_offs];
+            if (row >= 0) {
+                if (row >= end_row) return;
+                const auto rhs_id = (row - base_row) / w;
+                if (i == diag_LUT[subblock_LUT[i] + 1]) {
+                    // on the diagonal
+                    const auto val = vals[curr_offs];
+                    assert(val != zero<ValueType>());
+                    const auto inv_diag_val = one<ValueType>() / val;
+                    tmp_rhs[rhs_id] +=
+                        b_perm[row * num_rhs + k] + x_perm[row * num_rhs + k];
+
+                    x_perm[row * num_rhs + k] =
+                        scale(inv_diag_val * tmp_rhs[rhs_id],
+                              x_perm[row * num_rhs + k]);
+                } else {
+                    // off the diagonal
+                    const auto read_offs = diag_LUT[subblock_LUT[i] + 1] * w;
+                    const auto row_read = rows[read_offs];
+                    if (row_read >= 0) {
+                        tmp_rhs[rhs_id] -=
+                            vals[curr_offs] * x_perm[row_read * num_rhs + k];
+                    }
+                }
+            }
+        }
+    }
+}
+
 template <bool prepermuted, int subwarp_size, typename ValueType,
           typename IndexType>
 __global__ void apply_l_p_block_kernel(
@@ -533,6 +585,91 @@ __global__ void apply_l_p_block_kernel(
     }
 }
 
+template <bool prepermuted, int subwarp_size, int b_s, typename ValueType,
+          typename IndexType>
+__global__ void apply_l_p_block_kernel(
+    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
+    const size_type end_row, const size_type num_rows_in_block,
+    const size_type num_p_blocks, const bool res_blocks,
+    const size_type num_rhs, const ValueType* __restrict__ b_perm,
+    ValueType* __restrict__ x, const IndexType* __restrict__ perm_idxs,
+    const int* diag_LUT, const int* subblock_LUT)
+{
+    const auto tid = thread::get_thread_id_flat<int>();
+    const auto subwarp_id = tid / subwarp_size;
+    const auto local_tid = tid % subwarp_size;
+    const auto l_tid = tid % blockDim.x;
+
+    if (subwarp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
+    const auto nz_p_b = diag_LUT[b_s] + 1;
+    const auto stride = nz_p_b * subwarp_size;
+    const auto base_offs = subwarp_id * stride;
+    if (subwarp_id == (num_p_blocks - 1) && res_blocks) {
+        // apply base_block_agg
+        const auto stride_base_block = nz_p_b;
+        const auto base_block_offs = base_offs + local_tid * stride_base_block;
+        apply_ltr_v4<prepermuted, subwarp_size, b_s>(
+            &(rows[base_block_offs]), &(vals[base_block_offs]), end_row,
+            num_rows_in_block, one<size_type>(), num_rhs, b_perm, x, perm_idxs,
+            diag_LUT, subblock_LUT,
+            [](const ValueType& x, const ValueType& y) { return x; });
+
+    } else {
+        // apply lvl 1
+        apply_ltr_v4<prepermuted, subwarp_size, b_s>(
+            &(rows[base_offs + local_tid]), &(vals[base_offs + local_tid]),
+            end_row, num_rows_in_block, subwarp_size, num_rhs, b_perm, x,
+            perm_idxs, diag_LUT, subblock_LUT,
+            [](const ValueType& x, const ValueType& y) { return x; });
+    }
+}
+
+template <bool prepermuted, int subwarp_size, int b_s, typename ValueType,
+          typename IndexType>
+__global__ void apply_l_p_block_kernel(
+    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
+    const size_type end_row, const size_type num_rows_in_block,
+    const size_type num_p_blocks, const bool res_blocks,
+    const size_type num_rhs, const ValueType* __restrict__ b_perm,
+    const ValueType* __restrict__ alpha, ValueType* __restrict__ x,
+    const ValueType* __restrict__ beta, const IndexType* __restrict__ perm_idxs,
+    const int* diag_LUT, const int* subblock_LUT)
+{
+    const auto alpha_val = alpha[0];
+    const auto beta_val = beta[0];
+    const auto tid = thread::get_thread_id_flat<int>();
+    const auto subwarp_id = tid / subwarp_size;
+    const auto local_tid = tid % subwarp_size;
+
+    if (subwarp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
+
+    const auto nz_p_b = diag_LUT[b_s] + 1;
+    const auto stride = nz_p_b * subwarp_size;
+    const auto base_offs = subwarp_id * stride;
+    if (subwarp_id == (num_p_blocks - 1) && res_blocks) {
+        // apply base_block_agg
+        const auto stride_base_block = nz_p_b;
+        const auto base_block_offs = base_offs + local_tid * stride_base_block;
+
+        apply_ltr_v4<prepermuted, subwarp_size, b_s>(
+            &(rows[base_block_offs]), &(vals[base_block_offs]), end_row,
+            num_rows_in_block, one<size_type>(), num_rhs, b_perm, x, perm_idxs,
+            diag_LUT, subblock_LUT,
+            [&alpha_val, &beta_val](const ValueType& x, const ValueType& y) {
+                return alpha_val * x + beta_val * y;
+            });
+    } else {
+        // apply lvl 1
+        apply_ltr_v4<prepermuted, subwarp_size, b_s>(
+            &(rows[base_offs + local_tid]), &(vals[base_offs + local_tid]),
+            end_row, num_rows_in_block, subwarp_size, num_rhs, b_perm, x,
+            perm_idxs, diag_LUT, subblock_LUT,
+            [&alpha_val, &beta_val](const ValueType& x, const ValueType& y) {
+                return alpha_val * x + beta_val * y;
+            });
+    }
+}
+
 template <typename ValueType, typename IndexType>
 __global__ void fill_with_vals_kernel()
 {}
@@ -541,76 +678,18 @@ __global__ void fill_with_vals_kernel()
 
 namespace host_kernel {
 
-// template <bool prepermuted, int subwarp_size, int b_s, typename ValueType,
-//           typename IndexType>
-// void apply_hbmc_v2(syn::value_list<int, b_s>,
-//                    std::shared_ptr<const Executor> exec,
-//                    const IndexType* l_diag_rows, const ValueType*
-//                    l_diag_vals, const preconditioner::parallel_block*
-//                    p_block, matrix::Dense<ValueType>* b_perm,
-//                    matrix::Dense<ValueType>* x, const int* diag_LUT,
-//                    const int* subblock_LUT,
-//                    const IndexType* permutation_idxs = nullptr,
-//                    const matrix::Dense<ValueType>* alpha = nullptr,
-//                    const matrix::Dense<ValueType>* beta = nullptr)
-// {
-//     GKO_ASSERT(permutation_idxs || prepermuted);
-//     const auto num_rows_p_block =
-//         p_block->end_row_global_ - p_block->start_row_global_;
-//     const auto num_rhs = b_perm->get_size()[1];
-//     const auto num_rows = b_perm->get_size()[0];
-//     auto id_offs = p_block->val_storage_id_;
-//     const auto num_involved_subwarps = p_block->degree_of_parallelism_;
-//     const auto min_num_threads =
-//         config::min_warps_per_block * config::warp_size;
-//     const auto num_involved_threads =
-//         num_involved_subwarps * subwarp_size < min_num_threads
-//             ? min_num_threads
-//             : num_involved_subwarps * subwarp_size;
-//     const auto block_size = (num_involved_threads > config::max_block_size)
-//                                 ? config::max_block_size
-//                                 : num_involved_threads;
-//     const auto grid_size = ceildiv(num_involved_threads, block_size);
-//     if (alpha == nullptr && beta == nullptr) {
-//         kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
-//             <<<block_size, grid_size>>>(
-//                 &(l_diag_rows[id_offs]),
-//                 as_device_type(&(l_diag_vals[id_offs])),
-//                 p_block->end_row_global_, num_rows_p_block,
-//                 p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
-//                 as_device_type(b_perm->get_values()),
-//                 as_device_type(x->get_values()), permutation_idxs, diag_LUT,
-//                 subblock_LUT);
-//     } else if (alpha != nullptr && beta != nullptr) {
-//         kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
-//             <<<block_size, grid_size>>>(
-//                 &(l_diag_rows[id_offs]),
-//                 as_device_type(&(l_diag_vals[id_offs])),
-//                 p_block->end_row_global_, num_rows_p_block,
-//                 p_block->degree_of_parallelism_, p_block->residual_, num_rhs,
-//                 as_device_type(b_perm->get_values()),
-//                 as_device_type(alpha->get_const_values()),
-//                 as_device_type(x->get_values()),
-//                 as_device_type(beta->get_const_values()), permutation_idxs,
-//                 diag_LUT, subblock_LUT);
-
-//     } else {
-//         GKO_KERNEL_NOT_FOUND;
-//     }
-// }
-// GKO_ENABLE_IMPLEMENTATION_SELECTION(select_apply_hbmc_v2, apply_hbmc_v2);
-
-template <bool prepermuted, int subwarp_size, int version = 1,
+template <bool prepermuted, int subwarp_size, int version = 2, int b_s,
           typename ValueType, typename IndexType>
-void apply_hbmc(syn::value_list<int, subwarp_size>,
-                std::shared_ptr<const Executor> exec,
-                const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                const preconditioner::parallel_block* p_block,
-                matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
-                const int* diag_LUT, const int* subblock_LUT,
-                const IndexType* permutation_idxs = nullptr,
-                const matrix::Dense<ValueType>* alpha = nullptr,
-                const matrix::Dense<ValueType>* beta = nullptr)
+void apply_hbmc_v2(syn::value_list<int, b_s>,
+                   std::shared_ptr<const Executor> exec,
+                   const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                   const preconditioner::parallel_block* p_block,
+                   matrix::Dense<ValueType>* b_perm,
+                   matrix::Dense<ValueType>* x, const int* diag_LUT,
+                   const int* subblock_LUT,
+                   const IndexType* permutation_idxs = nullptr,
+                   const matrix::Dense<ValueType>* alpha = nullptr,
+                   const matrix::Dense<ValueType>* beta = nullptr)
 {
     GKO_ASSERT(permutation_idxs || prepermuted);
     const auto num_rows_p_block =
@@ -629,47 +708,134 @@ void apply_hbmc(syn::value_list<int, subwarp_size>,
                                 ? config::max_block_size
                                 : num_involved_threads;
     const auto grid_size = ceildiv(num_involved_threads, block_size);
-    const auto b_s = p_block->base_block_size_;
-    if (version == 1) {
+
+    std::cout << "compiled b_s: " << b_s << std::endl;
+    std::cout << "compiled subwarp_size: " << subwarp_size << std::endl;
+    if (version == 2) {
         if (alpha == nullptr && beta == nullptr) {
-            kernel::apply_l_p_block_kernel<prepermuted, subwarp_size>
+            kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
                 <<<block_size, grid_size>>>(
                     &(l_diag_rows[id_offs]),
                     as_device_type(&(l_diag_vals[id_offs])),
-                    p_block->end_row_global_, num_rows_p_block, b_s,
+                    p_block->end_row_global_, num_rows_p_block,
                     p_block->degree_of_parallelism_, p_block->residual_,
                     num_rhs, as_device_type(b_perm->get_values()),
                     as_device_type(x->get_values()), permutation_idxs, diag_LUT,
                     subblock_LUT);
         } else if (alpha != nullptr && beta != nullptr) {
-            kernel::apply_l_p_block_kernel<prepermuted, subwarp_size>
+            kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
                 <<<block_size, grid_size>>>(
                     &(l_diag_rows[id_offs]),
                     as_device_type(&(l_diag_vals[id_offs])),
-                    p_block->end_row_global_, num_rows_p_block, b_s,
+                    p_block->end_row_global_, num_rows_p_block,
                     p_block->degree_of_parallelism_, p_block->residual_,
                     num_rhs, as_device_type(b_perm->get_values()),
                     as_device_type(alpha->get_const_values()),
                     as_device_type(x->get_values()),
                     as_device_type(beta->get_const_values()), permutation_idxs,
                     diag_LUT, subblock_LUT);
+        } else if (version == 4) {
+            if (alpha == nullptr && beta == nullptr) {
+                kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
+                    <<<block_size, grid_size>>>(
+                        &(l_diag_rows[id_offs]),
+                        as_device_type(&(l_diag_vals[id_offs])),
+                        p_block->end_row_global_, num_rows_p_block,
+                        p_block->degree_of_parallelism_, p_block->residual_,
+                        num_rhs, as_device_type(b_perm->get_const_values()),
+                        as_device_type(x->get_values()), permutation_idxs,
+                        diag_LUT, subblock_LUT);
+            } else if (alpha != nullptr && beta != nullptr) {
+                kernel::apply_l_p_block_kernel<prepermuted, subwarp_size, b_s>
+                    <<<block_size, grid_size>>>(
+                        &(l_diag_rows[id_offs]),
+                        as_device_type(&(l_diag_vals[id_offs])),
+                        p_block->end_row_global_, num_rows_p_block,
+                        p_block->degree_of_parallelism_, p_block->residual_,
+                        num_rhs, as_device_type(b_perm->get_const_values()),
+                        as_device_type(alpha->get_const_values()),
+                        as_device_type(x->get_values()),
+                        as_device_type(beta->get_const_values()),
+                        permutation_idxs, diag_LUT, subblock_LUT);
+            }
+        } else {
+            GKO_KERNEL_NOT_FOUND;
         }
-    } else if (version == 2) {
-        // select_apply_hbmc_v2(
-        //     hbmc_block_sizes(),
-        //     [&](int compiled_b_s) { return compiled_b_s == b_s; },
-        //     syn::value_list<int, prepermuted, subwarp_size>(),
-        //     syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block,
-        //     b_perm, x, diag_LUT, subblock_LUT, permutation_idxs, alpha,
-        //     beta);
-    } else if (version == 3) {
-        GKO_KERNEL_NOT_FOUND;
-    } else {
-        GKO_KERNEL_NOT_FOUND;
     }
-}
-GKO_ENABLE_IMPLEMENTATION_SELECTION(select_apply_hbmc, apply_hbmc);
+    GKO_ENABLE_IMPLEMENTATION_SELECTION(select_apply_hbmc_v2, apply_hbmc_v2);
 
+    template <bool prepermuted, int version, int subwarp_size,
+              typename ValueType, typename IndexType>
+    void apply_hbmc(syn::value_list<int, subwarp_size>,
+                    std::shared_ptr<const Executor> exec,
+                    const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                    const preconditioner::parallel_block* p_block,
+                    matrix::Dense<ValueType>* b_perm,
+                    matrix::Dense<ValueType>* x, const int* diag_LUT,
+                    const int* subblock_LUT,
+                    const IndexType* permutation_idxs = nullptr,
+                    const matrix::Dense<ValueType>* alpha = nullptr,
+                    const matrix::Dense<ValueType>* beta = nullptr)
+    {
+        GKO_ASSERT(permutation_idxs || prepermuted);
+        const auto num_rows_p_block =
+            p_block->end_row_global_ - p_block->start_row_global_;
+        const auto num_rhs = b_perm->get_size()[1];
+        const auto num_rows = b_perm->get_size()[0];
+        auto id_offs = p_block->val_storage_id_;
+        const auto num_involved_subwarps = p_block->degree_of_parallelism_;
+        const auto min_num_threads =
+            config::min_warps_per_block * config::warp_size;
+        const auto num_involved_threads =
+            num_involved_subwarps * subwarp_size < min_num_threads
+                ? min_num_threads
+                : num_involved_subwarps * subwarp_size;
+        const auto block_size = (num_involved_threads > config::max_block_size)
+                                    ? config::max_block_size
+                                    : num_involved_threads;
+        const auto grid_size = ceildiv(num_involved_threads, block_size);
+        const auto b_s = p_block->base_block_size_;
+        if (version == 1) {
+            if (alpha == nullptr && beta == nullptr) {
+                kernel::apply_l_p_block_kernel<prepermuted, subwarp_size>
+                    <<<block_size, grid_size>>>(
+                        &(l_diag_rows[id_offs]),
+                        as_device_type(&(l_diag_vals[id_offs])),
+                        p_block->end_row_global_, num_rows_p_block, b_s,
+                        p_block->degree_of_parallelism_, p_block->residual_,
+                        num_rhs, as_device_type(b_perm->get_values()),
+                        as_device_type(x->get_values()), permutation_idxs,
+                        diag_LUT, subblock_LUT);
+            } else if (alpha != nullptr && beta != nullptr) {
+                kernel::apply_l_p_block_kernel<prepermuted, subwarp_size>
+                    <<<block_size, grid_size>>>(
+                        &(l_diag_rows[id_offs]),
+                        as_device_type(&(l_diag_vals[id_offs])),
+                        p_block->end_row_global_, num_rows_p_block, b_s,
+                        p_block->degree_of_parallelism_, p_block->residual_,
+                        num_rhs, as_device_type(b_perm->get_values()),
+                        as_device_type(alpha->get_const_values()),
+                        as_device_type(x->get_values()),
+                        as_device_type(beta->get_const_values()),
+                        permutation_idxs, diag_LUT, subblock_LUT);
+            }
+        } else if (version == 2) {
+            std::cout << "kernel launch v2:" << std::endl;
+            select_apply_hbmc_v2(
+                hbmc_block_sizes(),
+                [&](int compiled_b_s) { return compiled_b_s == b_s; },
+                syn::value_list<int, prepermuted, subwarp_size, version>(),
+                syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block,
+                b_perm, x, diag_LUT, subblock_LUT, permutation_idxs, alpha,
+                beta);
+        } else if (version == 3) {
+            GKO_KERNEL_NOT_FOUND;
+        } else if (version == 4) {
+        } else {
+            GKO_KERNEL_NOT_FOUND;
+        }
+    }
+    GKO_ENABLE_IMPLEMENTATION_SELECTION(select_apply_hbmc, apply_hbmc);
 
 }  // namespace host_kernel
 
@@ -712,9 +878,10 @@ void prepermuted_apply(
             [&](int compiled_subwarp_size) {
                 return compiled_subwarp_size == w;
             },
-            syn::value_list<int, true>(), syn::type_list<>(), exec, l_diag_rows,
-            l_diag_vals, p_block, b_perm, x_perm, diag_LUT.get_const_data(),
-            subblock_LUT.get_const_data(), permutation_idxs, alpha, beta);
+            syn::value_list<int, true, default_kernel_version>(),
+            syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block, b_perm,
+            x_perm, diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+            permutation_idxs, alpha, beta);
 
         if (block < num_blocks - 1) {
             auto spmv_block = static_cast<preconditioner::spmv_block*>(
@@ -760,6 +927,90 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL);
 
 template <typename ValueType, typename IndexType>
+void prepermuted_simple_apply_tmp_const(
+    std::shared_ptr<const DefaultExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const preconditioner::storage_scheme& storage_scheme,
+    const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm,
+    matrix::Dense<ValueType>* x_perm)
+{
+    constexpr int kernel_version = 4;
+    GKO_ASSERT(!storage_scheme.symm_);
+    const auto block_ptrs = storage_scheme.forward_solve_;
+    const auto num_blocks = storage_scheme.num_blocks_;
+    const auto num_rhs = b_perm->get_size()[1];
+    const auto num_rows = b_perm->get_size()[0];
+
+    auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
+
+    exec->copy_from<gko::int32>(exec->get_master().get(),
+                                static_cast<gko::size_type>(max_block_size + 1),
+                                diag_lut.data(), diag_LUT.get_data());
+    auto subblock_LUT =
+        gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
+
+    exec->copy_from<gko::int32>(
+        exec->get_master().get(),
+        static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
+        sub_block_lut.data(), subblock_LUT.get_data());
+
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            block_ptrs[block].get());
+        const auto w = p_block->lvl_2_block_size_;
+
+        host_kernel::select_apply_hbmc(
+            hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, true, kernel_version>(), syn::type_list<>(),
+            exec, l_diag_rows, l_diag_vals, p_block, b_perm, x_perm,
+            diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                block_ptrs[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
+                exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+                gko::array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_vals[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+            auto x_in = x_perm->create_submatrix(
+                gko::span{spmv_block->start_col_global_,
+                          spmv_block->end_col_global_},
+                gko::span{0, num_rhs});
+            auto x_out_tmp = x_perm->create_submatrix(
+                gko::span{spmv_block->start_row_global_,
+                          spmv_block->end_row_global_},
+                gko::span{0, num_rhs});
+            auto alpha =
+                gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+            auto beta =
+                gko::initialize<gko::matrix::Dense<ValueType>>({0.}, exec);
+
+            csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(x_in),
+                               lend(beta), lend(x_out_tmp));
+        }
+    }
+}
+
+template <typename ValueType, typename IndexType>
 void prepermuted_simple_apply(
     std::shared_ptr<const DefaultExecutor> exec, const IndexType* l_diag_rows,
     const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
@@ -767,6 +1018,105 @@ void prepermuted_simple_apply(
     const preconditioner::storage_scheme& storage_scheme,
     const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm,
     matrix::Dense<ValueType>* x_perm)
+{
+    std::cout << "prepermuted simple apply ?" << std::endl;
+    bool test_const_version = false;
+    if (test_const_version) {
+        // prepermuted_simple_apply_tmp_const(
+        //     exec, l_diag_rows, l_diag_vals, l_spmv_row_ptrs, l_spmv_col_idxs,
+        //     l_spmv_vals, storage_scheme, permutation_idxs, b_perm, x_perm);
+    } else {
+        constexpr int kernel_version = 2;
+        GKO_ASSERT(!storage_scheme.symm_);
+        const auto block_ptrs = storage_scheme.forward_solve_;
+        const auto num_blocks = storage_scheme.num_blocks_;
+        const auto num_rhs = b_perm->get_size()[1];
+        const auto num_rows = b_perm->get_size()[0];
+
+        auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
+
+        exec->copy_from<gko::int32>(
+            exec->get_master().get(),
+            static_cast<gko::size_type>(max_block_size + 1), diag_lut.data(),
+            diag_LUT.get_data());
+        auto subblock_LUT =
+            gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
+
+        exec->copy_from<gko::int32>(
+            exec->get_master().get(),
+            static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
+            sub_block_lut.data(), subblock_LUT.get_data());
+
+        for (auto block = 0; block < num_blocks; block += 2) {
+            auto p_block = static_cast<preconditioner::parallel_block*>(
+                block_ptrs[block].get());
+            const auto w = p_block->lvl_2_block_size_;
+
+            host_kernel::select_apply_hbmc(
+                hbmc_kernels(),
+                [&](int compiled_subwarp_size) {
+                    return compiled_subwarp_size == w;
+                },
+                syn::value_list<int, true, kernel_version>(),
+                syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block,
+                b_perm, x_perm, diag_LUT.get_const_data(),
+                subblock_LUT.get_const_data());
+
+            if (block < num_blocks - 1) {
+                auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                    block_ptrs[block + 1].get());
+                const auto spmv_size_row =
+                    spmv_block->end_row_global_ - spmv_block->start_row_global_;
+                const auto spmv_size_col =
+                    spmv_block->end_col_global_ - spmv_block->start_col_global_;
+                const auto spmv_nnz =
+                    l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                    spmv_size_row];
+
+                auto tmp_csr =
+                    gko::matrix::Csr<ValueType, IndexType>::create_const(
+                        exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+                        gko::array<ValueType>::const_view(
+                            exec, spmv_nnz,
+                            &(l_spmv_vals[spmv_block->val_storage_id_])),
+                        gko::array<IndexType>::const_view(
+                            exec, spmv_nnz,
+                            &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+                        gko::array<IndexType>::const_view(
+                            exec, spmv_size_row + 1,
+                            &(l_spmv_row_ptrs[spmv_block
+                                                  ->row_ptrs_storage_id_])));
+                auto tmp_b_perm = b_perm->create_submatrix(
+                    gko::span{spmv_block->start_row_global_,
+                              spmv_block->end_row_global_},
+                    gko::span{0, num_rhs});
+                auto tmp_x = x_perm->create_submatrix(
+                    gko::span{spmv_block->start_col_global_,
+                              spmv_block->end_col_global_},
+                    gko::span{0, num_rhs});
+                auto alpha =
+                    gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+                auto beta =
+                    gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+
+                csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr),
+                                   lend(tmp_x), lend(beta), lend(tmp_b_perm));
+            }
+        }
+    }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void apply(std::shared_ptr<const DefaultExecutor> exec,
+           const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+           const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
+           const ValueType* l_spmv_vals, const IndexType* permutation_idxs,
+           const preconditioner::storage_scheme& storage_scheme,
+           const matrix::Dense<ValueType>* alpha,
+           matrix::Dense<ValueType>* b_perm,
+           const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
 {
     GKO_ASSERT(!storage_scheme.symm_);
     const auto block_ptrs = storage_scheme.forward_solve_;
@@ -797,9 +1147,10 @@ void prepermuted_simple_apply(
             [&](int compiled_subwarp_size) {
                 return compiled_subwarp_size == w;
             },
-            syn::value_list<int, true>(), syn::type_list<>(), exec, l_diag_rows,
-            l_diag_vals, p_block, b_perm, x_perm, diag_LUT.get_const_data(),
-            subblock_LUT.get_const_data());
+            syn::value_list<int, false, default_kernel_version>(),
+            syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block, b_perm,
+            x, diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+            permutation_idxs, alpha, beta);
 
         if (block < num_blocks - 1) {
             auto spmv_block = static_cast<preconditioner::spmv_block*>(
@@ -827,10 +1178,14 @@ void prepermuted_simple_apply(
                 gko::span{spmv_block->start_row_global_,
                           spmv_block->end_row_global_},
                 gko::span{0, num_rhs});
-            auto tmp_x = x_perm->create_submatrix(
-                gko::span{spmv_block->start_col_global_,
-                          spmv_block->end_col_global_},
-                gko::span{0, num_rhs});
+
+            const auto perm_view = gko::array<IndexType>::view(
+                exec, spmv_size_col,
+                const_cast<IndexType*>(
+                    &permutation_idxs[spmv_block->start_col_global_]));
+
+            auto tmp_x = x->row_gather(&perm_view);
+
             auto alpha =
                 gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
             auto beta =
@@ -842,4 +1197,95 @@ void prepermuted_simple_apply(
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
+    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
+                  const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                  const IndexType* l_spmv_row_ptrs,
+                  const IndexType* l_spmv_col_idxs,
+                  const ValueType* l_spmv_vals,
+                  const IndexType* permutation_idxs,
+                  const preconditioner::storage_scheme& storage_scheme,
+                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
+{
+    GKO_ASSERT(!storage_scheme.symm_);
+    const auto block_ptrs = storage_scheme.forward_solve_;
+    const auto num_blocks = storage_scheme.num_blocks_;
+    const auto num_rhs = b_perm->get_size()[1];
+    const auto num_rows = b_perm->get_size()[0];
+
+    auto diag_LUT = gko::array<gko::int32>(exec, max_block_size + 1);
+
+    exec->copy_from<gko::int32>(exec->get_master().get(),
+                                static_cast<gko::size_type>(max_block_size + 1),
+                                diag_lut.data(), diag_LUT.get_data());
+    auto subblock_LUT =
+        gko::array<gko::int32>(exec, get_nz_block(max_block_size) + 1);
+
+    exec->copy_from<gko::int32>(
+        exec->get_master().get(),
+        static_cast<gko::size_type>(get_nz_block(max_block_size) + 1),
+        sub_block_lut.data(), subblock_LUT.get_data());
+
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            block_ptrs[block].get());
+        const auto w = p_block->lvl_2_block_size_;
+
+        host_kernel::select_apply_hbmc(
+            hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, false, default_kernel_version>(),
+            syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block, b_perm,
+            x, diag_LUT.get_const_data(), subblock_LUT.get_const_data(),
+            permutation_idxs);
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                block_ptrs[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
+                exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+                gko::array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_vals[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+            auto tmp_b_perm = b_perm->create_submatrix(
+                gko::span{spmv_block->start_row_global_,
+                          spmv_block->end_row_global_},
+                gko::span{0, num_rhs});
+
+            const auto perm_view = gko::array<IndexType>::view(
+                exec, spmv_size_col,
+                const_cast<IndexType*>(
+                    &permutation_idxs[spmv_block->start_col_global_]));
+
+            auto tmp_x = x->row_gather(&perm_view);
+
+            auto alpha =
+                gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+            auto beta =
+                gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+
+            csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
+                               lend(beta), lend(tmp_b_perm));
+        }
+    }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
