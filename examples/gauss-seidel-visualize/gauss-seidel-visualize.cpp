@@ -65,7 +65,7 @@ void visualize(std::shared_ptr<const gko::Executor> exec,
                gko::matrix::Csr<ValueType, IndexType>* csr_mat,
                std::string plot_label)
 {
-    auto dense_mat = gko::matrix::Dense<ValueType>::create(exec);
+    auto dense_mat = gko::matrix::Dense<ValueType>::create(exec->get_master());
     csr_mat->convert_to(lend(dense_mat));
     auto num_rows = dense_mat->get_size()[0];
     gko::preconditioner::visualize::spy_ge(num_rows, num_rows,
@@ -78,7 +78,7 @@ generate_2D_regular_grid_matrix(std::shared_ptr<const gko::Executor> exec,
                                 const IndexType size, ValueType deduction_help,
                                 bool nine_point = false)
 {
-    const auto grid_points = size * size;
+    const gko::size_type grid_points = size * size;
     gko::matrix_data<ValueType, IndexType> data(gko::dim<2>{grid_points});
 
     auto matrix = gko::matrix::Csr<ValueType, IndexType>::create(
@@ -192,17 +192,17 @@ int main(int argc, char* argv[])
     // reference
 
     const auto executor_string = argc >= 2 ? argv[1] : "reference";
-    // const auto do_benchmark = (argc == 3 && std::string(argv[2]) == "bench");
     const auto base_block_size_arg = argc >= 3 ? argv[2] : "4";
     const auto lvl_2_block_size_arg = argc >= 4 ? argv[3] : "32";
-    const auto rand_size_arg = argc >= 5 ? argv[4] : "1000";
+    const auto rand_size_arg = argc >= 5 ? argv[4] : "1024";
     const auto rand_nnz_row_lo_arg = argc >= 6 ? argv[5] : "1";
     const auto rand_nnz_row_hi_arg = argc >= 7 ? argv[6] : "10";
-    const auto use_padding_arg = argc >= 8 ? argv[7] : "0";
-    IndexType base_block_size;
+    const auto use_padding_arg = argc >= 8 ? argv[7] : "1";
+    const auto do_benchmark = (argc >= 9 && std::string(argv[8]) == "bench");
+    gko::size_type base_block_size;
     std::stringstream ss_1(base_block_size_arg);
     if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
-    IndexType lvl_2_block_size;
+    gko::size_type lvl_2_block_size;
     std::stringstream ss_2(lvl_2_block_size_arg);
     if (!(ss_2 >> lvl_2_block_size)) GKO_NOT_SUPPORTED(lvl_2_block_size_arg);
     IndexType rand_size;
@@ -242,15 +242,10 @@ int main(int argc, char* argv[])
     // executor where Ginkgo will perform the computation
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
-    auto mtx_rand = gko::share(generate_rand_matrix(
-        exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    // auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
-    //     exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{},
-    //     true));
-
-    // visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
-    // visualize(exec, gko::lend(mtx_rand_grid), std::string("mtxRandGrid"));
-
+    // auto mtx_rand = gko::share(generate_rand_matrix(
+    //     exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
+    auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
+        exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{}, true));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)
@@ -269,48 +264,6 @@ int main(int argc, char* argv[])
     std::cout << "Generate time GS for random matrix(ns):   "
               << generate_time.count() << std::endl;
 
-    auto perm_idxs =
-        gko::array<IndexType>(exec, gs_rand->get_permutation_idxs());
-
-    auto mtx_perm = gko::as<Csr>(mtx_rand->permute(&perm_idxs));
-    gko::matrix_data<ValueType, IndexType> ref_data;
-    mtx_perm->write(ref_data);
-    gko::utils::make_lower_triangular(ref_data);
-    ref_data.ensure_row_major_order();
-    auto ref_mtx = gko::share(Csr::create(exec));
-    ref_mtx->read(ref_data);
-
-    auto ltrs_factory =
-        gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
-
-    exec->synchronize();
-    auto g_ltrs_tic = std::chrono::steady_clock::now();
-    auto ref_ltrs = ltrs_factory->generate(ref_mtx);
-    exec->synchronize();
-    auto g_ltrs_tac = std::chrono::steady_clock::now();
-    auto generate_time_ltrs =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(g_ltrs_tac -
-                                                             g_ltrs_tic);
-    std::cout << "Generate time ltrs for random matrix(ns): "
-              << generate_time_ltrs.count() << std::endl;
-
-    // auto gs_rand_grid =
-    //     HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand_grid));
-    auto label = std::string("mtxRandPermuted-");
-    // label += typeid(ValueType).name() + std::string("-") +
-    //                   typeid(IndexType).name() + std::string("-");
-    // label += std::to_string(base_block_size) + std::string("-") +
-    //          std::to_string(lvl_2_block_size);
-    // visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
-
-    // auto label2 = std::string("mtxRandBlockOrdering-");
-    // label2 += std::to_string(base_block_size) + std::string("-") +
-    //           std::to_string(lvl_2_block_size);
-    // visualize(exec, gko::lend(gs_rand->get_utr_matrix()), label2);
-    auto label_grid = std::string("mtxRandGridPermuted-");
-    // visualize(exec, gko::lend(gs_rand_grid->get_ltr_matrix()), label_grid);
-
-
     const gko::size_type num_rhs = 10;
     const auto num_rows = mtx_rand->get_size()[0];
     auto rhs_rand = gko::test::generate_random_matrix<Vec>(
@@ -319,59 +272,99 @@ int main(int argc, char* argv[])
                                                  num_rows * num_rhs),
         std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.),
         std::default_random_engine(42), exec, gko::dim<2>{num_rows, num_rhs});
-    const auto rhs_rand_perm =
-        gko::as<const Vec>(lend(rhs_rand)->row_permute(&perm_idxs));
+
     auto x = Vec::create_with_config_of(gko::lend(rhs_rand));
     x->fill(ValueType{0});
-    auto ref_x = gko::clone(exec, x);
 
+    if (do_benchmark) {
+        auto perm_idxs =
+            gko::array<IndexType>(exec, gs_rand->get_permutation_idxs());
 
-    // warmup run GS
-    {
-        for (auto i = 0; i < 5; ++i) {
-            auto x_clone = gko::clone(x);
-            gs_rand->apply(gko::lend(rhs_rand), gko::lend(x_clone));
-        }
-    }
+        auto mtx_perm = gko::as<Csr>(mtx_rand->permute(&perm_idxs));
+        gko::matrix_data<ValueType, IndexType> ref_data;
+        mtx_perm->write(ref_data);
+        gko::utils::make_lower_triangular(ref_data);
+        ref_data.ensure_row_major_order();
+        auto ref_mtx = gko::share(Csr::create(exec));
+        ref_mtx->read(ref_data);
 
-    const auto num_runs = 20;
-    // apply GS
-    std::chrono::nanoseconds apply_time{};
-    for (auto run = 0; run < num_runs; ++run) {
+        auto ltrs_factory =
+            gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+
         exec->synchronize();
-        auto a_tic = std::chrono::steady_clock::now();
+        auto g_ltrs_tic = std::chrono::steady_clock::now();
+        auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+        exec->synchronize();
+        auto g_ltrs_tac = std::chrono::steady_clock::now();
+        auto generate_time_ltrs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(g_ltrs_tac -
+                                                                 g_ltrs_tic);
+        std::cout << "Generate time ltrs for random matrix(ns): "
+                  << generate_time_ltrs.count() << std::endl;
+
+        const auto rhs_rand_perm =
+            gko::as<const Vec>(lend(rhs_rand)->row_permute(&perm_idxs));
+        auto ref_x = gko::clone(exec, x);
+
+        // warmup run GS
+        {
+            for (auto i = 0; i < 5; ++i) {
+                auto x_clone = gko::clone(x);
+                gs_rand->apply(gko::lend(rhs_rand), gko::lend(x_clone));
+            }
+        }
+
+        const auto num_runs = 20;
+        // apply GS
+        std::chrono::nanoseconds apply_time{};
+        for (auto run = 0; run < num_runs; ++run) {
+            exec->synchronize();
+            auto a_tic = std::chrono::steady_clock::now();
+            gs_rand->apply(gko::lend(rhs_rand), gko::lend(x));
+            exec->synchronize();
+            auto a_tac = std::chrono::steady_clock::now();
+            apply_time += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                a_tac - a_tic);
+        }
+        std::cout << "Apply time " << num_runs
+                  << " num runs GS for random matrix(ns):   "
+                  << apply_time.count() << std::endl;
+
+        // warmup run LTRS
+        {
+            for (auto i = 0; i < 5; ++i) {
+                auto x_clone = gko::clone(ref_x);
+                ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(x_clone));
+            }
+        }
+
+        // apply LTRS
+        std::chrono::nanoseconds apply_time_ltrs{};
+        for (auto run = 0; run < num_runs; ++run) {
+            exec->synchronize();
+            auto a_ltrs_tic = std::chrono::steady_clock::now();
+            ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(ref_x));
+            exec->synchronize();
+            auto a_ltrs_tac = std::chrono::steady_clock::now();
+            apply_time_ltrs +=
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    a_ltrs_tac - a_ltrs_tic);
+        }
+
+        std::cout << "Apply time " << num_runs
+                  << " num runs LTRS for random matrix(ns): "
+                  << apply_time_ltrs.count() << std::endl;
+    } else {
         gs_rand->apply(gko::lend(rhs_rand), gko::lend(x));
-        exec->synchronize();
-        auto a_tac = std::chrono::steady_clock::now();
-        apply_time +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(a_tac - a_tic);
+
+        // auto label = std::string("mtxRandPermuted-");
+        // label += typeid(ValueType).name() + std::string("-") +
+        //                   typeid(IndexType).name() + std::string("-");
+        // label += std::to_string(base_block_size) + std::string("-") +
+        //          std::to_string(lvl_2_block_size);
+        // visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
+        // visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
+        // visualize(exec, gko::lend(gs_rand_grid->get_ltr_matrix()),
+        // label_grid);
     }
-    std::cout << "Apply time " << num_runs
-              << " num runs GS for random matrix(ns):   " << apply_time.count()
-              << std::endl;
-
-    // warmup run LTRS
-    {
-        for (auto i = 0; i < 5; ++i) {
-            auto x_clone = gko::clone(ref_x);
-            ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(x_clone));
-        }
-    }
-
-    // apply LTRS
-    std::chrono::nanoseconds apply_time_ltrs{};
-    for (auto run = 0; run < num_runs; ++run) {
-        exec->synchronize();
-        auto a_ltrs_tic = std::chrono::steady_clock::now();
-        ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(ref_x));
-        exec->synchronize();
-        auto a_ltrs_tac = std::chrono::steady_clock::now();
-        apply_time_ltrs += std::chrono::duration_cast<std::chrono::nanoseconds>(
-            a_ltrs_tac - a_ltrs_tic);
-    }
-
-
-    std::cout << "Apply time " << num_runs
-              << " num runs LTRS for random matrix(ns): "
-              << apply_time_ltrs.count() << std::endl;
 }

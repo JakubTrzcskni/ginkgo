@@ -1302,12 +1302,12 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding2)
     GKO_ASSERT_ARRAY_EQ(perm_cpy, perm_with_second_ordering_med);
 }
 
-TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
+TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
 {
     using CG = typename TestFixture::CG;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-    using GS = typename TestFixture::GS;
+    using GMRES = gko::solver::Gmres<ValueType>;
     using ValueType = typename TestFixture::value_type;
     using IndexType = typename TestFixture::index_type;
     using Log = typename TestFixture::Log;
@@ -1330,32 +1330,34 @@ TYPED_TEST(GaussSeidel, SystemSolveGSPCG)
     auto res_norm = this->res_norm_criterion_factory;
     res_norm->add_logger(this->iter_logger);
 
-    auto cg_factory = CG::build().with_criteria(iter_crit, res_norm).on(exec);
-    auto cg = cg_factory->generate(mtx);
-    cg->apply(lend(rhs), lend(x));
-    auto cg_num_iters = this->iter_logger->get_num_iterations();
+    auto gmres_factory =
+        GMRES::build().with_criteria(iter_crit, res_norm).on(exec);
+    auto gmres = gmres_factory->generate(mtx);
+    gmres->apply(lend(rhs), lend(x));
+    auto gmres_num_iters = this->iter_logger->get_num_iterations();
 
-    auto gs_hbmc = share(GS::build()
-                             .with_use_HBMC(true)
-                             .with_base_block_size(4u)
-                             .with_lvl_2_block_size(32u)
-                             .with_use_padding(true)
-                             .on(exec));
+    auto gs_hbmc_factory = share(GS::build()
+                                     .with_use_HBMC(true)
+                                     .with_base_block_size(4u)
+                                     .with_lvl_2_block_size(32u)
+                                     .with_use_padding(true)
+                                     .on(exec));
 
     auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
     auto ltrs_factory =
         share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
+    auto gs_hbmc = share(gs_hbmc_factory->generate(mtx));
 
-    auto pcg_factory = CG::build()
-                           .with_criteria(iter_crit, res_norm)
-                           .with_preconditioner(ltrs_factory)
-                           .on(exec);
-    auto pcg = pcg_factory->generate(mtx);
-    pcg->apply(lend(rhs_clone), lend(x_clone));
+    auto pgmres_factory = GMRES::build()
+                              .with_criteria(iter_crit, res_norm)
+                              .with_generated_preconditioner(gs_hbmc)
+                              .on(exec);
+    auto pgmres = pgmres_factory->generate(mtx);
+    pgmres->apply(lend(rhs_clone), lend(x_clone));
 
-    auto pcg_num_iters = this->iter_logger->get_num_iterations();
+    auto pgmres_num_iters = this->iter_logger->get_num_iterations();
 
-    ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
+    ASSERT_EQ(pgmres_num_iters < gmres_num_iters, 1);
 }
 
 }  // namespace

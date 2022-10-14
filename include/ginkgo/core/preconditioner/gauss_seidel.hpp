@@ -255,6 +255,8 @@ public:
 
         bool GKO_FACTORY_PARAMETER_SCALAR(use_padding, false);
 
+        bool GKO_FACTORY_PARAMETER_SCALAR(prepermuted_input, false);
+
         // determines if ginkgo lower triangular solver should be used
         // if reference solver is used no coloring&reordering will take place
         bool GKO_FACTORY_PARAMETER_SCALAR(use_reference, false);
@@ -299,6 +301,7 @@ protected:
           use_reference_{parameters_.use_reference},
           use_HBMC_{parameters_.use_HBMC},
           use_padding_{parameters_.use_padding},
+          prepermuted_input_{parameters_.prepermuted_input},
           l_diag_rows_{array<index_type>(host_exec_)},
           l_diag_mtx_col_idxs_{array<index_type>(host_exec_)},
           l_diag_vals_{array<value_type>(host_exec_)},
@@ -380,6 +383,7 @@ private:
     bool use_reference_;
     bool use_HBMC_;
     bool use_padding_;
+    bool prepermuted_input_;
     storage_scheme hbmc_storage_scheme_{};
     array<index_type> l_diag_rows_;
     array<index_type> l_diag_mtx_col_idxs_;

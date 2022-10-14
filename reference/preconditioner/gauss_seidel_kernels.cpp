@@ -280,6 +280,29 @@ void get_degree_of_nodes(std::shared_ptr<const ReferenceExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void prepermuted_apply(
+    std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const preconditioner::storage_scheme& storage_scheme,
+    const IndexType* permutation_idxs, const matrix::Dense<ValueType>* alpha,
+    matrix::Dense<ValueType>* b_perm, const matrix::Dense<ValueType>* beta,
+    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void prepermuted_simple_apply(
+    std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const preconditioner::storage_scheme& storage_scheme,
+    const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm,
+    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
+
 template <typename ValueType>
 void ref_apply(std::shared_ptr<const ReferenceExecutor> exec,
                const LinOp* solver, const matrix::Dense<ValueType>* alpha,
@@ -741,7 +764,6 @@ void fill_with_vals(
             }
         }
 
-
         auto main_blocks = storage_scheme.forward_solve_;
         const auto num_blocks = storage_scheme.num_blocks_;
         // fill the spmv blocks
@@ -1067,7 +1089,7 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             auto u_p_block_storage_offset = get_curr_storage_offset(
                 next_color_offset, base_block_size, num_nodes);
             if (use_padding) {
-                // TODO
+                //   u_p_block_storage_offset = ;
             }
             auto curr_u_p_block = parallel_block(
                 u_p_block_storage_offset, curr_color_offset, next_color_offset,

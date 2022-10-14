@@ -98,6 +98,29 @@ void get_degree_of_nodes(std::shared_ptr<const CudaExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
 
+template <typename ValueType, typename IndexType>
+void prepermuted_apply(
+    std::shared_ptr<const CudaExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const preconditioner::storage_scheme& storage_scheme,
+    const IndexType* permutation_idxs, const matrix::Dense<ValueType>* alpha,
+    matrix::Dense<ValueType>* b_perm, const matrix::Dense<ValueType>* beta,
+    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
+void prepermuted_simple_apply(
+    std::shared_ptr<const CudaExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const preconditioner::storage_scheme& storage_scheme,
+    const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm,
+    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
+
 template <typename ValueType>
 void ref_apply(std::shared_ptr<const CudaExecutor> exec, const LinOp* solver,
                const matrix::Dense<ValueType>* alpha,
@@ -176,9 +199,9 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
         [&](int compiled_subwarp_size) {
             return compiled_subwarp_size == static_cast<int>(w);
         },
-        syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
-        l_diag_vals, permutation_idxs, first_p_block, b_perm, x,
-        diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+        syn::value_list<int, false>(), syn::type_list<>(), exec, l_diag_rows,
+        l_diag_vals, first_p_block, b_perm, x, diag_LUT.get_const_data(),
+        subblock_LUT.get_const_data(), permutation_idxs);
 
 
     for (auto block = 1; block < num_blocks - 1; block += 2) {
@@ -235,8 +258,8 @@ void simple_apply(std::shared_ptr<const CudaExecutor> exec,
                 return compiled_subwarp_size == static_cast<int>(w);
             },
             syn::value_list<int>(), syn::type_list<>(), exec, l_diag_rows,
-            l_diag_vals, permutation_idxs, p_block, b_perm, x,
-            diag_LUT.get_const_data(), subblock_LUT.get_const_data());
+            l_diag_vals, p_block, b_perm, x, diag_LUT.get_const_data(),
+            subblock_LUT.get_const_data(), permutation_idxs);
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

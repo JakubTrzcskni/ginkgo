@@ -277,5 +277,81 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     }
 }
 
+TYPED_TEST(GaussSeidel, PrepermutedApply)
+{
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using GS = typename TestFixture::GS;
+    using Csr = gko::matrix::Csr<ValueType, IndexType>;
+    using Vec = gko::matrix::Dense<ValueType>;
+    auto ref_exec = this->ref;
+    auto hip_exec = this->hip;
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        gko::size_type num_rhs = 10;
+        auto nz_dist = std::uniform_int_distribution<IndexType>(
+            1, static_cast<gko::size_type>(row_limit));
+        auto val_dist =
+            std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1.,
+                                                                           1.);
+        auto mat_data =
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
+                static_cast<gko::size_type>(num_rows),
+                static_cast<gko::size_type>(num_rows), nz_dist, val_dist,
+                this->rand_engine);
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        auto rhs = gko::test::generate_random_matrix<Vec>(
+            static_cast<gko::size_type>(num_rows), num_rhs,
+            std::uniform_int_distribution<IndexType>(
+                static_cast<gko::size_type>(num_rows) * num_rhs,
+                static_cast<gko::size_type>(num_rows) * num_rhs),
+            val_dist, this->rand_engine, ref_exec,
+            gko::dim<2>{static_cast<gko::size_type>(num_rows), num_rhs});
+
+        auto mtx = gko::share(Csr::create(
+            ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
+        mtx->read(mat_data);
+
+        auto perm_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .with_prepermuted_input(false)
+                .on(hip_exec);
+        auto perm_gs = perm_gs_factory->generate(mtx);
+
+        auto preperm_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .with_prepermuted_input(true)
+                .on(hip_exec);
+        auto preperm_gs = preperm_gs_factory->generate(mtx);
+
+        auto perm_idxs =
+            gko::array<IndexType>(hip_exec, preperm_gs->get_permutation_idxs());
+        auto d_rhs = gko::clone(hip_exec, rhs);
+        auto d_permuted_rhs =
+            gko::as<Vec>(lend(d_rhs)->row_permute(&perm_idxs));
+        auto d_x = Vec::create_with_config_of(gko::lend(d_rhs));
+        d_x->fill(ValueType{0});
+        auto d_permuted_x = gko::clone(hip_exec, d_x);
+
+        perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+
+        preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
+
+        auto ans =
+            gko::as<Vec>(lend(d_permuted_x)->inverse_row_permute(&perm_idxs));
+
+        GKO_ASSERT_MTX_NEAR(ans, d_x, r<ValueType>::value);
+    }
+}
+
 
 }  // namespace
