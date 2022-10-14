@@ -277,7 +277,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     }
 }
 
-TYPED_TEST(GaussSeidel, PrepermutedApply)
+TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
 {
     using ValueType = typename TestFixture::value_type;
     using IndexType = typename TestFixture::index_type;
