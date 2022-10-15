@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
 #include <ginkgo/core/preconditioner/jacobi.hpp>
 #include <ginkgo/core/solver/cg.hpp>
+#include <ginkgo/core/solver/gmres.hpp>
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/lower_trs.hpp>
 #include <ginkgo/core/stop/combined.hpp>
@@ -1180,6 +1181,72 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC_RandMtx)
     }
 }
 
+TYPED_TEST(GaussSeidel, ApplyHBMC_RandMtx)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    auto exec = this->exec;
+    auto i = 1;
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        auto mtx = gko::share(
+            this->generate_rand_matrix(IndexType{num_rows}, IndexType{1},
+                                       IndexType{row_limit}, ValueType{0}));
+
+        gko::size_type num_rhs = 10;
+        auto rhs = gko::share(this->generate_rand_dense(
+            ValueType{0}, mtx->get_size()[0], num_rhs));
+
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{1});
+        auto ref_x = x->clone();
+
+        auto alpha = gko::share(gko::initialize<Vec>({2.0}, exec));
+        auto beta = gko::share(gko::initialize<Vec>({-1.0}, exec));
+
+        auto gs_HBMC_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .on(exec);
+        auto gs_HBMC = gs_HBMC_factory->generate(mtx);
+
+        auto perm_idxs =
+            gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
+
+        auto mtx_perm = gko::as<Csr>(mtx->permute(&perm_idxs));
+        gko::matrix_data<ValueType, IndexType> ref_data;
+        mtx_perm->write(ref_data);
+        gko::utils::make_lower_triangular(ref_data);
+        ref_data.ensure_row_major_order();
+        auto ref_mtx = gko::share(Csr::create(exec));
+        ref_mtx->read(ref_data);
+        const auto rhs_perm =
+            gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
+
+        auto ltrs_factory =
+            gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+        auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+
+        ref_ltrs->apply(gko::lend(alpha), gko::lend(rhs_perm), gko::lend(beta),
+                        gko::lend(ref_x));
+
+        auto ref_ans = Vec::create(exec);
+        ref_ans->copy_from(
+            std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
+
+        gs_HBMC->apply(gko::lend(alpha), gko::lend(rhs), gko::lend(beta),
+                       gko::lend(x));
+        std::cout << "tuple " << i++ << std::endl;
+        GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
+    }
+}
+
 TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding)
 {
     using IndexType = typename TestFixture::index_type;
@@ -1307,9 +1374,10 @@ TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
     using CG = typename TestFixture::CG;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
-    using GMRES = gko::solver::Gmres<ValueType>;
     using ValueType = typename TestFixture::value_type;
     using IndexType = typename TestFixture::index_type;
+    using GMRES = gko::solver::Gmres<ValueType>;
+    using GS = typename TestFixture::GS;
     using Log = typename TestFixture::Log;
     using BJ = gko::preconditioner::Jacobi<ValueType, IndexType>;
     using namespace gko;

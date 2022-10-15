@@ -287,7 +287,7 @@ template <int subwarp_size, int b_s, typename ValueType, typename IndexType,
 __device__ void apply_ltr_v4(
     const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
     const size_type end_row, const size_type num_rows_in_block,
-    const size_type w, const size_type num_rhs,
+    const size_type w_storage, const size_type num_rhs,
     const ValueType* __restrict__ b_perm, ValueType* __restrict__ x_perm,
     const IndexType* __restrict__ perm_idxs, const int* diag_LUT,
     const int* subblock_LUT, Closure scale)
@@ -299,16 +299,18 @@ __device__ void apply_ltr_v4(
     const auto nz_p_b = (diag_LUT[curr_b_s] + 1);
     ValueType tmp_rhs[b_s];
     const auto base_row = rows[0];
+    const auto last_row = rows[(nz_p_b - 1) * w_storage];
+    const auto curr_w = (last_row - base_row) / (curr_b_s - 1);
     for (size_type k = 0; k < num_rhs; ++k) {
         for (auto i = 0; i < b_s; ++i) {
             tmp_rhs[i] = 0;
         }
         for (auto i = 0; i < nz_p_b; ++i) {
-            const auto curr_offs = i * w;
+            const auto curr_offs = i * w_storage;
             const auto row = rows[curr_offs];
             if (row >= 0) {
                 if (row >= end_row) return;
-                const auto rhs_id = (row - base_row) / w;
+                const auto rhs_id = (row - base_row) / curr_w;
                 if (i == diag_LUT[subblock_LUT[i] + 1]) {
                     // on the diagonal
                     const auto val = vals[curr_offs];
@@ -322,7 +324,8 @@ __device__ void apply_ltr_v4(
                               x_perm[row * num_rhs + k]);
                 } else {
                     // off the diagonal
-                    const auto read_offs = diag_LUT[subblock_LUT[i] + 1] * w;
+                    const auto read_offs =
+                        diag_LUT[subblock_LUT[i] + 1] * w_storage;
                     const auto row_read = rows[read_offs];
                     if (row_read >= 0) {
                         tmp_rhs[rhs_id] -=
@@ -952,11 +955,11 @@ void prepermuted_simple_apply(
     const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm,
     matrix::Dense<ValueType>* x_perm)
 {
-    bool test_const_version = false;
+    bool test_const_version = true;
     if (test_const_version) {
-        // prepermuted_simple_apply_tmp_const(
-        //     exec, l_diag_rows, l_diag_vals, l_spmv_row_ptrs, l_spmv_col_idxs,
-        //     l_spmv_vals, storage_scheme, permutation_idxs, b_perm, x_perm);
+        prepermuted_simple_apply_tmp_const(
+            exec, l_diag_rows, l_diag_vals, l_spmv_row_ptrs, l_spmv_col_idxs,
+            l_spmv_vals, storage_scheme, permutation_idxs, b_perm, x_perm);
     } else {
         constexpr int kernel_version = 2;
         GKO_ASSERT(!storage_scheme.symm_);
