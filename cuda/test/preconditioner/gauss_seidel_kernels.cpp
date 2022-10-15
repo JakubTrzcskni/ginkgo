@@ -49,6 +49,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "cuda/test/utils.hpp"
 
 namespace {
+
+using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
+static apply_param_type allParams{
+    std::make_tuple(1000, 5, 32, 4, false),
+    std::make_tuple(1000, 5, 32, 4, true),
+    std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 8, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    //   std::make_tuple(1000, 15, 32, 3, false), // b_s ==3 does not work
+    //   std::make_tuple(1000, 15, 32, 3, true),   // maybe because 1000%3!=0
+    std::make_tuple(1000, 10, 16, 4, false),
+    std::make_tuple(1000, 10, 16, 4, true),
+    std::make_tuple(1000, 10, 4, 4, false),
+    std::make_tuple(1000, 10, 4, 4, true),
+    std::make_tuple(1000, 10, 4, 8, false),
+    std::make_tuple(1000, 10, 4, 8, true), std::make_tuple(20, 5, 32, 4, false),
+    std::make_tuple(20, 5, 32, 4, true),
+    std::make_tuple(1003, 15, 32, 4, false),
+    std::make_tuple(1003, 15, 32, 4, true)};
+
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
 protected:
@@ -57,7 +80,7 @@ protected:
     using index_type =
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
-    GaussSeidel() : rand_engine(42) {}
+    GaussSeidel() : rand_engine(42), apply_params_{allParams} {}
 
     void SetUp()
     {
@@ -76,6 +99,7 @@ protected:
     std::default_random_engine rand_engine;
     std::shared_ptr<gko::ReferenceExecutor> ref;
     std::shared_ptr<gko::CudaExecutor> cuda;
+    apply_param_type apply_params_;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
@@ -331,7 +355,7 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
             cuda_exec, preperm_gs->get_permutation_idxs());
         auto d_rhs = gko::clone(cuda_exec, rhs);
         auto d_permuted_rhs =
-            gko::as<Vec>(lend(d_rhs)->row_permute(&perm_idxs));
+            gko::as<Vec>(gko::lend(d_rhs)->row_permute(&perm_idxs));
         auto d_x = Vec::create_with_config_of(gko::lend(d_rhs));
         d_x->fill(ValueType{0});
         auto d_permuted_x = gko::clone(cuda_exec, d_x);
@@ -340,8 +364,8 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
 
         preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
 
-        auto ans =
-            gko::as<Vec>(lend(d_permuted_x)->inverse_row_permute(&perm_idxs));
+        auto ans = gko::as<Vec>(
+            gko::lend(d_permuted_x)->inverse_row_permute(&perm_idxs));
 
         GKO_ASSERT_MTX_NEAR(ans, d_x, r<ValueType>::value);
     }
