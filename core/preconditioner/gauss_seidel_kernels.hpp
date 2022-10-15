@@ -149,15 +149,16 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         const preconditioner::storage_scheme& storage_scheme,               \
         matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
 
-#define GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL(ValueType,  \
-                                                                 IndexType)  \
-    void prepermuted_simple_apply(                                           \
-        std::shared_ptr<const DefaultExecutor> exec,                         \
-        const IndexType* l_diag_rows, const ValueType* l_diag_vals,          \
-        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,  \
-        const ValueType* l_spmv_vals,                                        \
-        const preconditioner::storage_scheme& storage_scheme,                \
-        const IndexType* permutation_idxs, matrix::Dense<ValueType>* b_perm, \
+#define GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL(ValueType, \
+                                                                 IndexType) \
+    void prepermuted_simple_apply(                                          \
+        std::shared_ptr<const DefaultExecutor> exec,                        \
+        const IndexType* l_diag_rows, const ValueType* l_diag_vals,         \
+        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
+        const ValueType* l_spmv_vals,                                       \
+        const preconditioner::storage_scheme& storage_scheme,               \
+        const IndexType* permutation_idxs,                                  \
+        const matrix::Dense<ValueType>* b_perm,                             \
         matrix::Dense<ValueType>* x_perm)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType) \
