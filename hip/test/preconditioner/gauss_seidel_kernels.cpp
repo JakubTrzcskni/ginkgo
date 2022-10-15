@@ -343,7 +343,6 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
         auto d_permuted_x = gko::clone(hip_exec, d_x);
 
         perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
-
         preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
 
         auto ans =
