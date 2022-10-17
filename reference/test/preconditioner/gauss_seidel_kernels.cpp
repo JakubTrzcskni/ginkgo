@@ -1242,7 +1242,7 @@ TYPED_TEST(GaussSeidel, ApplyHBMC_RandMtx)
 
         gs_HBMC->apply(gko::lend(alpha), gko::lend(rhs), gko::lend(beta),
                        gko::lend(x));
-        std::cout << "tuple " << i++ << std::endl;
+        // std::cout << "tuple " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
     }
 }

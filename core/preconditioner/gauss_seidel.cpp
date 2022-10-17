@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/matrix_data.hpp>
+#include <ginkgo/core/base/precision_dispatch.hpp>
 #include <ginkgo/core/base/utils.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -57,13 +58,9 @@ namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
 namespace {
-GKO_REGISTER_OPERATION(apply, gauss_seidel::apply);
-GKO_REGISTER_OPERATION(prepermuted_apply, gauss_seidel::prepermuted_apply);
-GKO_REGISTER_OPERATION(ref_apply, gauss_seidel::ref_apply);
 GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(prepermuted_simple_apply,
                        gauss_seidel::prepermuted_simple_apply);
-GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(get_block_coloring, gauss_seidel::get_block_coloring);
 GKO_REGISTER_OPERATION(assign_to_blocks, gauss_seidel::assign_to_blocks);
@@ -131,132 +128,120 @@ template <typename ValueType, typename IndexType>
 void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                                                    LinOp* x) const
 {
-    using Dense = matrix::Dense<ValueType>;
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Diagonal = matrix::Diagonal<ValueType>;
     using dim_type = gko::dim<2>::dimension_type;
-    const auto exec = this->get_executor()->get_master();
-    bool permuted = permutation_idxs_.get_num_elems() > 0;
+    using Dense = matrix::Dense<ValueType>;
 
-    if (permuted) {
-        if (prepermuted_input_) {
+    bool permuted = permutation_idxs_.get_num_elems() > 0;
+    precision_dispatch_real_complex<ValueType>(
+        [this, &permuted](auto dense_b, auto dense_x) {
             if (use_HBMC_) {
-                auto b_perm = (as<const Dense>(b))->clone();
-                this->get_executor()->run(
-                    gauss_seidel::make_prepermuted_simple_apply(
+                if (prepermuted_input_) {
+                    // auto b_perm = (dense_b)->clone();
+                    this->get_executor()->run(
+                        gauss_seidel::make_prepermuted_simple_apply(
+                            l_diag_rows_.get_const_data(),
+                            l_diag_vals_.get_const_data(),
+                            l_spmv_row_ptrs_.get_const_data(),
+                            l_spmv_col_idxs_.get_const_data(),
+                            l_spmv_vals_.get_const_data(), hbmc_storage_scheme_,
+                            permutation_idxs_.get_const_data(),
+                            dense_b,  // lend(b_perm),
+                            dense_x));
+                } else {
+                    auto b_perm =
+                        as<Dense>(dense_b->row_permute(&permutation_idxs_));
+                    this->get_executor()->run(gauss_seidel::make_simple_apply(
                         l_diag_rows_.get_const_data(),
                         l_diag_vals_.get_const_data(),
                         l_spmv_row_ptrs_.get_const_data(),
                         l_spmv_col_idxs_.get_const_data(),
-                        l_spmv_vals_.get_const_data(), hbmc_storage_scheme_,
-                        permutation_idxs_.get_const_data(), lend(b_perm),
-                        as<Dense>(x)));
+                        l_spmv_vals_.get_const_data(),
+                        permutation_idxs_.get_const_data(),
+                        hbmc_storage_scheme_, lend(b_perm), dense_x));
+                }
+            } else if (use_reference_ && !permuted) {
+                lower_trs_->apply(dense_b, dense_x);
+            } else if (permuted) {
+                const auto exec = this->get_executor()->get_master();
+                auto b_perm =
+                    share(as<Dense>(dense_b->row_permute(&permutation_idxs_)));
+                auto x_perm =
+                    share(as<Dense>(dense_x->row_permute(&permutation_idxs_)));
+                const auto block_ptrs = color_ptrs_.get_const_data();
+                const auto num_rows = lower_triangular_matrix_->get_size()[0];
+
+                auto tmp_rhs_block = Dense::create(exec);
+
+                for (auto color_block = 0;
+                     color_block < color_ptrs_.get_num_elems() - 1;
+                     color_block++) {
+                    dim_type block_start = block_ptrs[color_block];
+                    dim_type block_end = block_ptrs[color_block + 1];
+                    dim_type block_size = block_end - block_start;
+
+                    if (color_block == 0) {
+                        const auto curr_b_block = Dense::create_const(
+                            exec, dim<2>{block_size, b_perm->get_size()[1]},
+                            gko::array<ValueType>::const_view(
+                                exec, block_size * b_perm->get_size()[1],
+                                &(b_perm->get_const_values()
+                                      [block_start * b_perm->get_size()[1]])),
+                            b_perm->get_size()[1]);
+                        tmp_rhs_block->copy_from(lend(curr_b_block));
+                    }
+
+                    auto curr_x_block = Dense::create(
+                        exec, dim<2>{block_size, x_perm->get_size()[1]},
+                        gko::make_array_view(
+                            exec, block_size * x_perm->get_size()[1],
+                            &(x_perm->get_values()[block_start *
+                                                   x_perm->get_size()[1]])),
+                        x_perm->get_size()[1]);
+
+                    block_ptrs_[2 * color_block]->apply(lend(tmp_rhs_block),
+                                                        lend(curr_x_block));
+
+                    if (block_end < num_rows) {
+                        dim_type next_block_start = block_ptrs[color_block + 1];
+                        dim_type next_block_end = block_ptrs[color_block + 2];
+                        dim_type next_block_size =
+                            next_block_end - next_block_start;
+
+                        const auto next_b_block = Dense::create_const(
+                            exec,
+                            dim<2>{next_block_size, b_perm->get_size()[1]},
+                            gko::array<ValueType>::const_view(
+                                exec, next_block_size * b_perm->get_size()[1],
+                                &(b_perm->get_const_values()
+                                      [next_block_start *
+                                       b_perm->get_size()[1]])),
+                            b_perm->get_size()[1]);
+
+                        auto up_to_curr_x_block = Dense::create(
+                            exec, dim<2>{block_end, x_perm->get_size()[1]},
+                            gko::make_array_view(
+                                exec, block_end * x_perm->get_size()[1],
+                                &(x_perm->get_values()[0])),
+                            x_perm->get_size()[1]);
+
+                        tmp_rhs_block->copy_from(lend(next_b_block));
+
+                        auto one = gko::initialize<Dense>({1.0}, exec);
+                        auto neg_one = gko::initialize<Dense>({-1.0}, exec);
+                        block_ptrs_[2 * color_block + 1]->apply(
+                            lend(neg_one), lend(up_to_curr_x_block), lend(one),
+                            lend(tmp_rhs_block));
+                    }
+                }
+                dense_x->copy_from(std::move(as<Dense>(
+                    x_perm->inverse_row_permute(&permutation_idxs_))));
             } else {
                 GKO_NOT_SUPPORTED(this);
             }
-        } else {
-            auto b_perm = share(
-                as<Dense>(as<const Dense>(b)->row_permute(&permutation_idxs_)));
-            if (use_HBMC_) {
-                this->get_executor()->run(gauss_seidel::make_simple_apply(
-                    l_diag_rows_.get_const_data(),
-                    l_diag_vals_.get_const_data(),
-                    l_spmv_row_ptrs_.get_const_data(),
-                    l_spmv_col_idxs_.get_const_data(),
-                    l_spmv_vals_.get_const_data(),
-                    permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
-                    lend(b_perm), as<Dense>(x)));
-            } else {
-                auto x_perm = share(
-                    as<Dense>(as<Dense>(x)->row_permute(&permutation_idxs_)));
-
-                if (use_reference_) {
-                    GKO_NOT_SUPPORTED(this);
-                } else {
-                    const auto block_ptrs = color_ptrs_.get_const_data();
-                    const auto num_rows =
-                        lower_triangular_matrix_->get_size()[0];
-
-                    auto tmp_rhs_block = Dense::create(exec);
-
-                    for (auto color_block = 0;
-                         color_block < color_ptrs_.get_num_elems() - 1;
-                         color_block++) {
-                        dim_type block_start = block_ptrs[color_block];
-                        dim_type block_end = block_ptrs[color_block + 1];
-                        dim_type block_size = block_end - block_start;
-
-                        if (color_block == 0) {
-                            const auto curr_b_block = Dense::create_const(
-                                exec, dim<2>{block_size, b_perm->get_size()[1]},
-                                gko::array<ValueType>::const_view(
-                                    exec, block_size * b_perm->get_size()[1],
-                                    &(b_perm->get_const_values()
-                                          [block_start *
-                                           b_perm->get_size()[1]])),
-                                b_perm->get_size()[1]);
-                            tmp_rhs_block->copy_from(lend(curr_b_block));
-                        }
-
-                        auto curr_x_block = Dense::create(
-                            exec, dim<2>{block_size, x_perm->get_size()[1]},
-                            gko::make_array_view(
-                                exec, block_size * x_perm->get_size()[1],
-                                &(x_perm->get_values()[block_start *
-                                                       x_perm->get_size()[1]])),
-                            x_perm->get_size()[1]);
-
-                        block_ptrs_[2 * color_block]->apply(lend(tmp_rhs_block),
-                                                            lend(curr_x_block));
-
-                        if (block_end < num_rows) {
-                            dim_type next_block_start =
-                                block_ptrs[color_block + 1];
-                            dim_type next_block_end =
-                                block_ptrs[color_block + 2];
-                            dim_type next_block_size =
-                                next_block_end - next_block_start;
-
-                            const auto next_b_block = Dense::create_const(
-                                exec,
-                                dim<2>{next_block_size, b_perm->get_size()[1]},
-                                gko::array<ValueType>::const_view(
-                                    exec,
-                                    next_block_size * b_perm->get_size()[1],
-                                    &(b_perm->get_const_values()
-                                          [next_block_start *
-                                           b_perm->get_size()[1]])),
-                                b_perm->get_size()[1]);
-
-                            auto up_to_curr_x_block = Dense::create(
-                                exec, dim<2>{block_end, x_perm->get_size()[1]},
-                                gko::make_array_view(
-                                    exec, block_end * x_perm->get_size()[1],
-                                    &(x_perm->get_values()[0])),
-                                x_perm->get_size()[1]);
-
-                            tmp_rhs_block->copy_from(lend(next_b_block));
-
-                            auto one = gko::initialize<Dense>({1.0}, exec);
-                            auto neg_one = gko::initialize<Dense>({-1.0}, exec);
-                            block_ptrs_[2 * color_block + 1]->apply(
-                                lend(neg_one), lend(up_to_curr_x_block),
-                                lend(one), lend(tmp_rhs_block));
-                        }
-                    }
-                }
-                as<Dense>(x)->copy_from(std::move(as<Dense>(
-                    x_perm->inverse_row_permute(&permutation_idxs_))));
-            }
-        }
-    } else {
-        if (use_reference_) {
-            exec->run(gauss_seidel::make_ref_simple_apply(
-                lend(lower_trs_), as<const Dense>(b), as<Dense>(x)));
-        } else {
-            GKO_NOT_SUPPORTED(this);
-        }
-    }
+        },
+        b, x);
 }
 
 
@@ -266,57 +251,18 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
                                                    const LinOp* beta,
                                                    LinOp* x) const
 {
-    using Dense = matrix::Dense<ValueType>;
-    using Csr = matrix::Csr<ValueType, IndexType>;
-    const auto exec = this->get_executor()->get_master();
-    bool permuted = permutation_idxs_.get_num_elems() > 0;
-
-    if (use_reference_) {
-        if (permuted) {
-            GKO_NOT_SUPPORTED(this);
-        } else {
-            exec->run(gauss_seidel::make_ref_apply(
-                lend(lower_trs_), as<const Dense>(alpha), as<const Dense>(b),
-                as<const Dense>(beta), as<Dense>(x)));
-        }
-    } else {
-        if (use_HBMC_) {
-            if (prepermuted_input_) {
-                auto b_perm = (as<const Dense>(b))->clone();
-                this->get_executor()->run(gauss_seidel::make_prepermuted_apply(
-                    l_diag_rows_.get_const_data(),
-                    l_diag_vals_.get_const_data(),
-                    l_spmv_row_ptrs_.get_const_data(),
-                    l_spmv_col_idxs_.get_const_data(),
-                    l_spmv_vals_.get_const_data(), hbmc_storage_scheme_,
-                    permutation_idxs_.get_const_data(), as<const Dense>(alpha),
-                    lend(b_perm), as<const Dense>(beta), as<Dense>(x)));
-
+    precision_dispatch_real_complex<ValueType>(
+        [this](auto dense_alpha, auto dense_b, auto dense_beta, auto dense_x) {
+            if (use_reference_) {
+                lower_trs_->apply(dense_alpha, dense_b, dense_beta, dense_x);
             } else {
-                auto b_perm = share(as<Dense>(
-                    as<const Dense>(b)->row_permute(&permutation_idxs_)));
-
-                this->get_executor()->run(gauss_seidel::make_apply(
-                    l_diag_rows_.get_const_data(),
-                    l_diag_vals_.get_const_data(),
-                    l_spmv_row_ptrs_.get_const_data(),
-                    l_spmv_col_idxs_.get_const_data(),
-                    l_spmv_vals_.get_const_data(),
-                    permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
-                    as<const Dense>(alpha), lend(b_perm), as<const Dense>(beta),
-                    as<Dense>(x)));
+                auto x_clone = dense_x->clone();
+                this->apply_impl(dense_b, x_clone.get());
+                dense_x->scale(dense_beta);
+                dense_x->add_scaled(dense_alpha, x_clone.get());
             }
-        } else {
-            auto alpha_b = Dense::create(exec, b->get_size());
-            as<const Dense>(b)->apply(as<const Dense>(alpha), lend(alpha_b));
-
-            auto x_copy = x->clone();
-
-            this->apply_impl(as<const LinOp>(lend(alpha_b)), x);
-
-            as<Dense>(x)->add_scaled(beta, lend(x_copy));
-        }
-    }
+        },
+        alpha, b, beta, x);
 }
 
 template <typename ValueType, typename IndexType>
@@ -638,7 +584,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     }
 
     return block_ordering;  // won't be needed at all
-    // return storage scheme maybe? or nothing
+                            // return storage scheme maybe? or nothing
 }
 
 #define GKO_DECLARE_GAUSS_SEIDEL(ValueType, IndexType) \
