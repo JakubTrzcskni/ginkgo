@@ -71,7 +71,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
+static apply_param_type allParams{std::make_tuple(20, 5, 32, 4, false),
+                                  std::make_tuple(20, 5, 32, 4, true),
+                                  std::make_tuple(1000, 5, 32, 4, false),
                                   std::make_tuple(1000, 5, 32, 4, true),
                                   std::make_tuple(1000, 5, 32, 8, false),
                                   std::make_tuple(1000, 5, 32, 8, true),
@@ -85,8 +87,6 @@ static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
                                   std::make_tuple(1000, 10, 4, 4, true),
                                   std::make_tuple(1000, 10, 4, 8, false),
                                   std::make_tuple(1000, 10, 4, 8, true),
-                                  std::make_tuple(20, 5, 32, 4, false),
-                                  std::make_tuple(20, 5, 32, 4, true),
                                   std::make_tuple(1003, 15, 32, 4, false),
                                   std::make_tuple(1003, 15, 32, 4, true),
                                   std::make_tuple(10000, 20, 32, 4, false),

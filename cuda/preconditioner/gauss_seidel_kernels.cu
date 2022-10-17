@@ -78,10 +78,11 @@ constexpr int default_grid_size = 32 * 32 * 128;
 }  // namespace
 
 using hbmc_kernels =
-    syn::value_list<int, config::warp_size, 32, 16, 8, 4, 2, 1>;
+    syn::value_list<int, config::warp_size, 32, 16, 8, 4>;  //, 2, 1>;
 
 using hbmc_block_sizes =
-    syn::value_list<int, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>;
+    syn::value_list<int, 2, 4, 8>;  // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                                    // 13, 14, 15, 16>;
 
 constexpr int default_kernel_version = 1;
 
