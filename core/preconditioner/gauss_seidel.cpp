@@ -58,13 +58,9 @@ namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
 namespace {
-// GKO_REGISTER_OPERATION(apply, gauss_seidel::apply);
-// GKO_REGISTER_OPERATION(prepermuted_apply, gauss_seidel::prepermuted_apply);
-GKO_REGISTER_OPERATION(ref_apply, gauss_seidel::ref_apply);
 GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(prepermuted_simple_apply,
                        gauss_seidel::prepermuted_simple_apply);
-GKO_REGISTER_OPERATION(ref_simple_apply, gauss_seidel::ref_simple_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(get_block_coloring, gauss_seidel::get_block_coloring);
 GKO_REGISTER_OPERATION(assign_to_blocks, gauss_seidel::assign_to_blocks);
@@ -166,8 +162,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                         hbmc_storage_scheme_, lend(b_perm), dense_x));
                 }
             } else if (use_reference_ && !permuted) {
-                this->get_executor()->run(gauss_seidel::make_ref_simple_apply(
-                    lend(lower_trs_), dense_b, dense_x));
+                lower_trs_->apply(dense_b, dense_x);
             } else if (permuted) {
                 const auto exec = this->get_executor()->get_master();
                 auto b_perm =
@@ -259,9 +254,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
     precision_dispatch_real_complex<ValueType>(
         [this](auto dense_alpha, auto dense_b, auto dense_beta, auto dense_x) {
             if (use_reference_) {
-                this->get_executor()->run(
-                    gauss_seidel::make_ref_apply(lend(lower_trs_), dense_alpha,
-                                                 dense_b, dense_beta, dense_x));
+                lower_trs_->apply(dense_alpha, dense_b, dense_beta, dense_x);
             } else {
                 auto x_clone = dense_x->clone();
                 this->apply_impl(dense_b, x_clone.get());

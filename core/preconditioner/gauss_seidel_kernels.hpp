@@ -108,38 +108,6 @@ gko::int32 precomputed_diag(gko::int32 n) { return diag_lut[n + 1]; }
 /// @return number of nonzeros in a triangular block of given size
 gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
 
-#define GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType)         \
-    void apply(                                                             \
-        std::shared_ptr<const DefaultExecutor> exec,                        \
-        const IndexType* l_diag_rows, const ValueType* l_diag_vals,         \
-        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
-        const ValueType* l_spmv_vals, const IndexType* permutation_idxs,    \
-        const preconditioner::storage_scheme& storage_scheme,               \
-        const matrix::Dense<ValueType>* alpha,                              \
-        matrix::Dense<ValueType>* b_perm,                                   \
-        const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
-
-#define GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL(ValueType,        \
-                                                          IndexType)        \
-    void prepermuted_apply(                                                 \
-        std::shared_ptr<const DefaultExecutor> exec,                        \
-        const IndexType* l_diag_rows, const ValueType* l_diag_vals,         \
-        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
-        const ValueType* l_spmv_vals,                                       \
-        const preconditioner::storage_scheme& storage_scheme,               \
-        const IndexType* permutation_idxs,                                  \
-        const matrix::Dense<ValueType>* alpha,                              \
-        matrix::Dense<ValueType>* b_perm,                                   \
-        const matrix::Dense<ValueType>* beta,                               \
-        matrix::Dense<ValueType>* x_perm)
-
-#define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType)             \
-    void ref_apply(std::shared_ptr<const DefaultExecutor> exec,                \
-                   const LinOp* solver, const matrix::Dense<ValueType>* alpha, \
-                   const matrix::Dense<ValueType>* rhs,                        \
-                   const matrix::Dense<ValueType>* beta,                       \
-                   matrix::Dense<ValueType>* x)
-
 #define GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType)  \
     void simple_apply(                                                      \
         std::shared_ptr<const DefaultExecutor> exec,                        \
@@ -160,11 +128,6 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         const IndexType* permutation_idxs,                                  \
         const matrix::Dense<ValueType>* b_perm,                             \
         matrix::Dense<ValueType>* x_perm)
-
-#define GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType) \
-    void ref_simple_apply(                                                \
-        std::shared_ptr<const DefaultExecutor> exec, const LinOp* solver, \
-        const matrix::Dense<ValueType>* b, matrix::Dense<ValueType>* x)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType) \
     void get_coloring(                                                     \
@@ -242,18 +205,10 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                          \
     template <typename ValueType, typename IndexType>                         \
-    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL(ValueType, IndexType);              \
-    template <typename ValueType, typename IndexType>                         \
-    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL(ValueType, IndexType);  \
-    template <typename ValueType>                                             \
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL(ValueType);               \
-    template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL(ValueType, IndexType);       \
     template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL(ValueType,       \
                                                              IndexType);      \
-    template <typename ValueType>                                             \
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL(ValueType);        \
     template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType);       \
     template <typename ValueType, typename IndexType>                         \

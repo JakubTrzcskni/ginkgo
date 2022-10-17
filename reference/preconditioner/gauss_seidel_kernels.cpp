@@ -281,18 +281,6 @@ GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_DEGREE_OF_NODES_KERNEL);
 
 template <typename ValueType, typename IndexType>
-void prepermuted_apply(
-    std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
-    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
-    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
-    const preconditioner::storage_scheme& storage_scheme,
-    const IndexType* permutation_idxs, const matrix::Dense<ValueType>* alpha,
-    matrix::Dense<ValueType>* b_perm, const matrix::Dense<ValueType>* beta,
-    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
-GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_APPLY_KERNEL);
-
-template <typename ValueType, typename IndexType>
 void prepermuted_simple_apply(
     std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
     const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
@@ -302,28 +290,6 @@ void prepermuted_simple_apply(
     matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
-
-template <typename ValueType>
-void ref_apply(std::shared_ptr<const ReferenceExecutor> exec,
-               const LinOp* solver, const matrix::Dense<ValueType>* alpha,
-               const matrix::Dense<ValueType>* b,
-               const matrix::Dense<ValueType>* beta,
-               matrix::Dense<ValueType>* x)
-{
-    solver->apply(alpha, b, beta, x);
-}
-GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_APPLY_KERNEL);
-
-template <typename ValueType>
-void ref_simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
-                      const LinOp* solver, const matrix::Dense<ValueType>* b,
-                      matrix::Dense<ValueType>* x)
-{
-    solver->apply(b, x);
-}
-GKO_INSTANTIATE_FOR_EACH_VALUE_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_REFERENCE_SIMPLE_APPLY_KERNEL);
 
 namespace {
 template <typename ValueType, typename IndexType, typename Closure>
@@ -552,41 +518,6 @@ void apply_l_spmv_block(preconditioner::spmv_block* spmv_block,
     }
 }
 }  // namespace
-
-template <typename ValueType, typename IndexType>
-void apply(std::shared_ptr<const ReferenceExecutor> exec,
-           const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-           const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,
-           const ValueType* l_spmv_vals, const IndexType* permutation_idxs,
-           const preconditioner::storage_scheme& storage_scheme,
-           const matrix::Dense<ValueType>* alpha,
-           matrix::Dense<ValueType>* b_perm,
-           const matrix::Dense<ValueType>* beta, matrix::Dense<ValueType>* x)
-{
-    // GKO_ASSERT(!storage_scheme.symm_);
-    // const auto block_ptrs = storage_scheme.forward_solve_;
-    // const auto num_blocks = storage_scheme.num_blocks_;
-
-    // // first diag block
-    // auto first_p_block =
-    //     static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
-    // apply_l_p_block(first_p_block, l_diag_rows, l_diag_vals, b_perm, x,
-    //                 permutation_idxs, alpha, beta);
-    // for (auto block = 1; block < num_blocks - 1; block += 2) {
-    //     auto spmv_block =
-    //         static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
-    //     apply_l_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
-    //                        l_spmv_vals, b_perm, x, permutation_idxs);
-
-
-    //     auto p_block = static_cast<preconditioner::parallel_block*>(
-    //         block_ptrs[block + 1].get());
-    //     apply_l_p_block(p_block, l_diag_rows, l_diag_vals, b_perm, x,
-    //                     permutation_idxs, alpha, beta);
-    // }
-}
-GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
-    GKO_DECLARE_GAUSS_SEIDEL_APPLY_KERNEL);
 
 template <typename ValueType, typename IndexType>
 void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,

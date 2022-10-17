@@ -246,10 +246,11 @@ int main(int argc, char* argv[])
     // executor where Ginkgo will perform the computation
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
-    // auto mtx_rand = gko::share(generate_rand_matrix(
-    //     exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
-        exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{}, true));
+    auto mtx_rand = gko::share(generate_rand_matrix(
+        exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
+    // auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
+    //     exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{},
+    //     true));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)
