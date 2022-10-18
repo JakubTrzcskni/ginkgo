@@ -52,26 +52,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{
-    std::make_tuple(1000, 5, 32, 4, false),
-    std::make_tuple(1000, 5, 32, 4, true),
-    std::make_tuple(1000, 5, 32, 8, false),
-    std::make_tuple(1000, 5, 32, 8, true),
-    std::make_tuple(1000, 5, 32, 2, false),
-    std::make_tuple(1000, 5, 32, 2, true),
-    std::make_tuple(1000, 5, 32, 2, false),
-    std::make_tuple(1000, 5, 32, 2, true),
-    //   std::make_tuple(1000, 15, 32, 3, false), // b_s ==3 does not work
-    //   std::make_tuple(1000, 15, 32, 3, true),   // maybe because 1000%3!=0
-    std::make_tuple(1000, 10, 16, 4, false),
-    std::make_tuple(1000, 10, 16, 4, true),
-    std::make_tuple(1000, 10, 4, 4, false),
-    std::make_tuple(1000, 10, 4, 4, true),
-    std::make_tuple(1000, 10, 4, 8, false),
-    std::make_tuple(1000, 10, 4, 8, true), std::make_tuple(20, 5, 32, 4, false),
-    std::make_tuple(20, 5, 32, 4, true),
-    std::make_tuple(1003, 15, 32, 4, false),
-    std::make_tuple(1003, 15, 32, 4, true)};
+static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
+                                  std::make_tuple(1000, 5, 32, 4, true),
+                                  std::make_tuple(1000, 5, 32, 8, false),
+                                  std::make_tuple(1000, 5, 32, 8, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 10, 16, 4, false),
+                                  std::make_tuple(1000, 10, 16, 4, true),
+                                  std::make_tuple(1000, 10, 4, 4, false),
+                                  std::make_tuple(1000, 10, 4, 4, true),
+                                  std::make_tuple(1000, 10, 4, 8, false),
+                                  std::make_tuple(1000, 10, 4, 8, true),
+                                  std::make_tuple(20, 5, 32, 4, false),
+                                  std::make_tuple(20, 5, 32, 4, true),
+                                  std::make_tuple(1003, 15, 32, 4, false),
+                                  std::make_tuple(1003, 15, 32, 4, true)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
@@ -145,68 +143,77 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
     auto val_dist =
         std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.);
-    auto mat_data =
-        gko::test::generate_random_matrix_data<ValueType, IndexType>(
-            num_rows, num_rows, nz_dist, val_dist, this->rand_engine);
-    gko::utils::make_hpd(mat_data, 2.0);
-    mat_data.ensure_row_major_order();
-    auto rhs = gko::test::generate_random_matrix<Vec>(
-        num_rows, num_rhs,
-        std::uniform_int_distribution<IndexType>(num_rows * num_rhs,
-                                                 num_rows * num_rhs),
-        val_dist, this->rand_engine, ref_exec, gko::dim<2>{num_rows, num_rhs});
 
-    auto x = Vec::create_with_config_of(gko::lend(rhs));
-    x->fill(ValueType{0});
-    auto d_x = gko::clone(hip_exec, x);
+    for (int kernel_version = 1; kernel_version <= 6; ++kernel_version) {
+        auto mat_data =
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
+                num_rows, num_rows, nz_dist, val_dist, this->rand_engine);
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        auto rhs = gko::test::generate_random_matrix<Vec>(
+            num_rows, num_rhs,
+            std::uniform_int_distribution<IndexType>(num_rows * num_rhs,
+                                                     num_rows * num_rhs),
+            val_dist, this->rand_engine, ref_exec,
+            gko::dim<2>{num_rows, num_rhs});
 
-    auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
-    mtx->read(mat_data);
-    auto d_mtx = gko::clone(hip_exec, mtx);
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto d_x = gko::clone(hip_exec, x);
 
-    auto ref_gs_factory = GS::build()
-                              .with_use_HBMC(true)
-                              .with_base_block_size(4u)
-                              .with_lvl_2_block_size(32u)
-                              .with_use_padding(true)
-                              .on(ref_exec);
+        auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
+        mtx->read(mat_data);
+        auto d_mtx = gko::clone(hip_exec, mtx);
 
-    auto ref_gs = ref_gs_factory->generate(mtx);
-    auto perm_idxs =
-        gko::array<IndexType>(ref_exec, ref_gs->get_permutation_idxs());
-    auto rhs_perm = gko::as<Vec>(gko::lend(rhs)->row_permute(&perm_idxs));
+        auto ref_gs_factory = GS::build()
+                                  .with_use_HBMC(true)
+                                  .with_base_block_size(4u)
+                                  .with_lvl_2_block_size(32u)
+                                  .with_use_padding(true)
+                                  .on(ref_exec);
 
-    auto storage_scheme = ref_gs->get_storage_scheme();
-    auto l_diag_rows = ref_gs->get_l_diag_rows();
-    auto d_l_diag_rows = make_temporary_clone(hip_exec, &l_diag_rows);
-    auto l_diag_vals = ref_gs->get_l_diag_vals();
-    auto d_l_diag_vals = make_temporary_clone(hip_exec, &l_diag_vals);
-    auto l_spmv_row_ptrs = ref_gs->get_l_spmv_row_ptrs();
-    auto d_l_spmv_row_ptrs = make_temporary_clone(hip_exec, &l_spmv_row_ptrs);
-    auto l_spmv_col_idxs = ref_gs->get_l_spmv_col_idxs();
-    auto d_l_spmv_col_idxs = make_temporary_clone(hip_exec, &l_spmv_col_idxs);
-    auto l_spmv_vals = ref_gs->get_l_spmv_vals();
-    auto d_l_spmv_vals = make_temporary_clone(hip_exec, &l_spmv_vals);
+        auto ref_gs = ref_gs_factory->generate(mtx);
+        auto perm_idxs =
+            gko::array<IndexType>(ref_exec, ref_gs->get_permutation_idxs());
+        auto rhs_perm = gko::as<Vec>(gko::lend(rhs)->row_permute(&perm_idxs));
 
-    auto d_perm_idxs = make_temporary_clone(hip_exec, &perm_idxs);
-    auto d_rhs_perm = gko::clone(hip_exec, rhs_perm);
+        auto storage_scheme = ref_gs->get_storage_scheme();
+        auto l_diag_rows = ref_gs->get_l_diag_rows();
+        auto d_l_diag_rows = make_temporary_clone(hip_exec, &l_diag_rows);
+        auto l_diag_vals = ref_gs->get_l_diag_vals();
+        auto d_l_diag_vals = make_temporary_clone(hip_exec, &l_diag_vals);
+        auto l_spmv_row_ptrs = ref_gs->get_l_spmv_row_ptrs();
+        auto d_l_spmv_row_ptrs =
+            make_temporary_clone(hip_exec, &l_spmv_row_ptrs);
+        auto l_spmv_col_idxs = ref_gs->get_l_spmv_col_idxs();
+        auto d_l_spmv_col_idxs =
+            make_temporary_clone(hip_exec, &l_spmv_col_idxs);
+        auto l_spmv_vals = ref_gs->get_l_spmv_vals();
+        auto d_l_spmv_vals = make_temporary_clone(hip_exec, &l_spmv_vals);
 
-    gko::kernels::reference::gauss_seidel::simple_apply(
-        ref_exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
-        l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
-        l_spmv_vals.get_const_data(), perm_idxs.get_const_data(),
-        storage_scheme, gko::lend(rhs_perm), gko::lend(x));
+        auto d_perm_idxs = make_temporary_clone(hip_exec, &perm_idxs);
+        auto d_rhs_perm = gko::clone(hip_exec, rhs_perm);
 
-    hip_exec->synchronize();
-    gko::kernels::hip::gauss_seidel::simple_apply(
-        hip_exec, d_l_diag_rows->get_const_data(),
-        d_l_diag_vals->get_const_data(), d_l_spmv_row_ptrs->get_const_data(),
-        d_l_spmv_col_idxs->get_const_data(), d_l_spmv_vals->get_const_data(),
-        d_perm_idxs->get_const_data(), storage_scheme, gko::lend(d_rhs_perm),
-        gko::lend(d_x));
-    hip_exec->synchronize();
+        gko::kernels::reference::gauss_seidel::simple_apply(
+            ref_exec, l_diag_rows.get_const_data(),
+            l_diag_vals.get_const_data(), l_spmv_row_ptrs.get_const_data(),
+            l_spmv_col_idxs.get_const_data(), l_spmv_vals.get_const_data(),
+            perm_idxs.get_const_data(), storage_scheme, gko::lend(rhs_perm),
+            gko::lend(x), 1);
 
-    GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+        hip_exec->synchronize();
+        gko::kernels::hip::gauss_seidel::simple_apply(
+            hip_exec, d_l_diag_rows->get_const_data(),
+            d_l_diag_vals->get_const_data(),
+            d_l_spmv_row_ptrs->get_const_data(),
+            d_l_spmv_col_idxs->get_const_data(),
+            d_l_spmv_vals->get_const_data(), d_perm_idxs->get_const_data(),
+            storage_scheme, gko::lend(d_rhs_perm), gko::lend(d_x),
+            kernel_version);
+        hip_exec->synchronize();
+
+        GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+    }
 }
 
 TYPED_TEST(GaussSeidel, SimpleApply)
@@ -266,6 +273,7 @@ TYPED_TEST(GaussSeidel, SimpleApply)
                 .with_base_block_size(static_cast<gko::size_type>(b_s))
                 .with_lvl_2_block_size(static_cast<gko::size_type>(w))
                 .with_use_padding(padding)
+                .with_kernel_version(2)
                 .on(hip_exec);
         auto device_gs = device_gs_factory->generate(mtx);
 
@@ -330,6 +338,7 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
                 .with_lvl_2_block_size(static_cast<gko::size_type>(w))
                 .with_use_padding(padding)
                 .with_prepermuted_input(true)
+                .with_kernel_version(2)
                 .on(hip_exec);
         auto preperm_gs = preperm_gs_factory->generate(mtx);
 

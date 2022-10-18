@@ -200,6 +200,7 @@ int main(int argc, char* argv[])
     const auto use_padding_arg = argc >= 8 ? argv[7] : "1";
     const auto prepermuted_input_arg = argc >= 9 ? argv[8] : "0";
     const auto do_benchmark = (argc >= 10 && std::string(argv[9]) == "bench");
+    const auto kernel_version_arg = argc >= 11 ? argv[10] : "1";
     gko::size_type base_block_size;
     std::stringstream ss_1(base_block_size_arg);
     if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
@@ -211,16 +212,19 @@ int main(int argc, char* argv[])
     IndexType rand_nnz_row_hi;
     bool use_padding;
     bool prepermuted_input;
+    int kernel_version;
     std::stringstream ss_3(rand_size_arg);
     std::stringstream ss_4(rand_nnz_row_lo_arg);
     std::stringstream ss_5(rand_nnz_row_hi_arg);
     std::stringstream ss_6(use_padding_arg);
     std::stringstream ss_7(prepermuted_input_arg);
+    std::stringstream ss_8(kernel_version_arg);
     if (!(ss_3 >> rand_size)) GKO_NOT_SUPPORTED(rand_size_arg);
     if (!(ss_4 >> rand_nnz_row_lo)) GKO_NOT_SUPPORTED(rand_nnz_row_lo_arg);
     if (!(ss_5 >> rand_nnz_row_hi)) GKO_NOT_SUPPORTED(rand_nnz_row_hi_arg);
     if (!(ss_6 >> use_padding)) GKO_NOT_SUPPORTED(use_padding_arg);
     if (!(ss_7 >> prepermuted_input)) GKO_NOT_SUPPORTED(prepermuted_input_arg);
+    if (!(ss_8 >> kernel_version)) GKO_NOT_SUPPORTED(kernel_version_arg);
 
     // Figure out where to run the code
     std::map<std::string, std::function<std::shared_ptr<gko::Executor>()>>
@@ -246,11 +250,10 @@ int main(int argc, char* argv[])
     // executor where Ginkgo will perform the computation
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
-    auto mtx_rand = gko::share(generate_rand_matrix(
-        exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    // auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
-    //     exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{},
-    //     true));
+    // auto mtx_rand = gko::share(generate_rand_matrix(
+    //     exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
+    auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
+        exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{}, true));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)
@@ -258,6 +261,7 @@ int main(int argc, char* argv[])
                                .with_lvl_2_block_size(lvl_2_block_size)
                                .with_use_padding(use_padding)
                                .with_prepermuted_input(prepermuted_input)
+                               .with_kernel_version(kernel_version)
                                .on(exec);
 
     exec->synchronize();

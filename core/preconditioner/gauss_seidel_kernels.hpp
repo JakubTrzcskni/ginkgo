@@ -114,7 +114,8 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs, \
         const ValueType* l_spmv_vals, const IndexType* permutation_idxs,    \
         const preconditioner::storage_scheme& storage_scheme,               \
-        matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
+        matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,      \
+        int kernel_version)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL(ValueType, \
                                                                  IndexType) \
@@ -126,7 +127,7 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         const preconditioner::storage_scheme& storage_scheme,               \
         const IndexType* permutation_idxs,                                  \
         const matrix::Dense<ValueType>* b_perm,                             \
-        matrix::Dense<ValueType>* x_perm)
+        matrix::Dense<ValueType>* x_perm, int kernel_version)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType) \
     void get_coloring(                                                     \

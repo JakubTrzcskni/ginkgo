@@ -287,7 +287,7 @@ void prepermuted_simple_apply(
     const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
     const preconditioner::storage_scheme& storage_scheme,
     const IndexType* permutation_idxs, const matrix::Dense<ValueType>* b_perm,
-    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+    matrix::Dense<ValueType>* x_perm, int kernel_version) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
 
@@ -527,7 +527,8 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
                   const ValueType* l_spmv_vals,
                   const IndexType* permutation_idxs,
                   const preconditioner::storage_scheme& storage_scheme,
-                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x)
+                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
+                  int kernel_version)
 {
     GKO_ASSERT(!storage_scheme.symm_);
     const auto block_ptrs = storage_scheme.forward_solve_;
@@ -973,6 +974,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     l_spmv_row_ptrs[curr_id_spmv_row + 1] =
                         l_spmv_row_ptrs[curr_id_spmv_row] +
                         nnz_in_spmv_block_row;
+                    storage_scheme.update_nnz(nnz_in_spmv_block_row);
 
                     // setup of the next spmv_block
                     if (row == parallel_block->end_row_global_ - 1 &&

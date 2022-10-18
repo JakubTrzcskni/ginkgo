@@ -65,7 +65,7 @@ void prepermuted_simple_apply(
     const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
     const preconditioner::storage_scheme& storage_scheme,
     const IndexType* permutation_idxs, const matrix::Dense<ValueType>* b_perm,
-    matrix::Dense<ValueType>* x_perm) GKO_NOT_IMPLEMENTED;
+    matrix::Dense<ValueType>* x_perm, int kernel_version) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
 
@@ -77,8 +77,8 @@ void simple_apply(std::shared_ptr<const OmpExecutor> exec,
                   const ValueType* l_spmv_vals,
                   const IndexType* permutation_idxs,
                   const preconditioner::storage_scheme& storage_scheme,
-                  matrix::Dense<ValueType>* b_perm,
-                  matrix::Dense<ValueType>* x) GKO_NOT_IMPLEMENTED;
+                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
+                  int kernel_version) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 

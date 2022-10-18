@@ -138,7 +138,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         [this, &permuted](auto dense_b, auto dense_x) {
             if (use_HBMC_) {
                 if (prepermuted_input_) {
-                    // auto b_perm = (dense_b)->clone();
                     this->get_executor()->run(
                         gauss_seidel::make_prepermuted_simple_apply(
                             l_diag_rows_.get_const_data(),
@@ -146,9 +145,8 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                             l_spmv_row_ptrs_.get_const_data(),
                             l_spmv_col_idxs_.get_const_data(),
                             l_spmv_vals_.get_const_data(), hbmc_storage_scheme_,
-                            permutation_idxs_.get_const_data(),
-                            dense_b,  // lend(b_perm),
-                            dense_x));
+                            permutation_idxs_.get_const_data(), dense_b,
+                            dense_x, kernel_version_));
                 } else {
                     auto b_perm =
                         as<Dense>(dense_b->row_permute(&permutation_idxs_));
@@ -159,7 +157,8 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                         l_spmv_col_idxs_.get_const_data(),
                         l_spmv_vals_.get_const_data(),
                         permutation_idxs_.get_const_data(),
-                        hbmc_storage_scheme_, lend(b_perm), dense_x));
+                        hbmc_storage_scheme_, lend(b_perm), dense_x,
+                        kernel_version_));
                 }
             } else if (use_reference_ && !permuted) {
                 lower_trs_->apply(dense_b, dense_x);
