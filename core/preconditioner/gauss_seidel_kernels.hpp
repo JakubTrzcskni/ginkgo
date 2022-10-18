@@ -68,8 +68,8 @@ constexpr auto lut(Generator&& f)
     return lut_impl<Length>(std::forward<Generator>(f),
                             std::make_index_sequence<Length>{});
 }
-constexpr auto max_block_size = 16;
-constexpr auto max_nz_block = get_nz_block(max_block_size);
+constexpr auto max_b_s = 16;
+constexpr auto max_nz_block = get_nz_block(max_b_s);
 constexpr gko::int32 diag(gko::int32 n)
 {
     gko::int32 result = 0;
@@ -78,13 +78,12 @@ constexpr gko::int32 diag(gko::int32 n)
     }
     return result - 1;
 }
-constexpr auto diag_lut = lut<max_block_size + 1>(diag);
+constexpr auto diag_lut = lut<max_b_s + 1>(diag);
 
 constexpr gko::int32 sub_block(gko::int32 n)
 {
     gko::int32 result = 0;
-    for (gko::int32 i = 0; diag_lut[i + 1] <= n && i < max_block_size - 1;
-         i++) {
+    for (gko::int32 i = 0; diag_lut[i + 1] <= n && i < max_b_s - 1; i++) {
         result = i;
     }
     gko::int32 tmp = n - diag_lut[result + 1];
