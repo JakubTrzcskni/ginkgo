@@ -316,15 +316,17 @@ int main(int argc, char* argv[])
             gko::as<const Vec>(lend(rhs_rand)->row_permute(&perm_idxs));
         auto ref_x = gko::clone(exec, x);
 
+        const auto num_warm_up_runs = 10;
+        const auto num_runs = 40;
+
         // warmup run GS
         {
-            for (auto i = 0; i < 5; ++i) {
+            for (auto i = 0; i < num_warm_up_runs; ++i) {
                 auto x_clone = gko::clone(x);
                 gs_rand->apply(gko::lend(rhs_rand), gko::lend(x_clone));
             }
         }
 
-        const auto num_runs = 20;
         // apply GS
         std::chrono::nanoseconds apply_time{};
         for (auto run = 0; run < num_runs; ++run) {
@@ -342,7 +344,7 @@ int main(int argc, char* argv[])
 
         // warmup run LTRS
         {
-            for (auto i = 0; i < 5; ++i) {
+            for (auto i = 0; i < num_warm_up_runs; ++i) {
                 auto x_clone = gko::clone(ref_x);
                 ref_ltrs->apply(gko::lend(rhs_rand_perm), gko::lend(x_clone));
             }
