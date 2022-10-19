@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
     const auto executor_string = argc >= 2 ? argv[1] : "reference";
     const auto base_block_size_arg = argc >= 3 ? argv[2] : "4";
     const auto lvl_2_block_size_arg = argc >= 4 ? argv[3] : "32";
-    const auto rand_size_arg = argc >= 5 ? argv[4] : "1024";
+    const auto rand_size_arg = argc >= 5 ? argv[4] : "256";
     const auto rand_nnz_row_lo_arg = argc >= 6 ? argv[5] : "1";
     const auto rand_nnz_row_hi_arg = argc >= 7 ? argv[6] : "10";
     const auto use_padding_arg = argc >= 8 ? argv[7] : "1";
@@ -204,6 +204,8 @@ int main(int argc, char* argv[])
     gko::size_type base_block_size;
     std::stringstream ss_1(base_block_size_arg);
     if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
+    if (base_block_size != 2 && base_block_size != 4 && base_block_size != 8)
+        GKO_NOT_SUPPORTED(base_block_size_arg);
     gko::size_type lvl_2_block_size;
     std::stringstream ss_2(lvl_2_block_size_arg);
     if (!(ss_2 >> lvl_2_block_size)) GKO_NOT_SUPPORTED(lvl_2_block_size_arg);
@@ -220,6 +222,7 @@ int main(int argc, char* argv[])
     std::stringstream ss_7(prepermuted_input_arg);
     std::stringstream ss_8(kernel_version_arg);
     if (!(ss_3 >> rand_size)) GKO_NOT_SUPPORTED(rand_size_arg);
+    if (rand_size % base_block_size != 0) GKO_NOT_SUPPORTED(rand_size_arg);
     if (!(ss_4 >> rand_nnz_row_lo)) GKO_NOT_SUPPORTED(rand_nnz_row_lo_arg);
     if (!(ss_5 >> rand_nnz_row_hi)) GKO_NOT_SUPPORTED(rand_nnz_row_hi_arg);
     if (!(ss_6 >> use_padding)) GKO_NOT_SUPPORTED(use_padding_arg);
@@ -251,9 +254,10 @@ int main(int argc, char* argv[])
     const auto exec = exec_map.at(executor_string)();  // throws if not valid
 
     // auto mtx_rand = gko::share(generate_rand_matrix(
-    //     exec, rand_size, rand_nnz_row_lo, rand_nnz_row_hi, ValueType{0}));
-    auto mtx_rand = gko::share(generate_2D_regular_grid_matrix(
-        exec, static_cast<IndexType>(std::sqrt(rand_size)), ValueType{}, true));
+    //     exec, rand_size*rand_size, rand_nnz_row_lo, rand_nnz_row_hi,
+    //     ValueType{0}));
+    auto mtx_rand = gko::share(
+        generate_2D_regular_grid_matrix(exec, rand_size, ValueType{}, true));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)

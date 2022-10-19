@@ -106,35 +106,75 @@ __global__ void get_degree_of_nodes_kernel(const IndexType num_nodes,
     degrees[thread_id] = node_degree;
 }
 
-template <typename ValueType, typename IndexType>
-__global__ void prepare_x_kernel(const ValueType* __restrict__ orig_x,
-                                 ValueType* __restrict__ x_for_spmv,
-                                 const IndexType* __restrict__ perm_idxs,
-                                 const size_type stride,
-                                 const size_type id_offs,
-                                 const size_type num_rows,
-                                 const size_type spmv_block_size)
-{
-    const auto thread_id = thread::get_thread_id_flat<IndexType>();
-
-    if (thread_id >= spmv_block_size) {
-        return;
-    }
-    for (auto i = 0; i < stride; ++i) {
-        x_for_spmv[thread_id * stride + i] =
-            orig_x[perm_idxs[id_offs + thread_id] * stride + i];
-    }
-}
-
-template <typename ValueType, typename IndexType>
-__global__ void fill_with_vals_kernel()
+template <int subwarp_size, typename ValueType, typename IndexType>
+__device__ void fill_row()
 {}
+
+template <int subwarp_size, typename ValueType, typename IndexType>
+__global__ void fill_with_vals_kernel(
+    const IndexType* mtx_row_ptrs, const IndexType* mtx_col_idxs,
+    const ValueType* mtx_vals, const IndexType* perm_idxs,
+    const size_type diag_num_elems, const size_type l_spmv_row_mem_requirement,
+    const size_type u_spmv_row_mem_requirement, const size_type l_spmv_row_offs,
+    const IndexType* l_diag_rows, const IndexType* l_diag_mtx_col_idxs,
+    ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const IndexType* l_spmv_mtx_col_idxs,
+    ValueType* l_spmv_vals, const IndexType* u_diag_rows,
+    const IndexType* u_diag_mtx_col_idxs, ValueType* u_diag_vals,
+    const IndexType* u_spmv_row_ptrs, const IndexType* u_spmv_col_idxs,
+    const IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals,
+    const bool symm)
+{
+    const auto tid = thread::get_thread_id_flat<int>();
+    if (tid < diag_num_elems) {
+        const auto row = l_diag_rows[tid];
+        if (row >= 0) {
+            const auto mtx_row = perm_idxs[row];
+            l_diag_vals[tid] =
+                mtx_vals[mtx_row_ptrs[mtx_row] + l_diag_mtx_col_idxs[tid]];
+            if (symm) {
+                const auto u_row = u_diag_rows[tid];
+                if (u_row >= 0) {
+                    const auto u_mtx_row = perm_idxs[u_row];
+                    u_diag_vals[tid] = mtx_vals[mtx_row_ptrs[u_mtx_row] +
+                                                u_diag_mtx_col_idxs[tid]];
+                }
+            }
+        }
+    }
+    auto subwarp =
+        group::tiled_partition<subwarp_size>(group::this_thread_block());
+    const auto local_tid = subwarp.thread_rank();
+    const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
+    // if (subwarp_id < l_spmv_row_mem_requirement - 1) {
+    //     if () }
+    // if (subwarp_id < u_spmv_row_mem_requirement - 1) {
+    // }
+}
 
 #include "gauss_seidel_apply_kernels.hpp.inc"
 
 }  // namespace kernel
 
 namespace host_kernel {
+
+template <int subwarp_size, typename ValueType, typename IndexType>
+void fill_with_vals(const IndexType* mtx_row_ptrs,
+                    const IndexType* mtx_col_idxs, const ValueType* mtx_vals,
+                    const IndexType* perm_idxs, const size_type diag_num_elems,
+                    const size_type spmv_num_rows, const IndexType* l_diag_rows,
+                    const IndexType* l_diag_mtx_col_idxs,
+                    ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+                    const IndexType* l_spmv_col_idxs,
+                    const IndexType* l_spmv_mtx_col_idxs,
+                    ValueType* l_spmv_vals, const IndexType* u_diag_rows,
+                    const IndexType* u_diag_mtx_col_idxs,
+                    ValueType* u_diag_vals, const IndexType* u_spmv_row_ptrs,
+                    const IndexType* u_spmv_col_idxs,
+                    const IndexType* u_spmv_mtx_col_idxs,
+                    ValueType* u_spmv_vals, const bool symm)
+{}
+GKO_ENABLE_IMPLEMENTATION_SELECTION(selection_fill_with_vals, fill_with_vals);
 
 template <bool prepermuted, int subwarp_size, int version, int b_s,
           typename ValueType, typename IndexType>
@@ -539,16 +579,21 @@ void prepermuted_simple_apply(
     const auto num_rhs = b_perm->get_size()[1];
     const auto num_rows = b_perm->get_size()[0];
 
-    auto diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_b_s + 1),
-                                diag_lut.data(), diag_LUT.get_data());
-    auto subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
+    auto diag_LUT = gko::array<gko::int32>();
+    auto subblock_LUT = gko::array<gko::int32>();
+    if (kernel_ver != 9) {
+        diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
+        exec->copy_from<gko::int32>(exec->get_master().get(),
+                                    static_cast<gko::size_type>(max_b_s + 1),
+                                    diag_lut.data(), diag_LUT.get_data());
+        subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
+        exec->copy_from<gko::int32>(
+            exec->get_master().get(),
+            static_cast<gko::size_type>(max_nz_block + 1), sub_block_lut.data(),
+            subblock_LUT.get_data());
+    }
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_nz_block + 1),
-                                sub_block_lut.data(), subblock_LUT.get_data());
 
     for (auto block = 0; block < num_blocks; block += 2) {
         auto p_block = static_cast<preconditioner::parallel_block*>(
@@ -632,16 +677,31 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
     const auto num_rhs = b->get_size()[1];
     const auto num_rows = b->get_size()[0];
 
-    auto diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
+    // auto diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_b_s + 1),
-                                diag_lut.data(), diag_LUT.get_data());
-    auto subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
+    // exec->copy_from<gko::int32>(exec->get_master().get(),
+    //                             static_cast<gko::size_type>(max_b_s + 1),
+    //                             diag_lut.data(), diag_LUT.get_data());
+    // auto subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
 
-    exec->copy_from<gko::int32>(exec->get_master().get(),
-                                static_cast<gko::size_type>(max_nz_block + 1),
-                                sub_block_lut.data(), subblock_LUT.get_data());
+    // exec->copy_from<gko::int32>(exec->get_master().get(),
+    //                             static_cast<gko::size_type>(max_nz_block +
+    //                             1), sub_block_lut.data(),
+    //                             subblock_LUT.get_data());
+
+    auto diag_LUT = gko::array<gko::int32>();
+    auto subblock_LUT = gko::array<gko::int32>();
+    if (kernel_ver != 9) {
+        diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
+        exec->copy_from<gko::int32>(exec->get_master().get(),
+                                    static_cast<gko::size_type>(max_b_s + 1),
+                                    diag_lut.data(), diag_LUT.get_data());
+        subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
+        exec->copy_from<gko::int32>(
+            exec->get_master().get(),
+            static_cast<gko::size_type>(max_nz_block + 1), sub_block_lut.data(),
+            subblock_LUT.get_data());
+    }
 
     for (auto block = 0; block < num_blocks; block += 2) {
         auto p_block = static_cast<preconditioner::parallel_block*>(

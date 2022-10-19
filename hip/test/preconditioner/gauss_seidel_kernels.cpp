@@ -101,7 +101,7 @@ protected:
     apply_param_type apply_params_;
 };
 
-TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
+TYPED_TEST_SUITE(GaussSeidel, gko::test::RealValueIndexTypes,
                  PairTypenameNameGenerator);
 
 
@@ -348,12 +348,12 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
             auto d_permuted_x = gko::clone(hip_exec, d_x);
 
             perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+            // std::cout << "kernel version: " << kernel_version << std::endl;
             preperm_gs->apply(gko::lend(d_permuted_rhs),
                               gko::lend(d_permuted_x));
 
             auto ans = gko::as<Vec>(
                 lend(d_permuted_x)->inverse_row_permute(&perm_idxs));
-            // std::cout << "kernel version: " << kernel_version << std::endl;
             GKO_ASSERT_MTX_NEAR(ans, d_x, r<ValueType>::value);
         }
     }

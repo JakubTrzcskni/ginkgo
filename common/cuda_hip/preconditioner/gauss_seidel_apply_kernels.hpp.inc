@@ -326,12 +326,14 @@ __device__ void apply_ltr_v6(
             auto i = 0;
             auto idx_read = 0;
             while (i < row) {
-                const auto read_offs = idx_read * w_storage;
-                const auto row_read = rows[read_offs];
+                const auto val_read_offs = write_offs + (i - row) * w_storage;
+                const auto x_read_offs = idx_read * w_storage;
+                const auto row_read = rows[x_read_offs];
                 if (row_read >= 0) {
                     const auto x_row_read =
                         prepermuted ? row_read : perm_idxs[row_read];
-                    tmp -= vals[write_offs] * x[x_row_read * num_rhs + col_id];
+                    tmp -=
+                        vals[val_read_offs] * x[x_row_read * num_rhs + col_id];
                 }
                 ++i;
                 idx_read += (i + 1);
