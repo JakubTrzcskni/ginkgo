@@ -84,7 +84,7 @@ using hbmc_kernels =
 using hbmc_block_sizes = syn::value_list<int, 2, 4, 8>;  // 1, 2, 3, 4, 5, 6, 7,
 // 8, 9, 10, 11, 12, 13, 14, 15, 16>;
 
-using hbmc_kernel_version = syn::value_list<int, 1, 2, 3, 4, 5, 6, 7, 8>;
+using hbmc_kernel_version = syn::value_list<int, 1, 2, 3, 4, 5, 6, 7, 8, 9>;
 
 constexpr int default_kernel_version = 1;
 
@@ -289,6 +289,17 @@ void apply_hbmc(syn::value_list<int, subwarp_size>,
                 as_device_type(b_perm->get_const_values()),
                 as_device_type(x->get_values()), permutation_idxs, diag_LUT,
                 subblock_LUT);
+    } else if (version == 9) {
+        const auto grid_size_v9 = dim3(grid_size, num_rhs, 1);
+        kernel::apply_l_p_block_kernel_v9<prepermuted, subwarp_size>
+            <<<grid_size_v9, block_size>>>(
+                &(l_diag_rows[id_offs]),
+                as_device_type(&(l_diag_vals[id_offs])),
+                p_block->end_row_global_, num_rows_p_block, b_s,
+                p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
+                p_block->residual_, num_rhs,
+                as_device_type(b_perm->get_const_values()),
+                as_device_type(x->get_values()), permutation_idxs);
     } else {
         GKO_KERNEL_NOT_FOUND;
     }
@@ -445,6 +456,17 @@ void const_apply_hbmc(syn::value_list<int, subwarp_size>,
                 as_device_type(b_perm->get_const_values()),
                 as_device_type(x->get_values()), permutation_idxs, diag_LUT,
                 subblock_LUT);
+    } else if (version == 9) {
+        const auto grid_size_v9 = dim3(grid_size, num_rhs, 1);
+        kernel::apply_l_p_block_kernel_v9<prepermuted, subwarp_size>
+            <<<grid_size_v9, block_size>>>(
+                &(l_diag_rows[id_offs]),
+                as_device_type(&(l_diag_vals[id_offs])),
+                p_block->end_row_global_, num_rows_p_block, b_s,
+                p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
+                p_block->residual_, num_rhs,
+                as_device_type(b_perm->get_const_values()),
+                as_device_type(x->get_values()), permutation_idxs);
     } else {
         GKO_KERNEL_NOT_FOUND;
     }

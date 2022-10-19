@@ -185,7 +185,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
     auto l_spmv_vals = ref_gs->get_l_spmv_vals();
     auto d_l_spmv_vals = make_temporary_clone(hip_exec, &l_spmv_vals);
 
-    for (int kernel_version = 1; kernel_version <= 8; ++kernel_version) {
+    for (int kernel_version = 1; kernel_version <= 9; ++kernel_version) {
         x->fill(ValueType{0});
         auto d_x = gko::clone(hip_exec, x);
         auto d_rhs_perm = gko::clone(hip_exec, rhs_perm);
@@ -326,7 +326,7 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
                 .with_prepermuted_input(false)
                 .on(hip_exec);
         auto perm_gs = perm_gs_factory->generate(mtx);
-        for (int kernel_version = 2; kernel_version <= 8; ++kernel_version) {
+        for (int kernel_version = 2; kernel_version <= 9; ++kernel_version) {
             auto preperm_gs_factory =
                 GS::build()
                     .with_use_HBMC(true)
