@@ -453,11 +453,13 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     l_spmv_mtx_col_idxs_.set_executor(d_exec);
     l_spmv_vals_.set_executor(d_exec);
     permutation_idxs_.set_executor(d_exec);
-
+    inv_permutation_idxs_.set_executor(d_exec);
+    vertex_colors_.set_executor(d_exec);
+    color_ptrs_.set_executor(d_exec);
 
     // for testing only
-    lower_triangular_matrix_->copy_from(
-        give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
+    // lower_triangular_matrix_->copy_from(
+    //     give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
 }
 
 template <typename ValueType, typename IndexType>
