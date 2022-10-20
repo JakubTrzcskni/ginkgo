@@ -941,7 +941,7 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
         exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
         l_spmv_row_ptrs_.get_const_data(), l_spmv_col_idxs_.get_const_data(),
         l_spmv_vals_.get_const_data(), perm.get_const_data(),
-        dummy_storage_scheme, lend(rhs), lend(x));
+        dummy_storage_scheme, lend(rhs), lend(x), 0);
 
     GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
 
@@ -1020,7 +1020,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMCKernel)
         exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
         l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
         l_spmv_vals.get_const_data(), perm_idxs.get_const_data(), storage,
-        gko::lend(rhs), gko::lend(x));
+        gko::lend(rhs), gko::lend(x), 0);
 
     GKO_ASSERT_MTX_NEAR(x, exp_x, r<ValueType>::value);
 }
@@ -1115,7 +1115,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
         exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
         l_spmv_row_ptrs_.get_const_data(), l_spmv_col_idxs_.get_const_data(),
         l_spmv_vals_.get_const_data(), perm.get_const_data(), storage_scheme,
-        lend(rhs_perm), lend(x));
+        lend(rhs_perm), lend(x), 0);
 
     GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
 }

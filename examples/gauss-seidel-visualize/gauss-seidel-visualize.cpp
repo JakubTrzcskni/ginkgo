@@ -47,13 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <type_traits>
 #include <vector>
 
-
-// #include <ginkgo/core/base/array.hpp>
-// #include <ginkgo/core/base/executor.hpp>
-// #include <ginkgo/core/matrix/csr.hpp>
-// #include <ginkgo/core/matrix/dense.hpp>
-// #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
-
 #include "core/preconditioner/sparse_display.hpp"
 // #include "core/test/utils.hpp"
 #include "core/test/utils/matrix_generator.hpp"
@@ -258,6 +251,9 @@ int main(int argc, char* argv[])
     //     ValueType{0}));
     auto mtx_rand = gko::share(
         generate_2D_regular_grid_matrix(exec, rand_size, ValueType{}, true));
+
+    // auto os = std::ofstream(std::string("regular_grid_256.mtx"));
+    // gko::write(os, gko::lend(mtx_rand));
 
     auto HBMC_gs_factory = GS::build()
                                .with_use_HBMC(true)

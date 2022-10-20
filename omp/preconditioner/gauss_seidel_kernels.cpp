@@ -32,16 +32,155 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstring>
+#include <iterator>
+#include <limits>
+#include <list>
+#include <set>
+#include <utility>
+
+#include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/math.hpp>
-#include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
+#include <ginkgo/core/matrix/sparsity_csr.hpp>
 
 #include "core/base/allocator.hpp"
+#include "core/matrix/csr_kernels.hpp"
+#include "core/utils/matrix_utils.hpp"
 
 namespace gko {
 namespace kernels {
 namespace omp {
 namespace gauss_seidel {
+
+namespace {
+
+enum struct nodeSelectionPolicy { fifo, maxNumEdges, score };
+enum struct seedSelectionPolicy { noPolicy, minDegree };
+
+template <typename IndexType>
+IndexType find_next_candidate(
+    const IndexType* block_ordering, const IndexType* curr_block,
+    const IndexType block_fill_level, std::list<IndexType>& candidates,
+    const IndexType num_nodes, const IndexType block_size,
+    const IndexType* degrees, int8* visited, const IndexType* row_ptrs,
+    const IndexType* col_idxs,
+    nodeSelectionPolicy policy = nodeSelectionPolicy::fifo,
+    seedSelectionPolicy seed_policy = seedSelectionPolicy::minDegree)
+{
+    if (candidates.empty()) {
+        switch (seed_policy) {
+        case seedSelectionPolicy::minDegree: {
+            IndexType index_min_node = -1;
+            IndexType min_node_degree = std::numeric_limits<IndexType>::max();
+            for (auto i = 0; i < num_nodes; ++i) {
+                if (degrees[i] < min_node_degree && visited[i] == 0) {
+                    index_min_node = i;
+                    min_node_degree = degrees[i];
+                }
+            }
+            if (index_min_node >= 0) {
+                visited[index_min_node] = 1;
+                for (auto i = row_ptrs[index_min_node];
+                     i < row_ptrs[index_min_node + 1]; i++) {
+                    if (visited[col_idxs[i]] == 0)
+                        candidates.push_back(col_idxs[i]);
+                }
+            }
+            return index_min_node;
+            break;
+        }
+        case seedSelectionPolicy::noPolicy: {
+            IndexType seed = -1;
+            for (auto i = 0; i < num_nodes; ++i) {
+                if (visited[i] == 0) {
+                    seed = i;
+                    visited[i] = 1;
+                    return seed;
+                }
+            }
+            return seed;  // if no node found return -1
+            break;
+        }
+        default:
+            GKO_NOT_SUPPORTED(seed_policy);
+            break;
+        }
+
+    } else {
+        switch (policy) {
+        case nodeSelectionPolicy::fifo: {
+            IndexType next_candidate;
+            for (IndexType candidate : candidates) {
+                if (visited[candidate] == 0) {
+                    next_candidate = candidate;
+                    visited[candidate] = 1;
+                    candidates.remove(candidate);
+                    for (auto i = row_ptrs[next_candidate];
+                         i < row_ptrs[next_candidate + 1]; i++) {
+                        if (visited[col_idxs[i]] == 0)
+                            candidates.push_back(col_idxs[i]);
+                    }
+                    return next_candidate;  // return first candidate in the
+                                            // list (if found)
+                } else {
+                    candidates.remove(
+                        candidate);  // delete already visited nodes
+                }
+            }
+            return -1;  // return -1 if all candidates have been visited
+            break;
+        }
+        case nodeSelectionPolicy::score: {
+            GKO_NOT_IMPLEMENTED;
+            break;
+        }
+        case nodeSelectionPolicy::maxNumEdges: {
+            auto best_joint_edges = -1;
+            auto best_candidate = -1;
+            for (IndexType candidate : candidates) {
+                if (visited[candidate] == 0) {
+                    auto curr_joint_edges = 0;
+                    for (auto i = row_ptrs[candidate];
+                         i < row_ptrs[candidate + 1]; i++) {
+                        auto candidate_neighbour = col_idxs[i];
+                        for (auto i = 0; i < block_fill_level; ++i) {
+                            auto node_in_block = curr_block[i];
+                            if (candidate_neighbour == node_in_block)
+                                curr_joint_edges++;
+                        }
+                    }
+                    if (curr_joint_edges > best_joint_edges) {
+                        best_joint_edges = curr_joint_edges;
+                        best_candidate = candidate;
+                    }
+                } else {
+                    candidates.remove(
+                        candidate);  // delete already visited nodes
+                }
+            }
+            if (best_candidate >= 0) {
+                visited[best_candidate] = 1;
+                candidates.remove(best_candidate);
+                for (auto i = row_ptrs[best_candidate];
+                     i < row_ptrs[best_candidate + 1]; i++) {
+                    if (visited[col_idxs[i]] == 0)
+                        candidates.push_back(col_idxs[i]);
+                }
+            }
+            return best_candidate;
+            break;
+        }
+        default:
+            GKO_NOT_SUPPORTED(policy);
+            break;
+        }
+    }
+}
+}  // namespace
 
 template <typename IndexType>
 void get_degree_of_nodes(std::shared_ptr<const OmpExecutor> exec,
@@ -105,7 +244,30 @@ void assign_to_blocks(
     std::shared_ptr<const OmpExecutor> exec,
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
     IndexType* block_ordering, const IndexType* degrees, int8* visited,
-    const IndexType block_size) GKO_NOT_IMPLEMENTED;
+    const IndexType block_size)
+{
+    const IndexType num_nodes = adjacency_matrix->get_size()[0];
+    const auto row_ptrs = adjacency_matrix->get_const_row_ptrs();
+    const auto col_idxs = adjacency_matrix->get_const_col_idxs();
+    for (IndexType k = 0; k < num_nodes; k += block_size) {
+        std::list<IndexType>
+            candidates;  // not sure if std::list is the right one
+        auto curr_block = &(block_ordering[k]);
+        for (IndexType i = 0; i < block_size && k + i < num_nodes; i++) {
+            IndexType next_node = find_next_candidate(
+                block_ordering, curr_block, i, candidates, num_nodes,
+                block_size, degrees, visited, row_ptrs, col_idxs,
+                nodeSelectionPolicy::maxNumEdges,
+                seedSelectionPolicy::minDegree);
+            if (next_node >= 0)
+                curr_block[i] = next_node;
+            else
+                break;  // last block which cannot be filled fully (i <
+                        // block_size, but all nodes already visited)
+                        // second check, loop bounds are the first
+        }
+    }
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL);
 

@@ -53,7 +53,7 @@ DEFINE_string(preconditioners, "none",
               "A comma-separated list of preconditioners to use. "
               "Supported values are: none, jacobi, paric, parict, parilu, "
               "parilut, ic, ilu, paric-isai, parict-isai, parilu-isai, "
-              "parilut-isai, ic-isai, ilu-isai, overhead");
+              "parilut-isai, ic-isai, ilu-isai,gauss-seidel, overhead");
 
 DEFINE_uint32(parilu_iterations, 5,
               "The number of iterations for ParIC(T)/ParILU(T)");
@@ -90,6 +90,11 @@ DEFINE_uint64(
 DEFINE_bool(gs_use_padding, true,
             "Defines if the blocks of the HBMC Gauss Seidel should be "
             "padded to the lvl 2 size");
+
+DEFINE_int32(gs_apply_kernel_version, 9, "Version of the apply kernel");
+
+DEFINE_bool(gs_prepermuted_input, false,
+            "Determines if GS should expect prepermuted input or not");
 
 // parses the Jacobi storage optimization command line argument
 gko::precision_reduction parse_storage_optimization(const std::string& flag)
@@ -340,6 +345,8 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
                  .with_base_block_size(FLAGS_gs_base_block_size)
                  .with_use_HBMC(true)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
                  .on(exec);
          }},
         {"overhead", [](std::shared_ptr<const gko::Executor> exec) {

@@ -32,32 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
-// #include <thrust/copy.h>
-// #include <thrust/execution_policy.h>
-// #include <thrust/host_vector.h>
-// #include <thrust/iterator/zip_iterator.h>
-// #include <thrust/sequence.h>
-// #include <thrust/sort.h>
-// #include <thrust/tuple.h>
-
 // for testing LUTs
 #include <array>
 #include <cstddef>
-#include <utility>
-
 #include <cstring>
 #include <iterator>
 #include <limits>
 #include <list>
 #include <set>
+#include <utility>
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/diagonal.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
-#include <ginkgo/core/solver/lower_trs.hpp>
-
 
 #include "core/base/allocator.hpp"
 #include "core/matrix/csr_kernels.hpp"
