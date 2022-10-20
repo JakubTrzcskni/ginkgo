@@ -51,26 +51,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{
-    std::make_tuple(1000, 5, 32, 4, false),
-    std::make_tuple(1000, 5, 32, 4, true),
-    std::make_tuple(1000, 5, 32, 8, false),
-    std::make_tuple(1000, 5, 32, 8, true),
-    std::make_tuple(1000, 5, 32, 2, false),
-    std::make_tuple(1000, 5, 32, 2, true),
-    std::make_tuple(1000, 5, 32, 2, false),
-    std::make_tuple(1000, 5, 32, 2, true),
-    //   std::make_tuple(1000, 15, 32, 3, false), // b_s ==3 does not work
-    //   std::make_tuple(1000, 15, 32, 3, true),   // maybe because 1000%3!=0
-    std::make_tuple(1000, 10, 16, 4, false),
-    std::make_tuple(1000, 10, 16, 4, true),
-    std::make_tuple(1000, 10, 4, 4, false),
-    std::make_tuple(1000, 10, 4, 4, true),
-    std::make_tuple(1000, 10, 4, 8, false),
-    std::make_tuple(1000, 10, 4, 8, true), std::make_tuple(20, 5, 32, 4, false),
-    std::make_tuple(20, 5, 32, 4, true),
-    std::make_tuple(1003, 15, 32, 4, false),
-    std::make_tuple(1003, 15, 32, 4, true)};
+static apply_param_type allParams{std::make_tuple(1000, 5, 32, 4, false),
+                                  std::make_tuple(1000, 5, 32, 4, true),
+                                  std::make_tuple(1000, 5, 32, 8, false),
+                                  std::make_tuple(1000, 5, 32, 8, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 5, 32, 2, false),
+                                  std::make_tuple(1000, 5, 32, 2, true),
+                                  std::make_tuple(1000, 10, 16, 4, false),
+                                  std::make_tuple(1000, 10, 16, 4, true),
+                                  std::make_tuple(1000, 10, 4, 4, false),
+                                  std::make_tuple(1000, 10, 4, 4, true),
+                                  std::make_tuple(1000, 10, 4, 8, false),
+                                  std::make_tuple(1000, 10, 4, 8, true),
+                                  //   std::make_tuple(1003, 15, 32, 4, false),
+                                  //   std::make_tuple(1003, 15, 32, 4, true),
+                                  std::make_tuple(20, 5, 32, 4, false),
+                                  std::make_tuple(20, 5, 32, 4, true)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
@@ -105,30 +103,31 @@ protected:
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
 
-TYPED_TEST(GaussSeidel, SimpleTest)
-{
-    using ValueType = typename TestFixture::value_type;
-    using IndexType = typename TestFixture::index_type;
-    auto cuda_exec = this->cuda;
+// TYPED_TEST(GaussSeidel, SimpleTest)
+// {
+//     using ValueType = typename TestFixture::value_type;
+//     using IndexType = typename TestFixture::index_type;
+//     auto cuda_exec = this->cuda;
 
-    const IndexType num_nodes = 12;
-    gko::array<IndexType> coloring(
-        cuda_exec, I<IndexType>({1, 1, 2, 2, 1, 1, 0, 0, 2, 2, 0, 0}));
-    const IndexType max_color = 2;
-    gko::array<IndexType> color_ptrs(cuda_exec, max_color + 2);
-    gko::array<IndexType> permutation_idxs(cuda_exec, num_nodes);
-    gko::array<IndexType> block_ordering(
-        cuda_exec, I<IndexType>({0, 1, 4, 5, 2, 3, 8, 9, 6, 7, 10, 11}));
+//     const IndexType num_nodes = 12;
+//     gko::array<IndexType> coloring(
+//         cuda_exec, I<IndexType>({1, 1, 2, 2, 1, 1, 0, 0, 2, 2, 0, 0}));
+//     const IndexType max_color = 2;
+//     gko::array<IndexType> color_ptrs(cuda_exec, max_color + 2);
+//     gko::array<IndexType> permutation_idxs(cuda_exec, num_nodes);
+//     gko::array<IndexType> block_ordering(
+//         cuda_exec, I<IndexType>({0, 1, 4, 5, 2, 3, 8, 9, 6, 7, 10, 11}));
 
-    gko::kernels::cuda::gauss_seidel::get_permutation_from_coloring(
-        cuda_exec, num_nodes, coloring.get_data(), max_color,
-        color_ptrs.get_data(), permutation_idxs.get_data(),
-        block_ordering.get_const_data());
+//     gko::kernels::cuda::gauss_seidel::get_permutation_from_coloring(
+//         cuda_exec, num_nodes, coloring.get_data(), max_color,
+//         color_ptrs.get_data(), permutation_idxs.get_data(),
+//         block_ordering.get_const_data());
 
-    GKO_ASSERT_ARRAY_EQ(permutation_idxs,
-                        I<IndexType>({6, 7, 10, 11, 0, 1, 4, 5, 2, 3, 8, 9}));
-    GKO_ASSERT_ARRAY_EQ(color_ptrs, I<IndexType>({0, 4, 8, 12}));
-}
+//     GKO_ASSERT_ARRAY_EQ(permutation_idxs,
+//                         I<IndexType>({6, 7, 10, 11, 0, 1, 4, 5, 2, 3, 8,
+//                         9}));
+//     GKO_ASSERT_ARRAY_EQ(color_ptrs, I<IndexType>({0, 4, 8, 12}));
+// }
 
 TYPED_TEST(GaussSeidel, GetDegreeOfNodesKernel)
 {
@@ -217,7 +216,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
         ref_exec, l_diag_rows.get_const_data(), l_diag_vals.get_const_data(),
         l_spmv_row_ptrs.get_const_data(), l_spmv_col_idxs.get_const_data(),
         l_spmv_vals.get_const_data(), perm_idxs.get_const_data(),
-        storage_scheme, gko::lend(rhs_perm), gko::lend(x));
+        storage_scheme, gko::lend(rhs_perm), gko::lend(x), 0);
 
     cuda_exec->synchronize();
 
@@ -226,7 +225,7 @@ TYPED_TEST(GaussSeidel, SimpleApplyKernelFromRef)
         d_l_diag_vals->get_const_data(), d_l_spmv_row_ptrs->get_const_data(),
         d_l_spmv_col_idxs->get_const_data(), d_l_spmv_vals->get_const_data(),
         d_perm_idxs->get_const_data(), storage_scheme, gko::lend(d_rhs_perm),
-        gko::lend(d_x));
+        gko::lend(d_x), 1);
     cuda_exec->synchronize();
 
     GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
@@ -243,56 +242,62 @@ TYPED_TEST(GaussSeidel, SimpleApply)
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
 
-    gko::size_type num_rows = 1004;
-    gko::size_type row_limit = 10;
-    gko::size_type num_rhs = 5;
-    auto nz_dist = std::uniform_int_distribution<IndexType>(1, row_limit);
-    auto val_dist =
-        std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.);
-    auto mat_data =
-        gko::test::generate_random_matrix_data<ValueType, IndexType>(
-            num_rows, num_rows, nz_dist, val_dist, this->rand_engine);
-    gko::utils::make_hpd(mat_data, 2.0);
-    mat_data.ensure_row_major_order();
-    auto rhs = gko::test::generate_random_matrix<Vec>(
-        num_rows, num_rhs,
-        std::uniform_int_distribution<IndexType>(num_rows * num_rhs,
-                                                 num_rows * num_rhs),
-        val_dist, this->rand_engine, ref_exec, gko::dim<2>{num_rows, num_rhs});
-    auto d_rhs = gko::clone(cuda_exec, rhs);
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        gko::size_type num_rhs = 10;
+        auto nz_dist = std::uniform_int_distribution<IndexType>(
+            1, static_cast<gko::size_type>(row_limit));
+        auto val_dist =
+            std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1.,
+                                                                           1.);
+        auto mat_data =
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
+                static_cast<gko::size_type>(num_rows),
+                static_cast<gko::size_type>(num_rows), nz_dist, val_dist,
+                this->rand_engine);
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        auto rhs = gko::test::generate_random_matrix<Vec>(
+            static_cast<gko::size_type>(num_rows), num_rhs,
+            std::uniform_int_distribution<IndexType>(
+                static_cast<gko::size_type>(num_rows) * num_rhs,
+                static_cast<gko::size_type>(num_rows) * num_rhs),
+            val_dist, this->rand_engine, ref_exec,
+            gko::dim<2>{static_cast<gko::size_type>(num_rows), num_rhs});
+        auto d_rhs = gko::clone(cuda_exec, rhs);
 
-    auto x = Vec::create_with_config_of(gko::lend(rhs));
-    x->fill(ValueType{0});
-    auto d_x = gko::clone(cuda_exec, x);
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto d_x = gko::clone(cuda_exec, x);
 
-    auto mtx = gko::share(Csr::create(ref_exec, gko::dim<2>(num_rows)));
-    mtx->read(mat_data);
+        auto mtx = gko::share(Csr::create(
+            ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
+        mtx->read(mat_data);
 
-    gko::size_type b_s = 4;
-    gko::size_type w = 16;
+        auto ref_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .on(ref_exec);
+        auto ref_gs = ref_gs_factory->generate(mtx);
 
-    auto ref_gs_factory = GS::build()
-                              .with_use_HBMC(true)
-                              .with_base_block_size(b_s)
-                              .with_lvl_2_block_size(w)
-                              .with_use_padding(true)
-                              .on(ref_exec);
-    auto ref_gs = ref_gs_factory->generate(mtx);
+        auto device_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .on(cuda_exec);
+        auto device_gs = device_gs_factory->generate(mtx);
 
+        ref_gs->apply(gko::lend(rhs), gko::lend(x));
 
-    auto device_gs_factory = GS::build()
-                                 .with_use_HBMC(true)
-                                 .with_base_block_size(b_s)
-                                 .with_lvl_2_block_size(w)
-                                 .with_use_padding(true)
-                                 .on(cuda_exec);
-    auto device_gs = device_gs_factory->generate(mtx);
+        device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
 
-    ref_gs->apply(gko::lend(rhs), gko::lend(x));
-
-    device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
-
-    GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+        GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+    }
 }
 
 TYPED_TEST(GaussSeidel, PrepermutedApply)
@@ -304,6 +309,7 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
     using Vec = gko::matrix::Dense<ValueType>;
     auto ref_exec = this->ref;
     auto cuda_exec = this->cuda;
+    int i = 1;
     for (auto const& [num_rows, row_limit, w, b_s, padding] :
          this->apply_params_) {
         gko::size_type num_rhs = 10;
@@ -348,6 +354,7 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
                 .with_lvl_2_block_size(static_cast<gko::size_type>(w))
                 .with_use_padding(padding)
                 .with_prepermuted_input(true)
+                .with_kernel_version(3)
                 .on(cuda_exec);
         auto preperm_gs = preperm_gs_factory->generate(mtx);
 
@@ -362,6 +369,7 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
 
         perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
 
+        // std::cout << "tuple: " << i++ << std::endl;
         preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
 
         auto ans = gko::as<Vec>(
