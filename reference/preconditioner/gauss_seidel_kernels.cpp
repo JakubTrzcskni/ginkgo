@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 
-// for testing LUTs
 #include <array>
 #include <cstddef>
 #include <cstring>
