@@ -46,6 +46,7 @@ target_sources(ginkgo
     preconditioner/isai.cpp
     preconditioner/jacobi.cpp
     preconditioner/schwarz.cpp
+    preconditioner/gauss_seidel.cpp
     reorder/rcm.cpp
     solver/bicg.cpp
     solver/bicgstab.cpp
