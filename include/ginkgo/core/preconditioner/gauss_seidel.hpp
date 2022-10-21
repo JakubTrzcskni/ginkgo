@@ -199,7 +199,7 @@ template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
                     public Transposable {
     friend class EnableLinOp<GaussSeidel>;
-    friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
+    friend class polymorphic_object_traits<GaussSeidel>;
 
 
 public:
