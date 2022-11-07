@@ -43,7 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/polymorphic_object.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
-#include <ginkgo/core/solver/lower_trs.hpp>
+// #include <ginkgo/core/solver/lower_trs.hpp>
+#include <ginkgo/core/solver/triangular.hpp>
 
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/diagonal.hpp>

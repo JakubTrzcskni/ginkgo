@@ -438,30 +438,7 @@ void apply_l_p_block(preconditioner::parallel_block* p_block,
 {
     auto blocks = p_block->parallel_blocks_;
     if (alpha && beta) {
-        // const auto alpha_val = alpha->get_const_values()[0];
-        // const auto beta_val = beta->get_const_values()[0];
-
-        // for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
-        //     if (i == p_block->degree_of_parallelism_ - 1 &&
-        //         p_block->residual_) {
-        //         apply_l_agg(
-        //             static_cast<preconditioner::base_block_aggregation*>(
-        //                 blocks[i].get()),
-        //             l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-        //             [&alpha_val, &beta_val](const ValueType& x,
-        //                                     const ValueType& y) {
-        //                 return alpha_val * x + beta_val * y;
-        //             });
-        //     } else {
-        //         apply_l_lvl_1(
-        //             static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
-        //             l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-        //             [&alpha_val, &beta_val](const ValueType& x,
-        //                                     const ValueType& y) {
-        //                 return alpha_val * x + beta_val * y;
-        //             });
-        //     }
-        // }
+        GKO_NOT_SUPPORTED();
     } else {
         for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
             if (i == p_block->degree_of_parallelism_ - 1 &&
@@ -1063,6 +1040,7 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             auto u_p_block_storage_offset = get_curr_storage_offset(
                 next_color_offset, base_block_size, num_nodes);
             if (use_padding) {
+                GKO_NOT_IMPLEMENTED;
                 //   u_p_block_storage_offset = ;
             }
             auto curr_u_p_block = parallel_block(
