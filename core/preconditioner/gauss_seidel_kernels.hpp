@@ -78,6 +78,14 @@ constexpr gko::int32 diag(gko::int32 n)
     }
     return result - 1;
 }
+constexpr gko::int32 diag_upper(gko::int32 b_s, gko::int32 n)
+{
+    gko::int32 result = 0;
+    for (gko::int32 i = 1; i <= n; i++) {
+        result += b_s - i + 1;
+    }
+    return result;
+}
 constexpr auto diag_lut = lut<max_b_s + 1>(diag);
 
 constexpr gko::int32 sub_block(gko::int32 n)

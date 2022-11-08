@@ -78,7 +78,7 @@ IndexType get_curr_storage_offset(const IndexType curr_node,
 }
 
 int32 get_id_for_storage(preconditioner::parallel_block* p_block,
-                         const int32 row, const int32 col, bool* lvl_1)
+                         const int32 row, const int32 col, bool lower)
 {
     if (row < p_block->start_row_global_ | row >= p_block->end_row_global_ |
         col < p_block->start_row_global_ | col >= p_block->end_row_global_)
@@ -98,11 +98,16 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     const auto col_offs = row - col;
     if (p_block->residual_ && block_id == p_block->degree_of_parallelism_ -
                                               1) {  // case base_block_agg
-        if (col_offs > row_id_block % b_s | col_offs < 0) return -1;
-        *lvl_1 = false;
-        return base_offset + (row_id_block / b_s) * nz_per_block +
-               precomputed_diag(row_id_block % b_s) - col_offs;
-
+        if (col_offs > row_id_block % b_s) return -1;
+        if (lower) {
+            if (col_offs < 0) return -1;
+            return base_offset + (row_id_block / b_s) * nz_per_block +
+                   precomputed_diag(row_id_block % b_s) - col_offs;
+        } else {  // upper
+            if (col_offs > 0) return -1;
+            return base_offset + (row_id_block / b_s) * nz_per_block +
+                   diag_upper(b_s, row_id_block % b_s) - col_offs;
+        }
     } else {  // case lvl_1_block
         const auto lvl_2_block_size =
             static_cast<preconditioner::lvl_1_block*>(curr_block)
@@ -110,16 +115,27 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
         const auto lvl_2_block_size_setup =
             static_cast<preconditioner::lvl_1_block*>(curr_block)
                 ->lvl_2_block_size_setup_;
-        if (col_offs % lvl_2_block_size_setup != 0 |
-            col_offs > lvl_2_block_size_setup * (b_s - 1) | col_offs < 0)
-            return -1;
-        *lvl_1 = true;
-        return base_offset +
-               precomputed_diag(row_id_block / lvl_2_block_size_setup) *
-                   lvl_2_block_size +
-               row_id_block % lvl_2_block_size_setup -
-               (col_offs / lvl_2_block_size_setup) *
-                   lvl_2_block_size;  //* lvl_2_block_size;
+        if (col_offs % lvl_2_block_size_setup != 0) return -1;
+        if (lower) {
+            if (col_offs<0 | col_offs> lvl_2_block_size_setup * (b_s - 1))
+                return -1;
+            return base_offset +
+                   precomputed_diag(row_id_block / lvl_2_block_size_setup) *
+                       lvl_2_block_size +
+                   row_id_block % lvl_2_block_size_setup -
+                   (col_offs / lvl_2_block_size_setup) *
+                       lvl_2_block_size;  //* lvl_2_block_size;
+        } else {
+            if (col_offs > 0 |
+                col_offs < -1 * lvl_2_block_size_setup * (b_s - 1))
+                return -1;
+            return base_offset +
+                   diag_upper(b_s, row_id_block / lvl_2_block_size_setup) *
+                       lvl_2_block_size +
+                   row_id_block % lvl_2_block_size_setup -
+                   (col_offs / lvl_2_block_size_setup) *
+                       lvl_2_block_size;  //* lvl_2_block_size;
+        }
     }
 }
 
@@ -438,7 +454,7 @@ void apply_l_p_block(preconditioner::parallel_block* p_block,
 {
     auto blocks = p_block->parallel_blocks_;
     if (alpha && beta) {
-        GKO_NOT_SUPPORTED();
+        GKO_NOT_SUPPORTED(alpha);
     } else {
         for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
             if (i == p_block->degree_of_parallelism_ - 1 &&
@@ -762,7 +778,208 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
     const auto mtx_col_idxs = system_matrix->get_const_col_idxs();
     const auto mtx_vals = system_matrix->get_const_values();
     if (storage_scheme.symm_) {
-        GKO_NOT_IMPLEMENTED;
+        // GKO_NOT_IMPLEMENTED;
+        ValueType omega = 1.5;
+        auto forward_solve = storage_scheme.forward_solve_;
+        auto backward_solve = storage_scheme.backward_solve_;
+        const auto num_blocks = storage_scheme.num_blocks_;
+        GKO_ASSERT(num_blocks >= 1);
+        for (auto i = 0; i < num_blocks; i += 2) {
+            auto l_diag = static_cast<preconditioner::parallel_block*>(
+                forward_solve[i].get());
+            auto u_diag = static_cast<preconditioner::parallel_block*>(
+                backward_solve[num_blocks - i - 1].get());
+            auto b_s = l_diag->base_block_size_;
+            GKO_ASSERT(b_s == u_diag->base_block_size_);
+
+            preconditioner::spmv_block* l_spmv = NULL;
+            preconditioner::spmv_block* u_spmv = NULL;
+
+            if (i >= 2) {
+                l_spmv = static_cast<preconditioner::spmv_block*>(
+                    forward_solve[i - 1].get());
+                l_spmv_row_ptrs[l_spmv->row_ptrs_storage_id_] = 0;
+            }
+            if (i <= num_blocks - 3) {
+                u_spmv = static_cast<preconditioner::spmv_block*>(
+                    backward_solve[num_blocks - i - 2].get());
+                u_spmv_row_ptrs[u_spmv->row_ptrs_storage_id_] = 0;
+            }
+
+            for (auto row = l_diag->start_row_global_;
+                 row < l_diag->end_row_global_; ++row) {
+                const auto id_of_row_in_block = row - l_diag->start_row_global_;
+                ValueType diag_value = 1;
+                auto curr_id_l_spmv_row = 0;
+                auto curr_id_l_spmv_val_col = 0;
+                auto curr_id_u_spmv_row = 0;
+                auto curr_id_u_spmv_val_col = 0;
+                if (l_spmv) {
+                    curr_id_l_spmv_row =
+                        l_spmv->row_ptrs_storage_id_ + id_of_row_in_block;
+                    curr_id_l_spmv_val_col =
+                        l_spmv->val_storage_id_ +
+                        l_spmv_row_ptrs[curr_id_l_spmv_row];
+                }
+                if (u_spmv) {
+                    curr_id_u_spmv_row =
+                        u_spmv->row_ptrs_storage_id_ + id_of_row_in_block;
+                    curr_id_u_spmv_val_col =
+                        u_spmv->val_storage_id_ +
+                        u_spmv_row_ptrs[curr_id_u_spmv_row];
+                }
+
+                const auto mtx_row = permutation_idxs[row];
+                const auto mtx_start_id = mtx_row_ptrs[mtx_row];
+                const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
+                const auto nnz_in_row =
+                    mtx_row_ptrs[mtx_row + 1] - mtx_row_ptrs[mtx_row];
+
+                array<ValueType> tmp_mtx_vals(exec, &mtx_vals[mtx_start_id],
+                                              &mtx_vals[mtx_end_id]);
+                array<IndexType> tmp_mtx_col_idxs(exec, nnz_in_row);
+
+                std::iota(tmp_mtx_col_idxs.get_data(),
+                          tmp_mtx_col_idxs.get_data() + nnz_in_row, 0);
+
+                array<IndexType> tmp_perm(exec, nnz_in_row);
+
+                for (auto j = 0; j < nnz_in_row; j++) {
+                    tmp_perm.get_data()[j] =
+                        inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
+                }
+
+                std::sort(tmp_mtx_col_idxs.get_data(),
+                          tmp_mtx_col_idxs.get_data() + nnz_in_row,
+                          [&](IndexType const a, IndexType const b) {
+                              return tmp_perm.get_data()[a] <
+                                     tmp_perm.get_data()[b];
+                          });
+                {
+                    gko::array<IndexType> tmp_perm_clone;
+                    tmp_perm_clone = tmp_perm;
+                    for (auto j = 0; j < nnz_in_row; j++) {
+                        tmp_perm.get_data()[j] =
+                            tmp_perm_clone.get_const_data()
+                                [tmp_mtx_col_idxs.get_const_data()[j]];
+                    }
+                }
+                // after that tmp_perm holds the global column idxs in our
+                // permuted matrix and tmp_mtx_col_idxs the storage idxs to
+                // those values in in the input matrix
+                for (auto j = 0; j < nnz_in_row; j++) {
+                    tmp_mtx_vals.get_data()[j] =
+                        mtx_vals[mtx_start_id +
+                                 tmp_mtx_col_idxs.get_const_data()[j]];
+                    if (tmp_perm.get_const_data()[j] == row) {
+                        diag_value = tmp_mtx_vals.get_data()[j];
+                    }
+                }
+                auto nnz_in_l_spmv_row = 0;
+                auto nnz_in_u_spmv_row = 0;
+                auto tmp_k = 0;
+                for (auto k = 0; k < nnz_in_row; k++) {
+                    // TODO
+                    if (l_spmv &&
+                        tmp_perm.get_const_data()[k] <
+                            l_diag->start_row_global_) {  // can be made into a
+                                                          // a series of loops.
+                                                          // Values are sorted
+                                                          // -> first l_spmv,
+                                                          // then l_diag, u_diag
+                                                          // and u_spmv
+                        l_spmv_vals[curr_id_l_spmv_val_col + k] =
+                            tmp_mtx_vals.get_const_data()[k] / diag_value *
+                            omega;
+                        l_spmv_mtx_col_idxs[curr_id_l_spmv_val_col + k] =
+                            tmp_mtx_col_idxs.get_const_data()[k];
+                        l_spmv_col_idxs[curr_id_l_spmv_val_col + k] =
+                            tmp_perm.get_const_data()[k];
+                        nnz_in_l_spmv_row++;
+
+                    } else if (tmp_perm.get_const_data()[k] >=
+                                   l_diag->start_row_global_ &&
+                               tmp_perm.get_const_data()[k] <= row) {
+                        auto id = get_id_for_storage(
+                            l_diag, row, tmp_perm.get_const_data()[k], true);
+                        if (id >= 0) {
+                            l_diag_rows[id] = row;
+                            l_diag_vals[id] =
+                                (tmp_perm.get_const_data()[k] != row)
+                                    ? tmp_mtx_vals.get_const_data()[k] /
+                                          diag_value * omega
+                                    : 1.;
+                            l_diag_mtx_col_idxs[id] =
+                                tmp_mtx_col_idxs.get_const_data()[k];
+                        }
+                    } else if (tmp_perm.get_const_data()[k] >= row &&
+                               tmp_perm.get_const_data()[k] <
+                                   u_diag->end_row_global_) {
+                        auto id = get_id_for_storage(  // TODO
+                            u_diag, row, tmp_perm.get_const_data()[k], false);
+                        if (id >= 0) {
+                            u_diag_rows[id] = row;
+                            u_diag_vals[id] =
+                                (tmp_perm.get_const_data()[k] != row)
+                                    ? tmp_mtx_vals.get_const_data()[k] * omega
+                                    : tmp_mtx_vals.get_const_data()[k];
+                            u_diag_mtx_col_idxs[id] =
+                                tmp_mtx_col_idxs.get_const_data()[k];
+                        }
+                        tmp_k = k;
+                    } else if (u_spmv && tmp_perm.get_const_data()[k] >=
+                                             u_diag->end_row_global_) {
+                        const auto local_k = k - tmp_k;
+                        u_spmv_vals[curr_id_u_spmv_val_col + local_k] =
+                            tmp_mtx_vals.get_const_data()[local_k] * omega;
+                        u_spmv_mtx_col_idxs[curr_id_u_spmv_val_col + local_k] =
+                            tmp_mtx_col_idxs.get_const_data()[local_k];
+                        u_spmv_col_idxs[curr_id_u_spmv_val_col + local_k] =
+                            tmp_perm.get_const_data()[local_k];
+                        nnz_in_u_spmv_row++;
+                    }
+                    if (l_spmv) {
+                        l_spmv_row_ptrs[curr_id_l_spmv_row + 1] =
+                            l_spmv_row_ptrs[curr_id_l_spmv_row] +
+                            nnz_in_l_spmv_row;
+                        storage_scheme.update_nnz(nnz_in_l_spmv_row);
+                    }
+                    if (u_spmv) {
+                        u_spmv_row_ptrs[curr_id_u_spmv_row + 1] =
+                            u_spmv_row_ptrs[curr_id_u_spmv_row] +
+                            nnz_in_u_spmv_row;
+                        storage_scheme.update_nnz(nnz_in_u_spmv_row);
+                    }
+                    // setup of next spmv blocks
+                    if (i + 2 < num_blocks) {
+                        auto next_p_block =
+                            static_cast<preconditioner::parallel_block*>(
+                                forward_solve[i + 2].get());
+                        auto next_l_spmv =
+                            static_cast<preconditioner::spmv_block*>(
+                                forward_solve[i + 1].get());
+                        next_l_spmv->update(
+                            curr_id_l_spmv_row + 2,
+                            curr_id_l_spmv_val_col + nnz_in_l_spmv_row,
+                            l_spmv->end_row_global_,
+                            next_p_block->end_row_global_, 0,
+                            next_p_block->start_row_global_);
+                        if (i + 4 < num_blocks) {
+                            auto next_u_spmv =
+                                static_cast<preconditioner::spmv_block*>(
+                                    backward_solve[num_blocks - i - 4].get());
+                            next_u_spmv->update(
+                                curr_id_u_spmv_row + 2,
+                                curr_id_u_spmv_val_col + nnz_in_u_spmv_row,
+                                u_spmv->end_row_global_,
+                                next_p_block->end_row_global_, 0,
+                                next_p_block->start_row_global_);
+                        }
+                    }
+                }
+            }
+        }
+
     } else {
         auto main_blocks = storage_scheme.forward_solve_;
         const auto num_blocks = storage_scheme.num_blocks_;

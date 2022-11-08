@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
 // #include <ginkgo/core/solver/cg.hpp>
+#include <ginkgo/core/preconditioner/jacobi.hpp>
 #include <ginkgo/core/solver/gmres.hpp>
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/triangular.hpp>
@@ -101,7 +102,7 @@ protected:
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
     using Ir = gko::solver::Ir<value_type>;
-    using CG = gko::solver::Cg<value_type>;
+    // using CG = gko::solver::Cg<value_type>;
     using Iter = gko::stop::Iteration;
     using ResNorm = gko::stop::ResidualNorm<value_type>;
     using Csr = gko::matrix::Csr<value_type, index_type>;
@@ -1370,7 +1371,7 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding2)
 
 TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
 {
-    using CG = typename TestFixture::CG;
+    // using CG = typename TestFixture::CG;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
     using ValueType = typename TestFixture::value_type;
@@ -1434,8 +1435,11 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
     auto exec = this->exec;
-    auto omega = gko::initialize<Vec>(ValueType{1.5}, exec);
-    auto mtx = Csr::create(exec, gko::dim<2>{16}, 68);
+    auto omega_val = 1.5;
+    auto omega =
+        gko::initialize<gko::matrix::Dense<gko::remove_complex<ValueType>>>(
+            {omega_val}, exec);
+    auto mtx = gko::share(Csr::create(exec, gko::dim<2>{16}, 68));
     this->template init_array<IndexType>(
         mtx->get_row_ptrs(),
         {0, 5, 10, 15, 20, 24, 28, 32, 37, 42, 46, 50, 54, 57, 61, 65, 68});
@@ -1458,40 +1462,81 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 12, 16}));
 
     auto expected_l_diag_vals = Vec::create(exec, gko::dim<2>{34, 1});
-    this->template init_array<ValueType>(
-        expected_l_diag_vals->get_values(),
-        {1. / omega, 1. / 11.,   1. / omega, 1. / 12.,   1. / 12.,   1. / omega,
-         1. / 13.,   1. / 13.,   1. / 13.,   1. / omega, 1. / omega, 2. / 15.,
-         1. / omega, 2. / 16.,   1. / omega, 2. / 17.,   2. / 17.,   2. / 17.,
-         1. / omega, 1. / omega, 3. / 19.,   1. / omega, 3. / 20.,   1. / omega,
-         3. / 21.,   3. / 21.,   1. / omega, 1. / omega, 1. / omega, 4. / 24.,
-         4. / 24.,   1. / omega, 4. / 25.,   1.});
-    expected_l_diag_vals->scale(lend(omega));
+    this->template init_array<ValueType>(expected_l_diag_vals->get_values(),
+                                         {1. / omega_val, 1. / 11.,
+                                          1. / omega_val, 1. / 12.,
+                                          1. / 12.,       1. / omega_val,
+                                          1. / 13.,       1. / 13.,
+                                          1. / 13.,       1. / omega_val,
+                                          1. / omega_val, 2. / 15.,
+                                          1. / omega_val, 2. / 16.,
+                                          1. / omega_val, 2. / 17.,
+                                          2. / 17.,       2. / 17.,
+                                          1. / omega_val, 1. / omega_val,
+                                          3. / 19.,       1. / omega_val,
+                                          3. / 20.,       1. / omega_val,
+                                          3. / 21.,       3. / 21.,
+                                          1. / omega_val, 1. / omega_val,
+                                          1. / omega_val, 4. / 24.,
+                                          4. / 24.,       1. / omega_val,
+                                          4. / 25.,       1.});
+    expected_l_diag_vals->scale(gko::lend(omega));
 
     auto expected_u_diag_vals = Vec::create(exec, gko::dim<2>{34, 1});
-    this->template init_array<ValueType>(
-        expected_u_diag_vals->get_values(),
-        {10. / omega, 1., 1.,          1., 11. / omega,
-         1.,          1., 12. / omega, 1., 13. / omega,
-         14. / omega, 2., 2.,          2., 15. / omega,
-         0.,          2., 16. / omega, 2., 17. / omega,
-         18. / omega, 3., 0.,          3., 19. / omega,
-         3.,          0., 20. / omega, 3., 21. / omega,
-         22. / omega, 0., 4.,          0., 23. / omega,
-         4.,          4., 24. / omega, 0., 25. / omega});
-    expected_u_diag_vals->scale(lend(omega));
+    this->template init_array<ValueType>(expected_u_diag_vals->get_values(),
+                                         {10. / omega_val,
+                                          1.,
+                                          1.,
+                                          1.,
+                                          11. / omega_val,
+                                          1.,
+                                          1.,
+                                          12. / omega_val,
+                                          1.,
+                                          13. / omega_val,
+                                          14. / omega_val,
+                                          2.,
+                                          2.,
+                                          2.,
+                                          15. / omega_val,
+                                          0.,
+                                          2.,
+                                          16. / omega_val,
+                                          2.,
+                                          17. / omega_val,
+                                          18. / omega_val,
+                                          3.,
+                                          0.,
+                                          3.,
+                                          19. / omega_val,
+                                          3.,
+                                          0.,
+                                          20. / omega_val,
+                                          3.,
+                                          21. / omega_val,
+                                          22. / omega_val,
+                                          0.,
+                                          4.,
+                                          0.,
+                                          23. / omega_val,
+                                          4.,
+                                          4.,
+                                          24. / omega_val,
+                                          0.,
+                                          25. / omega_val});
+    expected_u_diag_vals->scale(gko::lend(omega));
 
     auto expected_l_spmv_vals = Vec::create(exec, gko::dim<2>{8, 1});
     this->template init_array<ValueType>(
         expected_l_spmv_vals->get_values(),
         {1. / 18., 1. / 19., 1. / 20., 1. / 21., 1. / 22., 1. / 23., 1. / 24.,
          1. / 25.});
-    expected_l_spmv_vals->scale(lend(omega));
+    expected_l_spmv_vals->scale(gko::lend(omega));
 
     auto expected_u_spmv_vals = Vec::create(exec, gko::dim<2>{8, 1});
     this->template init_array<ValueType>(expected_u_spmv_vals->get_values(),
                                          {1., 1., 1., 1., 1., 1., 1., 1.});
-    expected_u_spmv_vals->scale(lend(omega));
+    expected_u_spmv_vals->scale(gko::lend(omega));
 
     IndexType max_color = 2;
     IndexType base_block_size = 4;
@@ -1579,8 +1624,10 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                         r<ValueType>::value);
     GKO_ASSERT_MTX_NEAR(expected_u_diag_vals, u_diag_vals_vec_,
                         r<ValueType>::value);
-    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_vals, l_spmv_vals_vec_);
-    GKO_ASSERT_ARRAY_EQ(expected_u_spmv_vals, u_spmv_vals_vec_);
+    GKO_ASSERT_MTX_NEAR(expected_l_spmv_vals, l_spmv_vals_vec_,
+                        r<ValueType>::value);
+    GKO_ASSERT_MTX_NEAR(expected_u_spmv_vals, u_spmv_vals_vec_,
+                        r<ValueType>::value);
 }
 
 }  // namespace
