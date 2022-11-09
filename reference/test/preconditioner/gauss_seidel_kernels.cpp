@@ -1463,90 +1463,73 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
 
     auto expected_l_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
     this->template init_array<ValueType>(expected_l_diag_vals->get_values(),
-                                         {1. / omega_val,
-                                          1. / 11.,
-                                          1. / omega_val,
-                                          1. / 12.,
-                                          1. / 12.,
-                                          1. / omega_val,
-                                          1. / 13.,
-                                          1. / 13.,
-                                          1. / 13.,
-                                          1. / omega_val,
-                                          1. / omega_val,
-                                          2. / 15.,
-                                          1. / omega_val,
-                                          2. / 16.,
-                                          0.,
-                                          1. / omega_val,
-                                          2. / 17.,
-                                          2. / 17.,
-                                          2. / 17.,
-                                          1. / omega_val,
-                                          1. / omega_val,
-                                          3. / 19.,
-                                          1. / omega_val,
-                                          0.,
-                                          3. / 20.,
-                                          1. / omega_val,
-                                          3. / 21.,
-                                          0.,
-                                          3. / 21.,
-                                          1. / omega_val,
-                                          1. / omega_val,
-                                          0.,
-                                          1. / omega_val,
-                                          4. / 24.,
-                                          4. / 24.,
-                                          1. / omega_val,
-                                          0.,
-                                          4. / 25.,
-                                          0.,
-                                          1. / omega_val});
+                                         {
+                                             // clang-format off
+                                        1. / omega_val,
+                                        1. / 11., 1. / omega_val,
+                                        1. / 12., 1. / 12., 1. / omega_val,
+                                        1. / 13., 1. / 13., 1. / 13., 1. / omega_val,
+                                        1. / omega_val,
+                                        2. / 15., 1. / omega_val,
+                                        2. / 16., 0., 1. / omega_val,
+                                        2. / 17., 2. / 17., 2. / 17., 1. / omega_val,
+                                        1. / omega_val,
+                                        3. / 19., 1. / omega_val,
+                                        0., 3. / 20., 1. / omega_val,
+                                        3. / 21., 0., 3. / 21., 1. / omega_val,
+                                        1. / omega_val,
+                                        0., 1. / omega_val,
+                                        4. / 24., 4. / 24., 1. / omega_val,
+                                        0., 4. / 25., 0., 1. / omega_val
+                                             // clang-format on
+                                         }
+
+    );
     expected_l_diag_vals->scale(gko::lend(omega));
+    gko::array<IndexType> expected_u_diag_rows(
+        exec, I<IndexType>({
+                  // clang-format off
+                                        3,
+                                        2, 2,
+                                        1, 1, 1, 
+                                        0, 0, 0, 0,
+                                        7, 
+                                        6, 6, 
+                                        -1, 5, 5, 
+                                        4, 4, 4, 4,
+                                        11, 
+                                        10, 10, 
+                                        9, -1, 9,
+                                        8, -1, 8, 8,
+                                        15,
+                                        -1, 14, 
+                                        13, 13, 13, 
+                                        -1, 12, -1, 12
+                  // clang-format on
+              }));
 
     auto expected_u_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
     this->template init_array<ValueType>(expected_u_diag_vals->get_values(),
-                                         {10. / omega_val,
-                                          1.,
-                                          1.,
-                                          1.,
-                                          11. / omega_val,
-                                          1.,
-                                          1.,
-                                          12. / omega_val,
-                                          1.,
-                                          13. / omega_val,
-                                          14. / omega_val,
-                                          2.,
-                                          2.,
-                                          2.,
-                                          15. / omega_val,
-                                          0.,
-                                          2.,
-                                          16. / omega_val,
-                                          2.,
-                                          17. / omega_val,
-                                          18. / omega_val,
-                                          3.,
-                                          0.,
-                                          3.,
-                                          19. / omega_val,
-                                          3.,
-                                          0.,
-                                          20. / omega_val,
-                                          3.,
+                                         {
+                                             // clang-format off
+                                        13. / omega_val,
+                                        1., 12. / omega_val,
+                                        1., 1., 11. / omega_val,
+                                        1., 1., 1., 10. / omega_val,
+                                        17. / omega_val,
+                                          2., 16. / omega_val,
+                                          0., 2., 15. / omega_val,
+                                          2., 2., 2., 14. / omega_val,
                                           21. / omega_val,
-                                          22. / omega_val,
-                                          0.,
-                                          4.,
-                                          0.,
-                                          23. / omega_val,
-                                          4.,
-                                          4.,
-                                          24. / omega_val,
-                                          0.,
-                                          25. / omega_val});
+                                          3., 20. / omega_val,
+                                          3., 0., 19. / omega_val,
+                                          3., 0., 3., 18. / omega_val,
+                                          25. / omega_val,
+                                          0., 24. / omega_val,
+                                          4., 4., 23. / omega_val,
+                                          0., 4., 0., 22. / omega_val
+                                          // clang-format off
+                                          });
     expected_u_diag_vals->scale(gko::lend(omega));
 
     auto expected_l_spmv_vals = Vec::create(exec, gko::dim<2>{8, 1});
@@ -1555,11 +1538,15 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
         {1. / 18., 1. / 19., 1. / 20., 1. / 21., 1. / 22., 1. / 23., 1. / 24.,
          1. / 25.});
     expected_l_spmv_vals->scale(gko::lend(omega));
+    gko::array<IndexType> expected_l_spmv_row_ptrs(
+        exec, I<IndexType>({0, 1, 2, 3, 4, 0, 1, 2, 3, 4}));
 
     auto expected_u_spmv_vals = Vec::create(exec, gko::dim<2>{8, 1});
     this->template init_array<ValueType>(expected_u_spmv_vals->get_values(),
                                          {1., 1., 1., 1., 1., 1., 1., 1.});
     expected_u_spmv_vals->scale(gko::lend(omega));
+    gko::array<IndexType> expected_u_spmv_row_ptrs(
+        exec, I<IndexType>({0, 1, 2, 3, 4, 4, 5, 6, 7, 0, 1, 1, 1, 1}));
 
     IndexType max_color = 2;
     IndexType base_block_size = 4;
@@ -1651,10 +1638,13 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                         r<ValueType>::value);
     GKO_ASSERT_MTX_NEAR(expected_u_diag_vals, u_diag_vals_vec_,
                         r<ValueType>::value);
+    GKO_ASSERT_ARRAY_EQ(expected_u_diag_rows, u_diag_rows_);
     GKO_ASSERT_MTX_NEAR(expected_l_spmv_vals, l_spmv_vals_vec_,
                         r<ValueType>::value);
     GKO_ASSERT_MTX_NEAR(expected_u_spmv_vals, u_spmv_vals_vec_,
                         r<ValueType>::value);
+    GKO_ASSERT_ARRAY_EQ(expected_l_spmv_row_ptrs, l_spmv_row_ptrs_);
+    GKO_ASSERT_ARRAY_EQ(expected_u_spmv_row_ptrs, u_spmv_row_ptrs_);
 }
 
 }  // namespace

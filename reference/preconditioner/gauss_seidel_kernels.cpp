@@ -106,8 +106,12 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
             if (col_offs > 0 |
                 col_offs > static_cast<int>((b_s - row_id_block - 1) % b_s))
                 return -1;
+            const auto row_id = row_id_block % b_s;
+            const auto curr_offs =
+                (col_offs == 0) ? 0 : (b_s - row_id + col_offs);
             return base_offset + (row_id_block / b_s) * nz_per_block +
-                   diag_upper(b_s, row_id_block % b_s) - col_offs;
+                   precomputed_diag(b_s - row_id - 1) - curr_offs;
+            //    diag_upper(b_s, row_id_block % b_s) - col_offs;
         }
     } else {  // case lvl_1_block
         const auto lvl_2_block_size =
@@ -124,19 +128,27 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                    precomputed_diag(row_id_block / lvl_2_block_size_setup) *
                        lvl_2_block_size +
                    row_id_block % lvl_2_block_size_setup -
-                   (col_offs / lvl_2_block_size_setup) *
-                       lvl_2_block_size;  //* lvl_2_block_size;
+                   (col_offs / lvl_2_block_size_setup) * lvl_2_block_size;
         } else {
             if (col_offs > 0 |
                 col_offs <
                     -1 * static_cast<int>(lvl_2_block_size_setup * (b_s - 1)))
                 return -1;
+            const auto row_id = row_id_block / lvl_2_block_size_setup;
+            const auto curr_offs =
+                (col_offs == 0)
+                    ? 0
+                    : (b_s - (row_id) + (col_offs / lvl_2_block_size_setup));
+
             return base_offset +
-                   diag_upper(b_s, row_id_block / lvl_2_block_size_setup) *
-                       lvl_2_block_size +
+                   precomputed_diag(b_s - row_id - 1) * lvl_2_block_size +
                    row_id_block % lvl_2_block_size_setup -
-                   (col_offs / lvl_2_block_size_setup) *
-                       lvl_2_block_size;  //* lvl_2_block_size;
+                   curr_offs * lvl_2_block_size;
+            //    diag_upper(b_s, row_id_block / lvl_2_block_size_setup) *
+            //        lvl_2_block_size +
+            //    row_id_block % lvl_2_block_size_setup -
+            //    (col_offs / lvl_2_block_size_setup) *
+            //        lvl_2_block_size;
         }
     }
 }
