@@ -98,13 +98,14 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     const auto col_offs = row - col;
     if (p_block->residual_ && block_id == p_block->degree_of_parallelism_ -
                                               1) {  // case base_block_agg
-        if (col_offs > row_id_block % b_s) return -1;
         if (lower) {
-            if (col_offs < 0) return -1;
+            if (col_offs<0 | col_offs> row_id_block % b_s) return -1;
             return base_offset + (row_id_block / b_s) * nz_per_block +
                    precomputed_diag(row_id_block % b_s) - col_offs;
         } else {  // upper
-            if (col_offs > 0) return -1;
+            if (col_offs > 0 |
+                col_offs > static_cast<int>((b_s - row_id_block - 1) % b_s))
+                return -1;
             return base_offset + (row_id_block / b_s) * nz_per_block +
                    diag_upper(b_s, row_id_block % b_s) - col_offs;
         }
@@ -115,7 +116,7 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
         const auto lvl_2_block_size_setup =
             static_cast<preconditioner::lvl_1_block*>(curr_block)
                 ->lvl_2_block_size_setup_;
-        if (col_offs % lvl_2_block_size_setup != 0) return -1;
+        if (std::abs(col_offs) % lvl_2_block_size_setup != 0) return -1;
         if (lower) {
             if (col_offs<0 | col_offs> lvl_2_block_size_setup * (b_s - 1))
                 return -1;
@@ -127,7 +128,8 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                        lvl_2_block_size;  //* lvl_2_block_size;
         } else {
             if (col_offs > 0 |
-                col_offs < -1 * lvl_2_block_size_setup * (b_s - 1))
+                col_offs <
+                    -1 * static_cast<int>(lvl_2_block_size_setup * (b_s - 1)))
                 return -1;
             return base_offset +
                    diag_upper(b_s, row_id_block / lvl_2_block_size_setup) *
@@ -792,9 +794,9 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
     const auto mtx_row_ptrs = system_matrix->get_const_row_ptrs();
     const auto mtx_col_idxs = system_matrix->get_const_col_idxs();
     const auto mtx_vals = system_matrix->get_const_values();
+    const auto num_nodes = system_matrix->get_size()[0];
     if (storage_scheme.symm_) {
-        // GKO_NOT_IMPLEMENTED;
-        ValueType omega = 1.5;
+        gko::remove_complex<ValueType> omega = 1.5;
         auto forward_solve = storage_scheme.forward_solve_;
         auto backward_solve = storage_scheme.backward_solve_;
         const auto num_blocks = storage_scheme.num_blocks_;
@@ -818,17 +820,24 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
             if (i <= num_blocks - 3) {
                 u_spmv = static_cast<preconditioner::spmv_block*>(
                     backward_solve[num_blocks - i - 2].get());
+                if (i == 0) {
+                    u_spmv->update(0, 0, 0, u_diag->end_row_global_,
+                                   u_diag->end_row_global_, num_nodes);
+                }
                 u_spmv_row_ptrs[u_spmv->row_ptrs_storage_id_] = 0;
             }
-
+            auto nnz_l_spmv = 0;
+            auto nnz_u_spmv = 0;
+            auto curr_id_l_spmv_row = -2;
+            auto curr_id_l_spmv_val_col = -1;
+            auto curr_id_u_spmv_row = -2;
+            auto curr_id_u_spmv_val_col = -1;
+            const auto rows_in_curr_block =
+                l_diag->end_row_global_ - l_diag->start_row_global_;
             for (auto row = l_diag->start_row_global_;
                  row < l_diag->end_row_global_; ++row) {
                 const auto id_of_row_in_block = row - l_diag->start_row_global_;
                 ValueType diag_value = 1;
-                auto curr_id_l_spmv_row = 0;
-                auto curr_id_l_spmv_val_col = 0;
-                auto curr_id_u_spmv_row = 0;
-                auto curr_id_u_spmv_val_col = 0;
                 if (l_spmv) {
                     curr_id_l_spmv_row =
                         l_spmv->row_ptrs_storage_id_ + id_of_row_in_block;
@@ -893,16 +902,12 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                 auto nnz_in_l_spmv_row = 0;
                 auto nnz_in_u_spmv_row = 0;
                 auto tmp_k = 0;
-                for (auto k = 0; k < nnz_in_row; k++) {
-                    // TODO
-                    if (l_spmv &&
-                        tmp_perm.get_const_data()[k] <
-                            l_diag->start_row_global_) {  // can be made into a
-                                                          // a series of loops.
-                                                          // Values are sorted
-                                                          // -> first l_spmv,
-                                                          // then l_diag, u_diag
-                                                          // and u_spmv
+
+                auto k = 0;
+                if (l_spmv)
+                    for (; k < nnz_in_row && tmp_perm.get_const_data()[k] <
+                                                 l_diag->start_row_global_;
+                         ++k) {
                         l_spmv_vals[curr_id_l_spmv_val_col + k] =
                             tmp_mtx_vals.get_const_data()[k] / diag_value *
                             omega;
@@ -911,86 +916,84 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                         l_spmv_col_idxs[curr_id_l_spmv_val_col + k] =
                             tmp_perm.get_const_data()[k];
                         nnz_in_l_spmv_row++;
-
-                    } else if (tmp_perm.get_const_data()[k] >=
-                                   l_diag->start_row_global_ &&
-                               tmp_perm.get_const_data()[k] <= row) {
-                        auto id = get_id_for_storage(
-                            l_diag, row, tmp_perm.get_const_data()[k], true);
-                        if (id >= 0) {
-                            l_diag_rows[id] = row;
-                            l_diag_vals[id] =
-                                (tmp_perm.get_const_data()[k] != row)
-                                    ? tmp_mtx_vals.get_const_data()[k] /
-                                          diag_value * omega
-                                    : 1.;
-                            l_diag_mtx_col_idxs[id] =
-                                tmp_mtx_col_idxs.get_const_data()[k];
-                        }
-                    } else if (tmp_perm.get_const_data()[k] >= row &&
-                               tmp_perm.get_const_data()[k] <
-                                   u_diag->end_row_global_) {
-                        auto id = get_id_for_storage(  // TODO
-                            u_diag, row, tmp_perm.get_const_data()[k], false);
-                        if (id >= 0) {
-                            u_diag_rows[id] = row;
-                            u_diag_vals[id] =
-                                (tmp_perm.get_const_data()[k] != row)
-                                    ? tmp_mtx_vals.get_const_data()[k] * omega
-                                    : tmp_mtx_vals.get_const_data()[k];
-                            u_diag_mtx_col_idxs[id] =
-                                tmp_mtx_col_idxs.get_const_data()[k];
-                        }
-                        tmp_k = k;
-                    } else if (u_spmv && tmp_perm.get_const_data()[k] >=
-                                             u_diag->end_row_global_) {
+                    }
+                for (; k < nnz_in_row && tmp_perm.get_const_data()[k] <= row;
+                     ++k) {
+                    auto id = get_id_for_storage(
+                        l_diag, row, tmp_perm.get_const_data()[k], true);
+                    if (id >= 0) {
+                        l_diag_rows[id] = row;
+                        l_diag_vals[id] =
+                            (tmp_perm.get_const_data()[k] != row)
+                                ? tmp_mtx_vals.get_const_data()[k] /
+                                      diag_value * omega
+                                : 1.;
+                        l_diag_mtx_col_idxs[id] =
+                            tmp_mtx_col_idxs.get_const_data()[k];
+                    }
+                }
+                for (k = k - 1; k < nnz_in_row && tmp_perm.get_const_data()[k] <
+                                                      u_diag->end_row_global_;
+                     ++k) {
+                    auto id = get_id_for_storage(  // TODO
+                        u_diag, row, tmp_perm.get_const_data()[k], false);
+                    if (id >= 0) {
+                        u_diag_rows[id] = row;
+                        u_diag_vals[id] =
+                            (tmp_perm.get_const_data()[k] != row)
+                                ? tmp_mtx_vals.get_const_data()[k] * omega
+                                : tmp_mtx_vals.get_const_data()[k];
+                        u_diag_mtx_col_idxs[id] =
+                            tmp_mtx_col_idxs.get_const_data()[k];
+                    }
+                }
+                tmp_k = k;
+                if (u_spmv)
+                    for (; k < nnz_in_row; ++k) {
                         const auto local_k = k - tmp_k;
                         u_spmv_vals[curr_id_u_spmv_val_col + local_k] =
-                            tmp_mtx_vals.get_const_data()[local_k] * omega;
+                            tmp_mtx_vals.get_const_data()[k] * omega;
                         u_spmv_mtx_col_idxs[curr_id_u_spmv_val_col + local_k] =
-                            tmp_mtx_col_idxs.get_const_data()[local_k];
+                            tmp_mtx_col_idxs.get_const_data()[k];
                         u_spmv_col_idxs[curr_id_u_spmv_val_col + local_k] =
-                            tmp_perm.get_const_data()[local_k];
+                            tmp_perm.get_const_data()[k];
                         nnz_in_u_spmv_row++;
                     }
-                    if (l_spmv) {
-                        l_spmv_row_ptrs[curr_id_l_spmv_row + 1] =
-                            l_spmv_row_ptrs[curr_id_l_spmv_row] +
-                            nnz_in_l_spmv_row;
-                        storage_scheme.update_nnz(nnz_in_l_spmv_row);
-                    }
-                    if (u_spmv) {
-                        u_spmv_row_ptrs[curr_id_u_spmv_row + 1] =
-                            u_spmv_row_ptrs[curr_id_u_spmv_row] +
-                            nnz_in_u_spmv_row;
-                        storage_scheme.update_nnz(nnz_in_u_spmv_row);
-                    }
-                    // setup of next spmv blocks
-                    if (i + 2 < num_blocks) {
-                        auto next_p_block =
-                            static_cast<preconditioner::parallel_block*>(
-                                forward_solve[i + 2].get());
-                        auto next_l_spmv =
-                            static_cast<preconditioner::spmv_block*>(
-                                forward_solve[i + 1].get());
-                        next_l_spmv->update(
-                            curr_id_l_spmv_row + 2,
-                            curr_id_l_spmv_val_col + nnz_in_l_spmv_row,
-                            l_spmv->end_row_global_,
-                            next_p_block->end_row_global_, 0,
-                            next_p_block->start_row_global_);
-                        if (i + 4 < num_blocks) {
-                            auto next_u_spmv =
-                                static_cast<preconditioner::spmv_block*>(
-                                    backward_solve[num_blocks - i - 4].get());
-                            next_u_spmv->update(
-                                curr_id_u_spmv_row + 2,
-                                curr_id_u_spmv_val_col + nnz_in_u_spmv_row,
-                                u_spmv->end_row_global_,
-                                next_p_block->end_row_global_, 0,
-                                next_p_block->start_row_global_);
-                        }
-                    }
+
+                if (l_spmv) {
+                    l_spmv_row_ptrs[curr_id_l_spmv_row + 1] =
+                        l_spmv_row_ptrs[curr_id_l_spmv_row] + nnz_in_l_spmv_row;
+                    storage_scheme.update_nnz(nnz_in_l_spmv_row);
+                    nnz_l_spmv += nnz_in_l_spmv_row;
+                }
+                if (u_spmv) {
+                    u_spmv_row_ptrs[curr_id_u_spmv_row + 1] =
+                        u_spmv_row_ptrs[curr_id_u_spmv_row] + nnz_in_u_spmv_row;
+                    storage_scheme.update_nnz(nnz_in_u_spmv_row);
+                    nnz_u_spmv += nnz_in_u_spmv_row;
+                }
+            }
+            // setup of next spmv blocks
+            if (i + 2 < num_blocks) {
+                auto next_p_block =
+                    static_cast<preconditioner::parallel_block*>(
+                        forward_solve[i + 2].get());
+                auto next_l_spmv = static_cast<preconditioner::spmv_block*>(
+                    forward_solve[i + 1].get());
+                GKO_ASSERT(next_p_block && next_l_spmv);
+                next_l_spmv->update(curr_id_l_spmv_row + 2,
+                                    curr_id_l_spmv_val_col + 1,
+                                    next_p_block->start_row_global_,
+                                    next_p_block->end_row_global_, 0,
+                                    next_p_block->start_row_global_);
+                if (i + 4 < num_blocks) {
+                    auto next_u_spmv = static_cast<preconditioner::spmv_block*>(
+                        backward_solve[num_blocks - i - 4].get());
+                    next_u_spmv->update(
+                        curr_id_u_spmv_row + 2, curr_id_u_spmv_val_col + 1,
+                        next_p_block->start_row_global_,
+                        next_p_block->end_row_global_,
+                        next_p_block->end_row_global_, num_nodes);
                 }
             }
         }
@@ -1267,20 +1270,20 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
             full_lvl_1_blocks_in_curr_color + base_block_residual,
             base_block_size, lvl_2_block_size,
             static_cast<bool>(base_block_residual));
-        parallel_block curr_u_p_block{};
-        if (backward_solve) {
-            auto u_p_block_storage_offset = get_curr_storage_offset(
-                next_color_offset, base_block_size, num_nodes);
-            if (use_padding) {
-                GKO_NOT_IMPLEMENTED;
-                //   u_p_block_storage_offset = ;
-            }
-            auto curr_u_p_block = parallel_block(
-                u_p_block_storage_offset, curr_color_offset, next_color_offset,
-                full_lvl_1_blocks_in_curr_color + base_block_residual,
-                base_block_size, lvl_2_block_size,
-                static_cast<bool>(base_block_residual));
-        }
+        // parallel_block curr_u_p_block{};
+        // if (backward_solve) {
+        //     auto u_p_block_storage_offset = get_curr_storage_offset(
+        //         next_color_offset, base_block_size, num_nodes);
+        //     if (use_padding) {
+        //         GKO_NOT_IMPLEMENTED;
+        //         //   u_p_block_storage_offset = ;
+        //     }
+        //     auto curr_u_p_block = parallel_block(
+        //         u_p_block_storage_offset, curr_color_offset,
+        //         next_color_offset, full_lvl_1_blocks_in_curr_color +
+        //         base_block_residual, base_block_size, lvl_2_block_size,
+        //         static_cast<bool>(base_block_residual));
+        // }
 
         for (auto curr_lvl_1_block_id = 0;
              curr_lvl_1_block_id < full_lvl_1_blocks_in_curr_color;
@@ -1319,22 +1322,22 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                                     curr_lvl_1_block_size,
                                 base_block_size, lvl_2_block_size,
                                 curr_lvl_2_block_size, curr_lvl_1_block_size)));
-            if (backward_solve) {
-                const auto u_lvl1_block_storage_offset =
-                    get_curr_storage_offset(curr_color_offset +
-                                                curr_lvl_1_block_offset +
-                                                curr_lvl_1_block_size,
-                                            base_block_size, num_nodes);
+            // if (backward_solve) {
+            //     const auto u_lvl1_block_storage_offset =
+            //         get_curr_storage_offset(curr_color_offset +
+            //                                     curr_lvl_1_block_offset +
+            //                                     curr_lvl_1_block_size,
+            //                                 base_block_size, num_nodes);
 
-                curr_u_p_block.parallel_blocks_.emplace_back(
-                    std::make_shared<lvl_1_block>(lvl_1_block(
-                        u_lvl1_block_storage_offset,
-                        curr_color_offset + curr_lvl_1_block_offset,
-                        curr_color_offset + curr_lvl_1_block_offset +
-                            curr_lvl_1_block_size,
-                        base_block_size, lvl_2_block_size,
-                        curr_lvl_2_block_size, curr_lvl_1_block_size)));
-            }
+            //     curr_u_p_block.parallel_blocks_.emplace_back(
+            //         std::make_shared<lvl_1_block>(lvl_1_block(
+            //             u_lvl1_block_storage_offset,
+            //             curr_color_offset + curr_lvl_1_block_offset,
+            //             curr_color_offset + curr_lvl_1_block_offset +
+            //                 curr_lvl_1_block_size,
+            //             base_block_size, lvl_2_block_size,
+            //             curr_lvl_2_block_size, curr_lvl_1_block_size)));
+            // }
             auto lvl_1_reordering = new_lvl_1_block_ordering.get_data();
             for (auto curr_node_base_lvl_block = 0;
                  curr_node_base_lvl_block < base_block_size;
@@ -1377,18 +1380,20 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                                             base_block_size),
                     residual_start_row_global, residual_end_row_global,
                     num_residual_blocks, base_block_size)));
-            if (backward_solve) {
-                curr_u_p_block.parallel_blocks_.emplace_back(
-                    std::make_shared<base_block_aggregation>(
-                        base_block_aggregation(
-                            get_curr_storage_offset(residual_end_row_global,
-                                                    base_block_size, num_nodes),
-                            residual_start_row_global, residual_end_row_global,
-                            num_residual_blocks, base_block_size)));
-            }
+            // if (backward_solve) {
+            //     curr_u_p_block.parallel_blocks_.emplace_back(
+            //         std::make_shared<base_block_aggregation>(
+            //             base_block_aggregation(
+            //                 get_curr_storage_offset(residual_end_row_global,
+            //                                         base_block_size,
+            //                                         num_nodes),
+            //                 residual_start_row_global,
+            //                 residual_end_row_global, num_residual_blocks,
+            //                 base_block_size)));
+            // }
         }
-        storage_scheme.forward_solve_.emplace_back(
-            std::make_shared<parallel_block>(curr_l_p_block));
+        auto p_block_ptr = std::make_shared<parallel_block>(curr_l_p_block);
+        storage_scheme.forward_solve_.emplace_back(p_block_ptr);
         if (color < max_color) {
             storage_scheme.forward_solve_.emplace_back(
                 std::make_shared<spmv_block>(
@@ -1397,13 +1402,12 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
         if (backward_solve) {
             storage_scheme.backward_solve_.emplace(
                 storage_scheme.backward_solve_.begin(),
-                std::make_shared<parallel_block>(curr_u_p_block));
+                p_block_ptr);  // std::make_shared<parallel_block>(curr_l_p_block));
             if (color < max_color) {
                 storage_scheme.backward_solve_.emplace(
                     storage_scheme.backward_solve_.begin(),
-                    std::make_shared<spmv_block>(
-                        spmv_block(0, 0, curr_color_offset, next_color_offset,
-                                   next_color_offset, num_nodes)));
+                    std::make_shared<spmv_block>(spmv_block(
+                        curr_color_offset, next_color_offset, num_nodes)));
             }
         }
     }
