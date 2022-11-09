@@ -1458,31 +1458,54 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
 
     gko::array<IndexType> perm(exec, mtx->get_size()[0]);
     std::iota(perm.get_data(), perm.get_data() + perm.get_num_elems(), 0);
-    gko::array<IndexType> inv_perm(exec, perm.get_num_elems());
+    gko::array<IndexType> inv_perm(perm);  //(exec, perm.get_num_elems());
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 12, 16}));
 
-    auto expected_l_diag_vals = Vec::create(exec, gko::dim<2>{34, 1});
+    auto expected_l_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
     this->template init_array<ValueType>(expected_l_diag_vals->get_values(),
-                                         {1. / omega_val, 1. / 11.,
-                                          1. / omega_val, 1. / 12.,
-                                          1. / 12.,       1. / omega_val,
-                                          1. / 13.,       1. / 13.,
-                                          1. / 13.,       1. / omega_val,
-                                          1. / omega_val, 2. / 15.,
-                                          1. / omega_val, 2. / 16.,
-                                          1. / omega_val, 2. / 17.,
-                                          2. / 17.,       2. / 17.,
-                                          1. / omega_val, 1. / omega_val,
-                                          3. / 19.,       1. / omega_val,
-                                          3. / 20.,       1. / omega_val,
-                                          3. / 21.,       3. / 21.,
-                                          1. / omega_val, 1. / omega_val,
-                                          1. / omega_val, 4. / 24.,
-                                          4. / 24.,       1. / omega_val,
-                                          4. / 25.,       1.});
+                                         {1. / omega_val,
+                                          1. / 11.,
+                                          1. / omega_val,
+                                          1. / 12.,
+                                          1. / 12.,
+                                          1. / omega_val,
+                                          1. / 13.,
+                                          1. / 13.,
+                                          1. / 13.,
+                                          1. / omega_val,
+                                          1. / omega_val,
+                                          2. / 15.,
+                                          1. / omega_val,
+                                          2. / 16.,
+                                          0.,
+                                          1. / omega_val,
+                                          2. / 17.,
+                                          2. / 17.,
+                                          2. / 17.,
+                                          1. / omega_val,
+                                          1. / omega_val,
+                                          3. / 19.,
+                                          1. / omega_val,
+                                          0.,
+                                          3. / 20.,
+                                          1. / omega_val,
+                                          3. / 21.,
+                                          0.,
+                                          3. / 21.,
+                                          1. / omega_val,
+                                          1. / omega_val,
+                                          0.,
+                                          1. / omega_val,
+                                          4. / 24.,
+                                          4. / 24.,
+                                          1. / omega_val,
+                                          0.,
+                                          4. / 25.,
+                                          0.,
+                                          1. / omega_val});
     expected_l_diag_vals->scale(gko::lend(omega));
 
-    auto expected_u_diag_vals = Vec::create(exec, gko::dim<2>{34, 1});
+    auto expected_u_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
     this->template init_array<ValueType>(expected_u_diag_vals->get_values(),
                                          {10. / omega_val,
                                           1.,
@@ -1553,16 +1576,17 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     GKO_ASSERT_ARRAY_EQ(perm, perm_cpy);
 
     const auto diag_mem_requirement = 40;
-    const auto l_spmv_val_col_mem_requirement = 26;
+    const auto l_spmv_val_col_mem_requirement = 8;  // adjusted down
     const auto l_spmv_row_mem_requirement = 16 - 8 + max_color;
     gko::array<IndexType> l_diag_rows_(exec, diag_mem_requirement);
     gko::array<IndexType> l_diag_mtx_col_idxs_(exec, diag_mem_requirement);
     gko::array<ValueType> l_diag_vals_(exec, diag_mem_requirement);
-    auto l_diag_vals_vec_ =
-        Vec::create(exec, gko::dim<2>{l_diag_vals_.get_num_elems(), 1},
-                    gko::make_array_view(exec, l_diag_vals_.get_num_elems(),
-                                         l_diag_vals_.get_data()),
-                    1);
+    auto l_diag_vals_vec_ = Vec::create(
+        exec, gko::dim<2>{expected_l_diag_vals->get_num_stored_elements(), 1},
+        gko::make_array_view(exec,
+                             expected_l_diag_vals->get_num_stored_elements(),
+                             l_diag_vals_.get_data()),
+        1);
     l_diag_vals_.fill(ValueType{0});
     l_diag_mtx_col_idxs_.fill(IndexType{-1});
     l_diag_rows_.fill(IndexType{-1});
@@ -1572,11 +1596,12 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> l_spmv_mtx_col_idxs_(exec,
                                                l_spmv_val_col_mem_requirement);
     gko::array<ValueType> l_spmv_vals_(exec, l_spmv_val_col_mem_requirement);
-    auto l_spmv_vals_vec_ =
-        Vec::create(exec, gko::dim<2>{l_spmv_vals_.get_num_elems(), 1},
-                    gko::make_array_view(exec, l_spmv_vals_.get_num_elems(),
-                                         l_spmv_vals_.get_data()),
-                    1);
+    auto l_spmv_vals_vec_ = Vec::create(
+        exec, gko::dim<2>{expected_l_spmv_vals->get_num_stored_elements(), 1},
+        gko::make_array_view(exec,
+                             expected_l_spmv_vals->get_num_stored_elements(),
+                             l_spmv_vals_.get_data()),
+        1);
     l_spmv_vals_.fill(ValueType{0});
     l_spmv_mtx_col_idxs_.fill(IndexType{0});
     l_spmv_col_idxs_.fill(IndexType{0});
@@ -1586,11 +1611,12 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> u_diag_rows_(exec, diag_mem_requirement);
     gko::array<IndexType> u_diag_mtx_col_idxs_(exec, diag_mem_requirement);
     gko::array<ValueType> u_diag_vals_(exec, diag_mem_requirement);
-    auto u_diag_vals_vec_ =
-        Vec::create(exec, gko::dim<2>{u_diag_vals_.get_num_elems(), 1},
-                    gko::make_array_view(exec, u_diag_vals_.get_num_elems(),
-                                         u_diag_vals_.get_data()),
-                    1);
+    auto u_diag_vals_vec_ = Vec::create(
+        exec, gko::dim<2>{expected_u_diag_vals->get_num_stored_elements(), 1},
+        gko::make_array_view(exec,
+                             expected_u_diag_vals->get_num_stored_elements(),
+                             u_diag_vals_.get_data()),
+        1);
     u_diag_vals_.fill(ValueType{0});
     u_diag_mtx_col_idxs_.fill(IndexType{-1});
     u_diag_rows_.fill(IndexType{-1});
@@ -1600,11 +1626,12 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     gko::array<IndexType> u_spmv_mtx_col_idxs_(exec,
                                                u_spmv_val_col_mem_requirement);
     gko::array<ValueType> u_spmv_vals_(exec, u_spmv_val_col_mem_requirement);
-    auto u_spmv_vals_vec_ =
-        Vec::create(exec, gko::dim<2>{u_spmv_vals_.get_num_elems(), 1},
-                    gko::make_array_view(exec, u_spmv_vals_.get_num_elems(),
-                                         u_spmv_vals_.get_data()),
-                    1);
+    auto u_spmv_vals_vec_ = Vec::create(
+        exec, gko::dim<2>{expected_u_spmv_vals->get_num_stored_elements(), 1},
+        gko::make_array_view(exec,
+                             expected_u_spmv_vals->get_num_stored_elements(),
+                             u_spmv_vals_.get_data()),
+        1);
     u_spmv_vals_.fill(ValueType{0});
     u_spmv_mtx_col_idxs_.fill(IndexType{0});
     u_spmv_col_idxs_.fill(IndexType{0});
