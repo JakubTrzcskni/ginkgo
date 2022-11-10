@@ -288,7 +288,7 @@ void advanced_apply(
     int kernel_version)
 {
     GKO_ASSERT(storage_scheme.symm_);
-    GKO_ASSERT(kernel_ver == 9);
+    GKO_ASSERT(kernel_version == 9);
     const auto forward_solve = storage_scheme.forward_solve_;
     const auto backward_solve = storage_scheme.backward_solve_;
 

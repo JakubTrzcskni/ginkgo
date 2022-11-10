@@ -107,7 +107,6 @@ void const_adv_apply_hbmc(syn::value_list<int, subwarp_size>,
                           const IndexType* permutation_idxs = nullptr)
 {
     GKO_ASSERT(permutation_idxs || prepermuted);
-    GKO_ASSERT(version >= 2);
     const auto num_rows_p_block =
         p_block->end_row_global_ - p_block->start_row_global_;
     const auto num_rhs = b_perm->get_size()[1];

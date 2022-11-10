@@ -593,11 +593,12 @@ void advanced_apply(
             forward_solve[block].get());
         apply_p_block<true, true>(p_block, l_diag_rows, l_diag_vals, b_perm, x,
                                   permutation_idxs);
-
-        auto spmv_block = static_cast<preconditioner::spmv_block*>(
-            forward_solve[block + 1].get());
-        apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
-                         l_spmv_vals, b_perm, x, permutation_idxs);
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                forward_solve[block + 1].get());
+            apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+                             l_spmv_vals, b_perm, x, permutation_idxs);
+        }
     }
     // backward solve
     for (auto block = 0; block < num_blocks; block += 2) {
@@ -605,11 +606,12 @@ void advanced_apply(
             backward_solve[block].get());
         apply_p_block<true, false>(p_block, u_diag_rows, u_diag_vals, b_perm, x,
                                    permutation_idxs);
-
-        auto spmv_block = static_cast<preconditioner::spmv_block*>(
-            backward_solve[block + 1].get());
-        apply_spmv_block(spmv_block, u_spmv_row_ptrs, u_spmv_col_idxs,
-                         u_spmv_vals, b_perm, x, permutation_idxs);
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                backward_solve[block + 1].get());
+            apply_spmv_block(spmv_block, u_spmv_row_ptrs, u_spmv_col_idxs,
+                             u_spmv_vals, b_perm, x, permutation_idxs);
+        }
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
