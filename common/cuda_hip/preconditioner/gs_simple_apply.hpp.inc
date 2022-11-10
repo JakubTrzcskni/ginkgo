@@ -213,18 +213,6 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
     const auto num_rhs = b->get_size()[1];
     const auto num_rows = b->get_size()[0];
 
-    // auto diag_LUT = gko::array<gko::int32>(exec, max_b_s + 1);
-
-    // exec->copy_from<gko::int32>(exec->get_master().get(),
-    //                             static_cast<gko::size_type>(max_b_s + 1),
-    //                             diag_lut.data(), diag_LUT.get_data());
-    // auto subblock_LUT = gko::array<gko::int32>(exec, max_nz_block + 1);
-
-    // exec->copy_from<gko::int32>(exec->get_master().get(),
-    //                             static_cast<gko::size_type>(max_nz_block +
-    //                             1), sub_block_lut.data(),
-    //                             subblock_LUT.get_data());
-
     auto diag_LUT = gko::array<gko::int32>();
     auto subblock_LUT = gko::array<gko::int32>();
     if (kernel_ver != 9) {

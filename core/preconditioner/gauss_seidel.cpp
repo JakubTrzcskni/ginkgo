@@ -61,6 +61,7 @@ namespace {
 GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(prepermuted_simple_apply,
                        gauss_seidel::prepermuted_simple_apply);
+GKO_REGISTER_OPERATION(advanced_apply, gauss_seidel::advanced_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(get_block_coloring, gauss_seidel::get_block_coloring);
 GKO_REGISTER_OPERATION(assign_to_blocks, gauss_seidel::assign_to_blocks);
@@ -138,6 +139,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         [this, &permuted](auto dense_b, auto dense_x) {
             if (use_HBMC_) {
                 if (prepermuted_input_) {
+                    if (symmetric_preconditioner_) GKO_NOT_IMPLEMENTED;
                     this->get_executor()->run(
                         gauss_seidel::make_prepermuted_simple_apply(
                             l_diag_rows_.get_const_data(),
@@ -150,15 +152,34 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                 } else {
                     auto b_perm =
                         as<Dense>(dense_b->row_permute(&permutation_idxs_));
-                    this->get_executor()->run(gauss_seidel::make_simple_apply(
-                        l_diag_rows_.get_const_data(),
-                        l_diag_vals_.get_const_data(),
-                        l_spmv_row_ptrs_.get_const_data(),
-                        l_spmv_col_idxs_.get_const_data(),
-                        l_spmv_vals_.get_const_data(),
-                        permutation_idxs_.get_const_data(),
-                        hbmc_storage_scheme_, lend(b_perm), dense_x,
-                        kernel_version_));
+                    if (symmetric_preconditioner_) {
+                        this->get_executor()->run(
+                            gauss_seidel::make_advanced_apply(
+                                l_diag_rows_.get_const_data(),
+                                l_diag_vals_.get_const_data(),
+                                l_spmv_row_ptrs_.get_const_data(),
+                                l_spmv_col_idxs_.get_const_data(),
+                                l_spmv_vals_.get_const_data(),
+                                u_diag_rows_.get_const_data(),
+                                u_diag_vals_.get_const_data(),
+                                u_spmv_row_ptrs_.get_const_data(),
+                                u_spmv_col_idxs_.get_const_data(),
+                                u_spmv_vals_.get_const_data(),
+                                permutation_idxs_.get_const_data(),
+                                hbmc_storage_scheme_, relaxation_factor_,
+                                gko::lend(b_perm), dense_x, kernel_version_));
+                    } else {
+                        this->get_executor()->run(
+                            gauss_seidel::make_simple_apply(
+                                l_diag_rows_.get_const_data(),
+                                l_diag_vals_.get_const_data(),
+                                l_spmv_row_ptrs_.get_const_data(),
+                                l_spmv_col_idxs_.get_const_data(),
+                                l_spmv_vals_.get_const_data(),
+                                permutation_idxs_.get_const_data(),
+                                hbmc_storage_scheme_, lend(b_perm), dense_x,
+                                kernel_version_));
+                    }
                 }
             } else if (use_reference_ && !permuted) {
                 lower_trs_->apply(dense_b, dense_x);
@@ -427,22 +448,19 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         lvl2_block_size_);  // TODO a lot of functionality in this
                             // function, split up needed ?
 
-    if (hbmc_storage_scheme_.symm_) GKO_NOT_IMPLEMENTED;
-    ValueType* dummyVal;
-    IndexType* dummyInd;
-
     exec->run(gauss_seidel::make_setup_blocks(
         lend(csr_matrix), permutation_idxs_.get_const_data(),
         inv_permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
         l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
         l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
         l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
-        l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
-        dummyInd, dummyInd, dummyVal));
+        l_spmv_vals_.get_data(), u_diag_rows_.get_data(),
+        u_diag_mtx_col_idxs_.get_data(), u_diag_vals_.get_data(),
+        u_spmv_row_ptrs_.get_data(), u_spmv_col_idxs_.get_data(),
+        u_spmv_mtx_col_idxs_.get_data(), u_spmv_vals_.get_data()));
 
     GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
                hbmc_storage_scheme_.forward_solve_.size());
-
 
     const auto d_exec = this->get_executor();
     l_diag_rows_.set_executor(d_exec);
@@ -452,6 +470,13 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     l_spmv_col_idxs_.set_executor(d_exec);
     l_spmv_mtx_col_idxs_.set_executor(d_exec);
     l_spmv_vals_.set_executor(d_exec);
+    u_diag_rows_.set_executor(d_exec);
+    u_diag_mtx_col_idxs_.set_executor(d_exec);
+    u_diag_vals_.set_executor(d_exec);
+    u_spmv_row_ptrs_.set_executor(d_exec);
+    u_spmv_col_idxs_.set_executor(d_exec);
+    u_spmv_mtx_col_idxs_.set_executor(d_exec);
+    u_spmv_vals_.set_executor(d_exec);
     permutation_idxs_.set_executor(d_exec);
     inv_permutation_idxs_.set_executor(d_exec);
     vertex_colors_.set_executor(d_exec);

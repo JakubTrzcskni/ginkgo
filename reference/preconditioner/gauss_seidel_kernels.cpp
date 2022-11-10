@@ -310,12 +310,12 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
 
 namespace {
-template <typename ValueType, typename IndexType, typename Closure>
-void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
-                   const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                   matrix::Dense<ValueType>* b_perm,
-                   matrix::Dense<ValueType>* x,
-                   const IndexType* permutation_idxs, Closure scale)
+template <bool forward, typename ValueType, typename IndexType,
+          typename Closure>
+void apply_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
+                 const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                 matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
+                 const IndexType* permutation_idxs, Closure scale)
 {
     const auto block_offs = lvl_1_block->val_storage_id_;
     const auto b_s = lvl_1_block->base_block_size_;
@@ -330,11 +330,13 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                 const auto x_row = permutation_idxs[row];
                 GKO_ASSERT(l_diag_vals[block_offs + local_offs] !=
                            ValueType{0});
-                const auto inv_diag_val =
-                    ValueType{1} / l_diag_vals[block_offs + local_offs];
+                const auto val =
+                    forward
+                        ? l_diag_vals[block_offs + local_offs]
+                        : ValueType{1} / l_diag_vals[block_offs + local_offs];
                 for (size_type k = 0; k < x->get_size()[1]; ++k) {
-                    x->at(x_row, k) = scale(inv_diag_val * b_perm->at(row, k),
-                                            x->at(x_row, k));
+                    x->at(x_row, k) =
+                        scale(val * b_perm->at(row, k), x->at(x_row, k));
                 }
             }
         }
@@ -347,7 +349,7 @@ void apply_l_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                 auto write_offs =
                     block_offs + precomputed_diag(i) * w + w + row_offs;
                 for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    auto val = ValueType{0};
+                    // auto val = ValueType{0};
                     for (auto subblock = first_subblock;
                          subblock < next_diag_subblock; ++subblock) {
                         auto final_w_offs =
@@ -406,11 +408,12 @@ inline bool apply_gauss_jordan_transform(IndexType row, IndexType nz_p_b,
 }
 
 
-template <typename ValueType, typename IndexType, typename Closure>
-void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
-                 const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                 matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
-                 const IndexType* permutation_idxs, Closure scale)
+template <bool forward, typename ValueType, typename IndexType,
+          typename Closure>
+void apply_agg(preconditioner::base_block_aggregation* agg_block,
+               const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+               matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
+               const IndexType* permutation_idxs, Closure scale)
 {
     const auto num_blocks = agg_block->num_base_blocks_;
     const auto base_offs = agg_block->val_storage_id_;
@@ -429,10 +432,11 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
             GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
             GKO_ASSERT(l_diag_vals[diag_offs] != ValueType{0});
-            const auto inv_diag_val = ValueType{1} / l_diag_vals[diag_offs];
+            const auto val = forward ? l_diag_vals[diag_offs]
+                                     : ValueType{1} / l_diag_vals[diag_offs];
             for (size_type k = 0; k < x->get_size()[1]; ++k) {
                 x->at(x_row, k) =
-                    scale(inv_diag_val * b_perm->at(row, k), x->at(x_row, k));
+                    scale(val * b_perm->at(row, k), x->at(x_row, k));
             }
             if (i < b_s - 1 && block_id * b_s + i < max_rows - 1) {
                 for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
@@ -457,42 +461,58 @@ void apply_l_agg(preconditioner::base_block_aggregation* agg_block,
         }
     }
 }
-template <typename ValueType, typename IndexType>
-void apply_l_p_block(preconditioner::parallel_block* p_block,
-                     const IndexType* l_diag_rows, const ValueType* l_diag_vals,
-                     matrix::Dense<ValueType>* b_perm,
-                     matrix::Dense<ValueType>* x,
-                     const IndexType* permutation_idxs,
-                     const matrix::Dense<ValueType>* alpha = nullptr,
-                     const matrix::Dense<ValueType>* beta = nullptr)
+template <bool advanced, bool forward, typename ValueType, typename IndexType>
+void apply_p_block(preconditioner::parallel_block* p_block,
+                   const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                   matrix::Dense<ValueType>* b_perm,
+                   matrix::Dense<ValueType>* x,
+                   const IndexType* permutation_idxs)
 {
     auto blocks = p_block->parallel_blocks_;
-    if (alpha && beta) {
-        GKO_NOT_SUPPORTED(alpha);
-    } else {
+    if (forward) {
         for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
             if (i == p_block->degree_of_parallelism_ - 1 &&
                 p_block->residual_) {
-                apply_l_agg(
+                apply_agg<advanced>(
                     static_cast<preconditioner::base_block_aggregation*>(
                         blocks[i].get()),
                     l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
                     [](const ValueType& x, const ValueType& y) { return x; });
             } else {
-                apply_l_lvl_1(
+                apply_lvl_1<advanced>(
                     static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
                     l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
                     [](const ValueType& x, const ValueType& y) { return x; });
             }
         }
+    } else {
+        for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
+            if (i == p_block->degree_of_parallelism_ - 1 &&
+                p_block->residual_) {
+                apply_agg<false>(
+                    static_cast<preconditioner::base_block_aggregation*>(
+                        blocks[i].get()),
+                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
+                    [](const ValueType& x, const ValueType& y) {
+                        return x + y;
+                    });
+            } else {
+                apply_lvl_1<false>(
+                    static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
+                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
+                    [](const ValueType& x, const ValueType& y) {
+                        return x + y;
+                    });
+            }
+        }
     }
 }
 template <typename ValueType, typename IndexType>
-void apply_l_spmv_block(preconditioner::spmv_block* spmv_block,
-                        const IndexType* row_ptrs, const IndexType* col_idxs,
-                        const ValueType* vals, matrix::Dense<ValueType>* b_perm,
-                        const matrix::Dense<ValueType>* x,
-                        const IndexType* perm_idxs)
+void apply_spmv_block(preconditioner::spmv_block* spmv_block,
+                      const IndexType* row_ptrs, const IndexType* col_idxs,
+                      const ValueType* vals, matrix::Dense<ValueType>* b_perm,
+                      const matrix::Dense<ValueType>* x,
+                      const IndexType* perm_idxs)
 {
     const auto row_offs = spmv_block->start_row_global_;
     const size_type num_rows = spmv_block->end_row_global_ - row_offs;
@@ -532,19 +552,19 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
     // first diag block
     auto first_p_block =
         static_cast<preconditioner::parallel_block*>(block_ptrs[0].get());
-    apply_l_p_block(first_p_block, l_diag_rows, l_diag_vals, b_perm, x,
-                    permutation_idxs);
+    apply_p_block<false, true>(first_p_block, l_diag_rows, l_diag_vals, b_perm,
+                               x, permutation_idxs);
     for (auto block = 1; block < num_blocks - 1; block += 2) {
         auto spmv_block =
             static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
-        apply_l_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
-                           l_spmv_vals, b_perm, x, permutation_idxs);
+        apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+                         l_spmv_vals, b_perm, x, permutation_idxs);
 
 
         auto p_block = static_cast<preconditioner::parallel_block*>(
             block_ptrs[block + 1].get());
-        apply_l_p_block(p_block, l_diag_rows, l_diag_vals, b_perm, x,
-                        permutation_idxs);
+        apply_p_block<false, true>(p_block, l_diag_rows, l_diag_vals, b_perm, x,
+                                   permutation_idxs);
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
@@ -561,7 +581,37 @@ void advanced_apply(
     const preconditioner::storage_scheme& storage_scheme,
     const gko::remove_complex<ValueType> omega,
     matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
-    int kernel_version) GKO_NOT_IMPLEMENTED;
+    int kernel_version)
+{
+    GKO_ASSERT(storage_scheme.symm_);
+    const auto forward_solve = storage_scheme.forward_solve_;
+    const auto backward_solve = storage_scheme.backward_solve_;
+    const auto num_blocks = storage_scheme.num_blocks_;
+    // forward solve
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            forward_solve[block].get());
+        apply_p_block<true, true>(p_block, l_diag_rows, l_diag_vals, b_perm, x,
+                                  permutation_idxs);
+
+        auto spmv_block = static_cast<preconditioner::spmv_block*>(
+            forward_solve[block + 1].get());
+        apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+                         l_spmv_vals, b_perm, x, permutation_idxs);
+    }
+    // backward solve
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            backward_solve[block].get());
+        apply_p_block<true, false>(p_block, u_diag_rows, u_diag_vals, b_perm, x,
+                                   permutation_idxs);
+
+        auto spmv_block = static_cast<preconditioner::spmv_block*>(
+            backward_solve[block + 1].get());
+        apply_spmv_block(spmv_block, u_spmv_row_ptrs, u_spmv_col_idxs,
+                         u_spmv_vals, b_perm, x, permutation_idxs);
+    }
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_APPLY_KERNEL);
 

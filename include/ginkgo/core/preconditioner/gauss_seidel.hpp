@@ -382,7 +382,7 @@ private:
     std::vector<index_type> level_ptrs_;
     size_t base_block_size_;
     size_t lvl2_block_size_;
-    double relaxation_factor_;
+    remove_complex<value_type> relaxation_factor_;
     bool symmetric_preconditioner_;
     bool use_reference_;
     bool use_HBMC_;

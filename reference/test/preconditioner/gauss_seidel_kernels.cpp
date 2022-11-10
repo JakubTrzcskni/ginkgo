@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <memory>
 #include <random>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -361,6 +362,72 @@ protected:
         auto num_rows = dense_mat->get_size()[0];
         gko::preconditioner::visualize::spy_ge(
             num_rows, num_rows, dense_mat->get_values(), plot_label);
+    }
+
+    template <typename ValueType, typename IndexType>
+    std::tuple<std::shared_ptr<gko::solver::LowerTrs<ValueType, IndexType>>,
+               std::shared_ptr<gko::solver::UpperTrs<ValueType, IndexType>>>
+    gen_ref_adv_apply(gko::matrix::Dense<ValueType>* system_matrix,
+                      const gko::remove_complex<ValueType> omega_val,
+                      const IndexType num_rows)
+    {
+        using Csr = gko::matrix::Csr<ValueType, IndexType>;
+        const auto exec = this->exec;
+        auto omega = gko::share(
+            gko::initialize<gko::matrix::Dense<gko::remove_complex<ValueType>>>(
+                {omega_val}, exec));
+        auto diag = gko::share(system_matrix->extract_diagonal());
+        auto diag_vals = Vec::create(
+            exec, gko::dim<2>{1, num_rows},
+            gko::make_array_view(exec, num_rows, diag->get_values()), 1);
+        system_matrix->scale(gko::lend(omega));
+        auto system_matrix_u = system_matrix->clone();
+        system_matrix->inv_scale(gko::lend(diag_vals));
+        gko::matrix_data<ValueType, IndexType> ref_data;
+        system_matrix->write(ref_data);
+        gko::utils::make_lower_triangular(ref_data);
+        gko::utils::make_unit_diagonal(ref_data);
+        ref_data.ensure_row_major_order();
+        auto ref_mtx = gko::share(Csr::create(exec));
+        ref_mtx->read(ref_data);
+
+        gko::matrix_data<ValueType, IndexType> ref_data_u;
+        system_matrix_u->write(ref_data_u);
+        gko::utils::make_upper_triangular(ref_data_u);
+        gko::utils::make_remove_diagonal(ref_data_u);
+        for (auto i = 0; i < num_rows; ++i) {
+            ref_data_u.nonzeros.emplace_back(i, i, diag->get_const_values()[i]);
+        }
+        ref_data_u.ensure_row_major_order();
+        auto ref_mtx_u = gko::share(Csr::create(exec));
+        ref_mtx_u->read(ref_data_u);
+
+        auto ltrs_factory =
+            gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+        auto ref_ltrs = gko::share(ltrs_factory->generate(ref_mtx));
+
+        auto utrs_factory =
+            gko::solver::UpperTrs<ValueType, IndexType>::build().on(exec);
+        auto ref_utrs = gko::share(utrs_factory->generate(ref_mtx_u));
+
+        return std::make_tuple(ref_ltrs, ref_utrs);
+    }
+
+    template <typename ValueType, typename IndexType>
+    void ref_adv_apply(
+        std::tuple<std::shared_ptr<gko::solver::LowerTrs<ValueType, IndexType>>,
+                   std::shared_ptr<gko::solver::UpperTrs<ValueType, IndexType>>>
+            adv_apply_tuple,
+        gko::matrix::Dense<ValueType>* rhs, gko::matrix::Dense<ValueType>* x)
+    {
+        const auto exec = this->exec;
+        auto alpha = gko::share(gko::initialize<Vec>({1.0}, exec));
+        auto beta = gko::share(gko::initialize<Vec>({1.0}, exec));
+
+        std::get<0>(adv_apply_tuple)->apply(gko::lend(rhs), gko::lend(x));
+        std::get<1>(adv_apply_tuple)
+            ->apply(gko::lend(rhs), gko::lend(alpha), gko::lend(beta),
+                    gko::lend(x));
     }
 
     std::shared_ptr<const gko::ReferenceExecutor> exec;
@@ -1435,7 +1502,7 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
     auto exec = this->exec;
-    auto omega_val = 1.5;
+    auto omega_val = gko::remove_complex<ValueType>{1.5};
     auto omega =
         gko::initialize<gko::matrix::Dense<gko::remove_complex<ValueType>>>(
             {omega_val}, exec);
@@ -1458,7 +1525,7 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
 
     gko::array<IndexType> perm(exec, mtx->get_size()[0]);
     std::iota(perm.get_data(), perm.get_data() + perm.get_num_elems(), 0);
-    gko::array<IndexType> inv_perm(perm);  //(exec, perm.get_num_elems());
+    gko::array<IndexType> inv_perm(perm);
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 12, 16}));
 
     auto expected_l_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
@@ -1482,9 +1549,7 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                                         4. / 24., 4. / 24., 1. / omega_val,
                                         0., 4. / 25., 0., 1. / omega_val
                                              // clang-format on
-                                         }
-
-    );
+                                         });
     expected_l_diag_vals->scale(gko::lend(omega));
     gko::array<IndexType> expected_u_diag_rows(
         exec, I<IndexType>({
@@ -1507,7 +1572,6 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                                         -1, 12, -1, 12
                   // clang-format on
               }));
-
     auto expected_u_diag_vals = Vec::create(exec, gko::dim<2>{40, 1});
     this->template init_array<ValueType>(expected_u_diag_vals->get_values(),
                                          {
@@ -1517,19 +1581,19 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                                         1., 1., 11. / omega_val,
                                         1., 1., 1., 10. / omega_val,
                                         17. / omega_val,
-                                          2., 16. / omega_val,
-                                          0., 2., 15. / omega_val,
-                                          2., 2., 2., 14. / omega_val,
-                                          21. / omega_val,
-                                          3., 20. / omega_val,
-                                          3., 0., 19. / omega_val,
-                                          3., 0., 3., 18. / omega_val,
-                                          25. / omega_val,
-                                          0., 24. / omega_val,
-                                          4., 4., 23. / omega_val,
-                                          0., 4., 0., 22. / omega_val
-                                          // clang-format off
-                                          });
+                                        2., 16. / omega_val,
+                                        0., 2., 15. / omega_val,
+                                        2., 2., 2., 14. / omega_val,
+                                        21. / omega_val,
+                                        3., 20. / omega_val,
+                                        3., 0., 19. / omega_val,
+                                        3., 0., 3., 18. / omega_val,
+                                        25. / omega_val,
+                                        0., 24. / omega_val,
+                                        4., 4., 23. / omega_val,
+                                        0., 4., 0., 22. / omega_val
+                                             // clang-format on
+                                         });
     expected_u_diag_vals->scale(gko::lend(omega));
 
     auto expected_l_spmv_vals = Vec::create(exec, gko::dim<2>{8, 1});
@@ -1645,6 +1709,94 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
                         r<ValueType>::value);
     GKO_ASSERT_ARRAY_EQ(expected_l_spmv_row_ptrs, l_spmv_row_ptrs_);
     GKO_ASSERT_ARRAY_EQ(expected_u_spmv_row_ptrs, u_spmv_row_ptrs_);
+
+    auto mtx_dense = Vec::create(exec);
+    mtx->convert_to(gko::lend(mtx_dense));
+    auto rhs = Vec::create(exec, gko::dim<2>{16, 1});
+    rhs->fill(ValueType{1.});
+    auto ref_rhs = rhs->clone();
+    auto x = Vec::create_with_config_of(gko::lend(rhs));
+    x->fill(ValueType{0.});
+    auto ref_x = x->clone();
+
+    this->ref_adv_apply(this->gen_ref_adv_apply(gko::lend(mtx_dense), omega_val,
+                                                static_cast<IndexType>(16)),
+                        gko::lend(ref_rhs), gko::lend(ref_x));
+
+    gko::kernels::reference::gauss_seidel::advanced_apply(
+        exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
+        l_spmv_row_ptrs_.get_const_data(), l_spmv_col_idxs_.get_const_data(),
+        l_spmv_vals_.get_const_data(), u_diag_rows_.get_const_data(),
+        u_diag_vals_.get_const_data(), u_spmv_row_ptrs_.get_const_data(),
+        u_spmv_col_idxs_.get_const_data(), u_spmv_vals_.get_const_data(),
+        perm.get_const_data(), dummy_storage_scheme, omega_val, gko::lend(rhs),
+        gko::lend(x), 9);
+
+    GKO_ASSERT_MTX_NEAR(x, ref_x, r<ValueType>::value);
+}
+
+TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
+{
+    using IndexType = typename TestFixture::index_type;
+    using ValueType = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    auto exec = this->exec;
+
+    // for (auto const& [num_rows, row_limit, w, b_s, padding] :
+    //      this->apply_params_) {
+    const auto num_rows = 1000;
+    const auto row_limit = 15;
+    const auto w = 16;
+    const auto b_s = 4;
+    const auto padding = false;
+    const double omega_val = 1.5;
+
+    auto mtx = gko::share(this->generate_rand_matrix(
+        IndexType{num_rows}, IndexType{1}, IndexType{row_limit}, ValueType{0}));
+
+    gko::size_type num_rhs = 10;
+    auto rhs = gko::share(
+        this->generate_rand_dense(ValueType{0}, mtx->get_size()[0], num_rhs));
+
+    auto x = Vec::create_with_config_of(gko::lend(rhs));
+    x->fill(ValueType{1});
+    auto ref_x = x->clone();
+
+    auto gs_HBMC_factory =
+        GS::build()
+            .with_use_HBMC(true)
+            .with_base_block_size(static_cast<gko::size_type>(b_s))
+            .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+            .with_use_padding(padding)
+            .with_symmetric_preconditioner(true)
+            .with_relaxation_factor(omega_val)
+            .on(exec);
+    auto gs_HBMC = gs_HBMC_factory->generate(mtx);
+
+    auto perm_idxs =
+        gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
+
+    auto mtx_perm = gko::as<Vec>(mtx->permute(&perm_idxs));
+    auto adv_apply_tuple = this->gen_ref_adv_apply(
+        gko::lend(mtx_perm), omega_val, static_cast<IndexType>(num_rows));
+
+    const auto rhs_perm =
+        gko::as<const Vec>(lend(rhs)->row_permute(&perm_idxs));
+
+    this->ref_adv_apply(adv_apply_tuple, gko::lend(rhs_perm), gko::lend(ref_x));
+
+    auto ref_ans = Vec::create(exec);
+    ref_ans->copy_from(
+        std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
+
+    gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
+
+    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
+
+
+    // }
 }
 
 }  // namespace
