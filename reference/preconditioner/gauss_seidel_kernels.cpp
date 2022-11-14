@@ -83,41 +83,43 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
     if (row < p_block->start_row_global_ | row >= p_block->end_row_global_ |
         col < p_block->start_row_global_ | col >= p_block->end_row_global_)
         return -1;
-    const auto b_s = p_block->base_block_size_;
+    const int32 b_s = p_block->base_block_size_;
     const auto local_row =
-        row - p_block->start_row_global_;  // local row within the p_block
-    const auto block_id = local_row / p_block->lvl_1_block_size_;
+        row - static_cast<int32>(
+                  p_block->start_row_global_);  // local row within the p_block
+    const auto block_id =
+        local_row / static_cast<int32>(p_block->lvl_1_block_size_);
     const auto row_id_block =
         local_row %
-        p_block
-            ->lvl_1_block_size_;  // local row within the lvl1/block_agg block
+        static_cast<int32>(p_block->lvl_1_block_size_);  // local row within the
+                                                         // lvl1/block_agg block
     const auto curr_block = p_block->parallel_blocks_[block_id].get();
 
-    const auto base_offset = curr_block->val_storage_id_;
-    const auto nz_per_block = p_block->nz_p_b_block_;
-    const auto col_offs = row - col;
-    if (p_block->residual_ && block_id == p_block->degree_of_parallelism_ -
-                                              1) {  // case base_block_agg
+    const int32 base_offset = curr_block->val_storage_id_;
+    const int32 nz_per_block = p_block->nz_p_b_block_;
+    const int32 col_offs = row - col;
+    if (p_block->residual_ &&
+        block_id == static_cast<int32>(p_block->degree_of_parallelism_) -
+                        1) {  // case base_block_agg
         if (lower) {
             if (col_offs<0 | col_offs> row_id_block % b_s) return -1;
             return base_offset + (row_id_block / b_s) * nz_per_block +
                    precomputed_diag(row_id_block % b_s) - col_offs;
         } else {  // upper
+            const int32 row_id = row_id_block % b_s;
             if (col_offs > 0 |
-                col_offs > static_cast<int>((b_s - row_id_block - 1) % b_s))
+                col_offs > static_cast<int32>((b_s - row_id - 1) % b_s))
                 return -1;
-            const auto row_id = row_id_block % b_s;
-            const auto curr_offs =
+            const int32 curr_offs =
                 (col_offs == 0) ? 0 : (b_s - row_id + col_offs);
             return base_offset + (row_id_block / b_s) * nz_per_block +
                    precomputed_diag(b_s - row_id - 1) - curr_offs;
-            //    diag_upper(b_s, row_id_block % b_s) - col_offs;
         }
     } else {  // case lvl_1_block
-        const auto lvl_2_block_size =
+        const int32 lvl_2_block_size =
             static_cast<preconditioner::lvl_1_block*>(curr_block)
-                ->lvl_2_block_size_;  // p_block->lvlvl_2_block_size_;
-        const auto lvl_2_block_size_setup =
+                ->lvl_2_block_size_;
+        const int32 lvl_2_block_size_setup =
             static_cast<preconditioner::lvl_1_block*>(curr_block)
                 ->lvl_2_block_size_setup_;
         if (std::abs(col_offs) % lvl_2_block_size_setup != 0) return -1;
@@ -132,10 +134,13 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
         } else {
             if (col_offs > 0 |
                 col_offs <
-                    -1 * static_cast<int>(lvl_2_block_size_setup * (b_s - 1)))
+                    -1 * static_cast<int32>(lvl_2_block_size_setup * (b_s - 1)))
                 return -1;
-            const auto row_id = row_id_block / lvl_2_block_size_setup;
-            const auto curr_offs =
+            const int32 row_id =
+                row_id_block /
+                lvl_2_block_size_setup;  // should be called subblock_id or
+                                         // similar
+            const int32 curr_offs =
                 (col_offs == 0)
                     ? 0
                     : (b_s - (row_id) + (col_offs / lvl_2_block_size_setup));
@@ -144,11 +149,6 @@ int32 get_id_for_storage(preconditioner::parallel_block* p_block,
                    precomputed_diag(b_s - row_id - 1) * lvl_2_block_size +
                    row_id_block % lvl_2_block_size_setup -
                    curr_offs * lvl_2_block_size;
-            //    diag_upper(b_s, row_id_block / lvl_2_block_size_setup) *
-            //        lvl_2_block_size +
-            //    row_id_block % lvl_2_block_size_setup -
-            //    (col_offs / lvl_2_block_size_setup) *
-            //        lvl_2_block_size;
         }
     }
 }
@@ -310,10 +310,10 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
 
 namespace {
-template <bool forward, typename ValueType, typename IndexType,
+template <bool advanced, bool forward, typename ValueType, typename IndexType,
           typename Closure>
 void apply_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
-                 const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                 const IndexType* diag_rows, const ValueType* diag_vals,
                  matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
                  const IndexType* permutation_idxs, Closure scale)
 {
@@ -324,19 +324,19 @@ void apply_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
         // solve
         for (auto j = 0; j < w; ++j) {
             auto local_offs = precomputed_diag(i) * w + j;
-            const auto row = l_diag_rows[block_offs + local_offs];
+            const auto row = diag_rows[block_offs + local_offs];
 
             if (row >= 0) {
                 const auto x_row = permutation_idxs[row];
-                GKO_ASSERT(l_diag_vals[block_offs + local_offs] !=
-                           ValueType{0});
+                const auto b_row = forward ? row : x_row;
+                GKO_ASSERT(diag_vals[block_offs + local_offs] != ValueType{0});
                 const auto val =
-                    forward
-                        ? l_diag_vals[block_offs + local_offs]
-                        : ValueType{1} / l_diag_vals[block_offs + local_offs];
+                    (advanced && forward)
+                        ? diag_vals[block_offs + local_offs]
+                        : ValueType{1} / diag_vals[block_offs + local_offs];
                 for (size_type k = 0; k < x->get_size()[1]; ++k) {
                     x->at(x_row, k) =
-                        scale(val * b_perm->at(row, k), x->at(x_row, k));
+                        val * scale(b_perm->at(b_row, k), x->at(x_row, k));
                 }
             }
         }
@@ -349,25 +349,32 @@ void apply_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
                 auto write_offs =
                     block_offs + precomputed_diag(i) * w + w + row_offs;
                 for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    // auto val = ValueType{0};
                     for (auto subblock = first_subblock;
                          subblock < next_diag_subblock; ++subblock) {
                         auto final_w_offs =
                             write_offs + (subblock - first_subblock) * w;
-                        const auto row_write = l_diag_rows[final_w_offs];
+                        const auto row_write = diag_rows[final_w_offs];
+                        const auto b_row_write =
+                            forward ? row_write : permutation_idxs[row_write];
                         if (row_write >= 0) {
-                            const auto row_read =
-                                l_diag_rows[block_offs +
-                                            precomputed_diag(
-                                                precomputed_block(subblock)) *
-                                                w +
-                                            row_offs];
+                            const auto row_read_offs =
+                                forward
+                                    ? block_offs +
+                                          precomputed_diag(
+                                              precomputed_block(subblock)) *
+                                              w +
+                                          row_offs
+                                    : block_offs +
+                                          precomputed_diag(
+                                              i - (subblock - first_subblock)) *
+                                              w +
+                                          row_offs;
+                            const auto row_read = diag_rows[row_read_offs];
                             if (row_read >= 0) {
                                 const auto x_row_read =
                                     permutation_idxs[row_read];
-
-                                b_perm->at(row_write, k) -=
-                                    l_diag_vals[final_w_offs] *
+                                b_perm->at(b_row_write, k) -=
+                                    diag_vals[final_w_offs] *
                                     x->at(x_row_read, k);
                             }
                         }
@@ -408,10 +415,10 @@ inline bool apply_gauss_jordan_transform(IndexType row, IndexType nz_p_b,
 }
 
 
-template <bool forward, typename ValueType, typename IndexType,
+template <bool advanced, bool forward, typename ValueType, typename IndexType,
           typename Closure>
 void apply_agg(preconditioner::base_block_aggregation* agg_block,
-               const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+               const IndexType* diag_rows, const ValueType* diag_vals,
                matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
                const IndexType* permutation_idxs, Closure scale)
 {
@@ -428,32 +435,41 @@ void apply_agg(preconditioner::base_block_aggregation* agg_block,
         for (auto i = 0; i < b_s && block_id * b_s + i < max_rows; ++i) {
             auto diag_offs = block_offs + precomputed_diag(i);
 
-            const auto row = l_diag_rows[diag_offs];
+            const auto row = diag_rows[diag_offs];
             GKO_ASSERT(row >= 0);
             const auto x_row = permutation_idxs[row];
-            GKO_ASSERT(l_diag_vals[diag_offs] != ValueType{0});
-            const auto val = forward ? l_diag_vals[diag_offs]
-                                     : ValueType{1} / l_diag_vals[diag_offs];
+            const auto b_row = forward ? row : x_row;
+            GKO_ASSERT(diag_vals[diag_offs] != ValueType{0});
+            const auto val = (advanced && forward)
+                                 ? diag_vals[diag_offs]
+                                 : ValueType{1} / diag_vals[diag_offs];
             for (size_type k = 0; k < x->get_size()[1]; ++k) {
                 x->at(x_row, k) =
-                    scale(val * b_perm->at(row, k), x->at(x_row, k));
+                    val * scale(b_perm->at(b_row, k), x->at(x_row, k));
             }
             if (i < b_s - 1 && block_id * b_s + i < max_rows - 1) {
                 for (size_type k = 0; k < b_perm->get_size()[1]; ++k) {
-                    for (auto id = precomputed_diag(i) + 1;
-                         id < precomputed_diag(i + 1); ++id) {
+                    const auto first_id = precomputed_diag(i) + 1;
+                    const auto next_diag_id = precomputed_diag(i + 1);
+                    for (auto id = first_id; id < next_diag_id; ++id) {
                         const auto write_offs = block_offs + id;
-                        const auto row_write = l_diag_rows[write_offs];
+                        const auto row_write = diag_rows[write_offs];
                         if (row_write >= 0) {
-                            const auto row_read =
-                                l_diag_rows[block_offs +
-                                            precomputed_diag(
-                                                precomputed_block(id))];
+                            const auto b_row_write =
+                                forward ? row_write
+                                        : permutation_idxs[row_write];
+                            const auto row_read_offs =
+                                forward
+                                    ? block_offs + precomputed_diag(
+                                                       precomputed_block(id))
+                                    : block_offs +
+                                          precomputed_diag(i - (id - first_id));
+                            const auto row_read = diag_rows[row_read_offs];
                             GKO_ASSERT(row_read >= 0);
                             const auto x_row_read = permutation_idxs[row_read];
 
-                            b_perm->at(row_write, k) -=
-                                l_diag_vals[write_offs] * x->at(x_row_read, k);
+                            b_perm->at(b_row_write, k) -=
+                                diag_vals[write_offs] * x->at(x_row_read, k);
                         }
                     }
                 }
@@ -463,51 +479,28 @@ void apply_agg(preconditioner::base_block_aggregation* agg_block,
 }
 template <bool advanced, bool forward, typename ValueType, typename IndexType>
 void apply_p_block(preconditioner::parallel_block* p_block,
-                   const IndexType* l_diag_rows, const ValueType* l_diag_vals,
+                   const IndexType* diag_rows, const ValueType* diag_vals,
                    matrix::Dense<ValueType>* b_perm,
                    matrix::Dense<ValueType>* x,
                    const IndexType* permutation_idxs)
 {
     auto blocks = p_block->parallel_blocks_;
-    if (forward) {
-        for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
-            if (i == p_block->degree_of_parallelism_ - 1 &&
-                p_block->residual_) {
-                apply_agg<advanced>(
-                    static_cast<preconditioner::base_block_aggregation*>(
-                        blocks[i].get()),
-                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-                    [](const ValueType& x, const ValueType& y) { return x; });
-            } else {
-                apply_lvl_1<advanced>(
-                    static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
-                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-                    [](const ValueType& x, const ValueType& y) { return x; });
-            }
-        }
-    } else {
-        for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
-            if (i == p_block->degree_of_parallelism_ - 1 &&
-                p_block->residual_) {
-                apply_agg<false>(
-                    static_cast<preconditioner::base_block_aggregation*>(
-                        blocks[i].get()),
-                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-                    [](const ValueType& x, const ValueType& y) {
-                        return x + y;
-                    });
-            } else {
-                apply_lvl_1<false>(
-                    static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
-                    l_diag_rows, l_diag_vals, b_perm, x, permutation_idxs,
-                    [](const ValueType& x, const ValueType& y) {
-                        return x + y;
-                    });
-            }
+    for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
+        if (i == p_block->degree_of_parallelism_ - 1 && p_block->residual_) {
+            apply_agg<advanced, forward>(
+                static_cast<preconditioner::base_block_aggregation*>(
+                    blocks[i].get()),
+                diag_rows, diag_vals, b_perm, x, permutation_idxs,
+                [](const ValueType& x, const ValueType& y) { return x; });
+        } else {
+            apply_lvl_1<advanced, forward>(
+                static_cast<preconditioner::lvl_1_block*>(blocks[i].get()),
+                diag_rows, diag_vals, b_perm, x, permutation_idxs,
+                [](const ValueType& x, const ValueType& y) { return x; });
         }
     }
 }
-template <typename ValueType, typename IndexType>
+template <bool forward, typename ValueType, typename IndexType>
 void apply_spmv_block(preconditioner::spmv_block* spmv_block,
                       const IndexType* row_ptrs, const IndexType* col_idxs,
                       const ValueType* vals, matrix::Dense<ValueType>* b_perm,
@@ -526,8 +519,10 @@ void apply_spmv_block(preconditioner::spmv_block* spmv_block,
             auto val = vals[val_id_offs + k];
             auto col = col_idxs[val_id_offs + k];
             const auto x_col = perm_idxs[col];
+            const auto b_row =
+                forward ? row_offs + row : perm_idxs[row_offs + row];
             for (size_type j = 0; j < b_perm->get_size()[1]; ++j) {
-                b_perm->at(row_offs + row, j) -= val * x->at(x_col, j);
+                b_perm->at(b_row, j) -= val * x->at(x_col, j);
             }
         }
     }
@@ -557,8 +552,8 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
     for (auto block = 1; block < num_blocks - 1; block += 2) {
         auto spmv_block =
             static_cast<preconditioner::spmv_block*>(block_ptrs[block].get());
-        apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
-                         l_spmv_vals, b_perm, x, permutation_idxs);
+        apply_spmv_block<true>(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+                               l_spmv_vals, b_perm, x, permutation_idxs);
 
 
         auto p_block = static_cast<preconditioner::parallel_block*>(
@@ -596,21 +591,23 @@ void advanced_apply(
         if (block < num_blocks - 1) {
             auto spmv_block = static_cast<preconditioner::spmv_block*>(
                 forward_solve[block + 1].get());
-            apply_spmv_block(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
-                             l_spmv_vals, b_perm, x, permutation_idxs);
+            apply_spmv_block<true>(spmv_block, l_spmv_row_ptrs, l_spmv_col_idxs,
+                                   l_spmv_vals, b_perm, x, permutation_idxs);
         }
     }
+
     // backward solve
     for (auto block = 0; block < num_blocks; block += 2) {
         auto p_block = static_cast<preconditioner::parallel_block*>(
             backward_solve[block].get());
-        apply_p_block<true, false>(p_block, u_diag_rows, u_diag_vals, b_perm, x,
+        apply_p_block<true, false>(p_block, u_diag_rows, u_diag_vals, x, x,
                                    permutation_idxs);
         if (block < num_blocks - 1) {
             auto spmv_block = static_cast<preconditioner::spmv_block*>(
                 backward_solve[block + 1].get());
-            apply_spmv_block(spmv_block, u_spmv_row_ptrs, u_spmv_col_idxs,
-                             u_spmv_vals, b_perm, x, permutation_idxs);
+            apply_spmv_block<false>(spmv_block, u_spmv_row_ptrs,
+                                    u_spmv_col_idxs, u_spmv_vals, x, x,
+                                    permutation_idxs);
         }
     }
 }
@@ -981,6 +978,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                             tmp_perm.get_const_data()[k];
                         nnz_in_l_spmv_row++;
                     }
+                curr_id_l_spmv_val_col += k;
                 for (; k < nnz_in_row && tmp_perm.get_const_data()[k] <= row;
                      ++k) {
                     auto id = get_id_for_storage(
@@ -999,7 +997,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                 for (k = k - 1; k < nnz_in_row && tmp_perm.get_const_data()[k] <
                                                       u_diag->end_row_global_;
                      ++k) {
-                    auto id = get_id_for_storage(  // TODO
+                    auto id = get_id_for_storage(
                         u_diag, row, tmp_perm.get_const_data()[k], false);
                     if (id >= 0) {
                         u_diag_rows[id] = row;
@@ -1023,7 +1021,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                             tmp_perm.get_const_data()[k];
                         nnz_in_u_spmv_row++;
                     }
-
+                curr_id_u_spmv_val_col += k - tmp_k;
                 if (l_spmv) {
                     l_spmv_row_ptrs[curr_id_l_spmv_row + 1] =
                         l_spmv_row_ptrs[curr_id_l_spmv_row] + nnz_in_l_spmv_row;
@@ -1045,8 +1043,9 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                 auto next_l_spmv = static_cast<preconditioner::spmv_block*>(
                     forward_solve[i + 1].get());
                 GKO_ASSERT(next_p_block && next_l_spmv);
+                if (curr_id_l_spmv_val_col < 0) curr_id_l_spmv_val_col = 0;
                 next_l_spmv->update(curr_id_l_spmv_row + 2,
-                                    curr_id_l_spmv_val_col + 1,
+                                    curr_id_l_spmv_val_col,
                                     next_p_block->start_row_global_,
                                     next_p_block->end_row_global_, 0,
                                     next_p_block->start_row_global_);
@@ -1054,7 +1053,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                     auto next_u_spmv = static_cast<preconditioner::spmv_block*>(
                         backward_solve[num_blocks - i - 4].get());
                     next_u_spmv->update(
-                        curr_id_u_spmv_row + 2, curr_id_u_spmv_val_col + 1,
+                        curr_id_u_spmv_row + 2, curr_id_u_spmv_val_col,
                         next_p_block->start_row_global_,
                         next_p_block->end_row_global_,
                         next_p_block->end_row_global_, num_nodes);
