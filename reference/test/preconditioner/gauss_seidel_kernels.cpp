@@ -388,7 +388,6 @@ protected:
 
         system_matrix->scale(gko::lend(omega));
         auto system_matrix_u = system_matrix->clone();
-        // system_matrix->inv_scale(gko::lend(diag_vals));
         inv_diag->apply(gko::lend(system_matrix), gko::lend(system_matrix));
         gko::matrix_data<ValueType, IndexType> ref_data;
         system_matrix->write(ref_data);
@@ -1765,14 +1764,7 @@ TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
 
     for (auto const& [num_rows, row_limit, w, b_s, padding] :
          this->apply_params_) {
-        // const auto num_rows = 16;
-        // const auto row_limit = 3;
-        // const auto w = 16;
-        // const auto b_s = 4;
-        // const auto padding = true;
         const auto omega_val = gko::remove_complex<ValueType>{1.5};
-
-
         auto mtx = gko::share(
             this->generate_rand_matrix(IndexType{num_rows}, IndexType{1},
                                        IndexType{row_limit}, ValueType{0}));
@@ -1814,20 +1806,7 @@ TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
         auto ref_ans = Vec::create(exec);
         ref_ans->copy_from(
             std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm_idxs))));
-
-        // auto mtx_debug = Vec::create(exec);
-        // (gko::as<Csr>(mtx->permute(&perm_idxs)))->convert_to(gko::lend(mtx_debug));
-        // std::ofstream ofs(std::string("mtx_debug.mtx"));
-        // gko::write(ofs, gko::lend(mtx_debug), gko::layout_type::coordinate);
-        // std::ofstream ofs2(std::string("mtx_debug_ref.mtx"));
-        // gko::write(ofs2, gko::lend(mtx_perm), gko::layout_type::coordinate);
-
         gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
-
-        // auto ref_interim_ans = Vec::create(exec);
-        // ref_interim_ans->copy_from(
-        //     std::move(gko::as<Vec>(rhs_perm->inverse_row_permute(&perm_idxs))));
-        // GKO_ASSERT_MTX_NEAR(x, ref_interim_ans, r<ValueType>::value);
         GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
     }
 }

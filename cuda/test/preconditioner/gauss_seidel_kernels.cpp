@@ -32,12 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
-
 #include <random>
 
-
 #include <gtest/gtest.h>
-
 
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -379,4 +376,79 @@ TYPED_TEST(GaussSeidel, PrepermutedApply)
     }
 }
 
+TYPED_TEST(GaussSeidel, AdvancedApply)
+{
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using GS = typename TestFixture::GS;
+    using Csr = gko::matrix::Csr<ValueType, IndexType>;
+    using Vec = gko::matrix::Dense<ValueType>;
+    auto ref_exec = this->ref;
+    auto cuda_exec = this->cuda;
+
+    for (auto const& [num_rows, row_limit, w, b_s, padding] :
+         this->apply_params_) {
+        const auto omega_val = gko::remove_complex<ValueType>{1.5};
+        gko::size_type num_rhs = 10;
+        auto nz_dist = std::uniform_int_distribution<IndexType>(
+            1, static_cast<gko::size_type>(row_limit));
+        auto val_dist =
+            std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1.,
+                                                                           1.);
+        auto mat_data =
+            gko::test::generate_random_matrix_data<ValueType, IndexType>(
+                static_cast<gko::size_type>(num_rows),
+                static_cast<gko::size_type>(num_rows), nz_dist, val_dist,
+                this->rand_engine);
+        gko::utils::make_hpd(mat_data, 2.0);
+        mat_data.ensure_row_major_order();
+        auto rhs = gko::test::generate_random_matrix<Vec>(
+            static_cast<gko::size_type>(num_rows), num_rhs,
+            std::uniform_int_distribution<IndexType>(
+                static_cast<gko::size_type>(num_rows) * num_rhs,
+                static_cast<gko::size_type>(num_rows) * num_rhs),
+            val_dist, this->rand_engine, ref_exec,
+            gko::dim<2>{static_cast<gko::size_type>(num_rows), num_rhs});
+        auto d_rhs = gko::clone(cuda_exec, rhs);
+
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto d_x = gko::clone(cuda_exec, x);
+
+        auto mtx = gko::share(Csr::create(
+            ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
+        mtx->read(mat_data);
+
+        auto ref_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .with_symmetric_preconditioner(true)
+                .with_prepermuted_input(false)
+                .with_relaxation_factor(omega_val)
+                .on(ref_exec);
+        auto ref_gs = ref_gs_factory->generate(mtx);
+
+        auto device_gs_factory =
+            GS::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(static_cast<gko::size_type>(b_s))
+                .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+                .with_use_padding(padding)
+                .with_symmetric_preconditioner(true)
+                .with_prepermuted_input(false)
+                .with_relaxation_factor(omega_val)
+                .with_kernel_version(9)
+                .on(cuda_exec);
+        auto device_gs = device_gs_factory->generate(mtx);
+
+        ref_gs->apply(gko::lend(rhs), gko::lend(x));
+
+        device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+
+        GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
+    }
+}
 }  // namespace

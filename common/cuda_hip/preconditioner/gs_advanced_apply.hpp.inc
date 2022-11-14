@@ -92,6 +92,8 @@ __device__ void adv_apply_tr(
             val = forward ? val : one<ValueType>() / val;
             const auto x_row_global =
                 prepermuted ? row_global : perm_idxs[row_global];
+            const auto b_row = forward ? row_global * num_rhs + col_id
+                                       : x_row_global * num_rhs + col_id;
             tmp += prepermuted ? b[row_global * num_rhs + col_id] +
                                      x[x_row_global * num_rhs + col_id]
                                : b[row_global * num_rhs + col_id];
