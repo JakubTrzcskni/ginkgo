@@ -62,6 +62,8 @@ GKO_REGISTER_OPERATION(simple_apply, gauss_seidel::simple_apply);
 GKO_REGISTER_OPERATION(prepermuted_simple_apply,
                        gauss_seidel::prepermuted_simple_apply);
 GKO_REGISTER_OPERATION(advanced_apply, gauss_seidel::advanced_apply);
+GKO_REGISTER_OPERATION(advanced_prepermuted_apply,
+                       gauss_seidel::advanced_prepermuted_apply);
 GKO_REGISTER_OPERATION(get_coloring, gauss_seidel::get_coloring);
 GKO_REGISTER_OPERATION(get_block_coloring, gauss_seidel::get_block_coloring);
 GKO_REGISTER_OPERATION(assign_to_blocks, gauss_seidel::assign_to_blocks);
@@ -139,16 +141,34 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         [this, &permuted](auto dense_b, auto dense_x) {
             if (use_HBMC_) {
                 if (prepermuted_input_) {
-                    if (symmetric_preconditioner_) GKO_NOT_IMPLEMENTED;
-                    this->get_executor()->run(
-                        gauss_seidel::make_prepermuted_simple_apply(
-                            l_diag_rows_.get_const_data(),
-                            l_diag_vals_.get_const_data(),
-                            l_spmv_row_ptrs_.get_const_data(),
-                            l_spmv_col_idxs_.get_const_data(),
-                            l_spmv_vals_.get_const_data(), hbmc_storage_scheme_,
-                            permutation_idxs_.get_const_data(), dense_b,
-                            dense_x, kernel_version_));
+                    if (symmetric_preconditioner_) {
+                        this->get_executor()->run(
+                            gauss_seidel::make_advanced_prepermuted_apply(
+                                l_diag_rows_.get_const_data(),
+                                l_diag_vals_.get_const_data(),
+                                l_spmv_row_ptrs_.get_const_data(),
+                                l_spmv_col_idxs_.get_const_data(),
+                                l_spmv_vals_.get_const_data(),
+                                u_diag_rows_.get_const_data(),
+                                u_diag_vals_.get_const_data(),
+                                u_spmv_row_ptrs_.get_const_data(),
+                                u_spmv_col_idxs_.get_const_data(),
+                                u_spmv_vals_.get_const_data(),
+                                permutation_idxs_.get_const_data(),
+                                hbmc_storage_scheme_, dense_b, dense_x,
+                                kernel_version_));
+                    } else {
+                        this->get_executor()->run(
+                            gauss_seidel::make_prepermuted_simple_apply(
+                                l_diag_rows_.get_const_data(),
+                                l_diag_vals_.get_const_data(),
+                                l_spmv_row_ptrs_.get_const_data(),
+                                l_spmv_col_idxs_.get_const_data(),
+                                l_spmv_vals_.get_const_data(),
+                                hbmc_storage_scheme_,
+                                permutation_idxs_.get_const_data(), dense_b,
+                                dense_x, kernel_version_));
+                    }
                 } else {
                     auto b_perm =
                         as<Dense>(dense_b->row_permute(&permutation_idxs_));
@@ -470,13 +490,15 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     l_spmv_col_idxs_.set_executor(d_exec);
     l_spmv_mtx_col_idxs_.set_executor(d_exec);
     l_spmv_vals_.set_executor(d_exec);
-    u_diag_rows_.set_executor(d_exec);
-    u_diag_mtx_col_idxs_.set_executor(d_exec);
-    u_diag_vals_.set_executor(d_exec);
-    u_spmv_row_ptrs_.set_executor(d_exec);
-    u_spmv_col_idxs_.set_executor(d_exec);
-    u_spmv_mtx_col_idxs_.set_executor(d_exec);
-    u_spmv_vals_.set_executor(d_exec);
+    if (symmetric_preconditioner_) {
+        u_diag_rows_.set_executor(d_exec);
+        u_diag_mtx_col_idxs_.set_executor(d_exec);
+        u_diag_vals_.set_executor(d_exec);
+        u_spmv_row_ptrs_.set_executor(d_exec);
+        u_spmv_col_idxs_.set_executor(d_exec);
+        u_spmv_mtx_col_idxs_.set_executor(d_exec);
+        u_spmv_vals_.set_executor(d_exec);
+    }
     permutation_idxs_.set_executor(d_exec);
     inv_permutation_idxs_.set_executor(d_exec);
     vertex_colors_.set_executor(d_exec);

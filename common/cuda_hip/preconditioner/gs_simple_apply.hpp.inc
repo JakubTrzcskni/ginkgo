@@ -226,20 +226,13 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
             static_cast<gko::size_type>(max_nz_block + 1), sub_block_lut.data(),
             subblock_LUT.get_data());
     }
+    auto alpha = gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+    auto beta = gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+
 
     for (auto block = 0; block < num_blocks; block += 2) {
         auto p_block = static_cast<preconditioner::parallel_block*>(
             block_ptrs[block].get());
-        // const auto w = p_block->lvl_2_block_size_;
-        // host_kernel::select_apply_hbmc(
-        //     kernel::hbmc_kernels(),
-        //     [&](int compiled_subwarp_size) {
-        //         return compiled_subwarp_size == w;
-        //     },
-        //     syn::value_list<int, false, kernel_version>(),
-        //     syn::type_list<>(), exec, l_diag_rows, l_diag_vals, p_block,
-        //     b, x, diag_LUT.get_const_data(),
-        //     subblock_LUT.get_const_data(), permutation_idxs);
 
         host_kernel::select_hbmc_kernel_version(
             kernel::hbmc_kernel_version(),
@@ -284,10 +277,6 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
 
             auto tmp_x = x->row_gather(&perm_view);
 
-            auto alpha =
-                gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
-            auto beta =
-                gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
 
             csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
                                lend(beta), lend(tmp_b));

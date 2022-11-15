@@ -151,6 +151,20 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,       \
         int kernel_version)
 
+#define GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_PREPERMUTED_APPLY_KERNEL(ValueType, \
+                                                                   IndexType) \
+    void advanced_prepermuted_apply(                                          \
+        std::shared_ptr<const DefaultExecutor> exec,                          \
+        const IndexType* l_diag_rows, const ValueType* l_diag_vals,           \
+        const IndexType* l_spmv_row_ptrs, const IndexType* l_spmv_col_idxs,   \
+        const ValueType* l_spmv_vals, const IndexType* u_diag_rows,           \
+        const ValueType* u_diag_vals, const IndexType* u_spmv_row_ptrs,       \
+        const IndexType* u_spmv_col_idxs, const ValueType* u_spmv_vals,       \
+        const IndexType* permutation_idxs,                                    \
+        const preconditioner::storage_scheme& storage_scheme,                 \
+        const matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,  \
+        int kernel_version)
+
 #define GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType) \
     void get_coloring(                                                     \
         std::shared_ptr<const DefaultExecutor> exec,                       \
@@ -233,6 +247,9 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
                                                              IndexType);      \
     template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_APPLY_KERNEL(ValueType, IndexType);     \
+    template <typename ValueType, typename IndexType>                         \
+    GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_PREPERMUTED_APPLY_KERNEL(ValueType,     \
+                                                               IndexType);    \
     template <typename ValueType, typename IndexType>                         \
     GKO_DECLARE_GAUSS_SEIDEL_GET_COLORING_KERNEL(ValueType, IndexType);       \
     template <typename ValueType, typename IndexType>                         \

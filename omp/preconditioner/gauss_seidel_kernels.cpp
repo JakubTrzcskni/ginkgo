@@ -237,6 +237,20 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_APPLY_KERNEL);
 
 template <typename ValueType, typename IndexType>
+void advanced_prepermuted_apply(
+    std::shared_ptr<const DefaultExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const IndexType* u_diag_rows, const ValueType* u_diag_vals,
+    const IndexType* u_spmv_row_ptrs, const IndexType* u_spmv_col_idxs,
+    const ValueType* u_spmv_vals, const IndexType* permutation_idxs,
+    const preconditioner::storage_scheme& storage_scheme,
+    const matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x_perm,
+    int kernel_version) GKO_NOT_IMPLEMENTED;
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_PREPERMUTED_APPLY_KERNEL);
+
+template <typename ValueType, typename IndexType>
 void get_coloring(
     std::shared_ptr<const OmpExecutor> exec,
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,

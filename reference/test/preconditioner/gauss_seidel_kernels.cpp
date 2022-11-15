@@ -53,8 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
-// #include <ginkgo/core/solver/cg.hpp>
 #include <ginkgo/core/preconditioner/jacobi.hpp>
+#include <ginkgo/core/solver/cg.hpp>
 #include <ginkgo/core/solver/gmres.hpp>
 #include <ginkgo/core/solver/ir.hpp>
 #include <ginkgo/core/solver/triangular.hpp>
@@ -103,7 +103,7 @@ protected:
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
     using Ir = gko::solver::Ir<value_type>;
-    // using CG = gko::solver::Cg<value_type>;
+    using CG = gko::solver::Cg<value_type>;
     using Iter = gko::stop::Iteration;
     using ResNorm = gko::stop::ResidualNorm<value_type>;
     using Csr = gko::matrix::Csr<value_type, index_type>;
@@ -117,6 +117,7 @@ protected:
         : exec{gko::ReferenceExecutor::create()},
           rand_engine{15},
           iter_logger(Log::create()),
+          iter_logger_2(Log::create()),
           gs_factory(GS::build().on(exec)),
           ref_gs_factory(GS::build().with_use_reference(true).on(exec)),
           iter_criterion_factory(Iter::build().with_max_iters(100u).on(exec)),
@@ -438,6 +439,7 @@ protected:
     std::shared_ptr<const gko::ReferenceExecutor> exec;
     std::default_random_engine rand_engine;
     std::shared_ptr<Log> iter_logger;
+    std::shared_ptr<Log> iter_logger_2;
     std::shared_ptr<typename GS::Factory> gs_factory;
     std::shared_ptr<typename GS::Factory> ref_gs_factory;
     std::shared_ptr<typename Iter::Factory> iter_criterion_factory;
@@ -1444,7 +1446,6 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding2)
 
 TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
 {
-    // using CG = typename TestFixture::CG;
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
     using ValueType = typename TestFixture::value_type;
@@ -1484,11 +1485,13 @@ TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
                                      .with_use_padding(true)
                                      .on(exec));
 
-    auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
-    auto ltrs_factory =
-        share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
+    // auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
+    // auto ltrs_factory =
+    //     share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
     auto gs_hbmc = share(gs_hbmc_factory->generate(mtx));
 
+    iter_crit->add_logger(this->iter_logger_2);
+    res_norm->add_logger(this->iter_logger_2);
     auto pgmres_factory = GMRES::build()
                               .with_criteria(iter_crit, res_norm)
                               .with_generated_preconditioner(gs_hbmc)
@@ -1496,7 +1499,7 @@ TYPED_TEST(GaussSeidel, SystemSolveGS_PGMRES)
     auto pgmres = pgmres_factory->generate(mtx);
     pgmres->apply(lend(rhs_clone), lend(x_clone));
 
-    auto pgmres_num_iters = this->iter_logger->get_num_iterations();
+    auto pgmres_num_iters = this->iter_logger_2->get_num_iterations();
 
     ASSERT_EQ(pgmres_num_iters < gmres_num_iters, 1);
 }
@@ -1809,6 +1812,69 @@ TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
         gs_HBMC->apply(gko::lend(rhs), gko::lend(x));
         GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
     }
+}
+
+TYPED_TEST(GaussSeidel, SystemSolveSGS_CG)
+{
+    using Csr = typename TestFixture::Csr;
+    using Vec = typename TestFixture::Vec;
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using CG = typename TestFixture::CG;
+
+    using GS = typename TestFixture::GS;
+    using Log = typename TestFixture::Log;
+    using BJ = gko::preconditioner::Jacobi<ValueType, IndexType>;
+    using namespace gko;
+
+    auto exec = this->exec;
+
+    auto mtx = share(this->generate_rand_matrix(IndexType{1000}, IndexType{5},
+                                                IndexType{15}, ValueType{0}));
+    auto rhs =
+        share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+    auto x = Vec::create_with_config_of(lend(rhs));
+    x->fill(0.0);
+    auto x_clone = clone(exec, x);
+    auto rhs_clone = clone(exec, rhs);
+
+    auto iter_crit = this->iter_criterion_factory;
+    iter_crit->add_logger(this->iter_logger);
+    auto res_norm = this->res_norm_criterion_factory;
+    res_norm->add_logger(this->iter_logger);
+
+    auto cg_factory = CG::build().with_criteria(iter_crit, res_norm).on(exec);
+    auto cg = cg_factory->generate(mtx);
+    cg->apply(lend(rhs), lend(x));
+    auto cg_num_iters = this->iter_logger->get_num_iterations();
+
+    const auto omega_val = gko::remove_complex<ValueType>{1.5};
+    auto gs_hbmc_factory = share(GS::build()
+                                     .with_use_HBMC(true)
+                                     .with_base_block_size(4u)
+                                     .with_lvl_2_block_size(32u)
+                                     .with_symmetric_preconditioner(true)
+                                     .with_relaxation_factor(omega_val)
+                                     .with_use_padding(true)
+                                     .on(exec));
+
+    // auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
+    // auto ltrs_factory =
+    //     share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
+    auto gs_hbmc = share(gs_hbmc_factory->generate(mtx));
+
+    iter_crit->add_logger(this->iter_logger_2);
+    res_norm->add_logger(this->iter_logger_2);
+    auto pcg_factory = CG::build()
+                           .with_criteria(iter_crit, res_norm)
+                           .with_generated_preconditioner(gs_hbmc)
+                           .on(exec);
+    auto pcg = pcg_factory->generate(mtx);
+    pcg->apply(lend(rhs_clone), lend(x_clone));
+
+    auto pcg_num_iters = this->iter_logger_2->get_num_iterations();
+
+    ASSERT_EQ(pcg_num_iters < cg_num_iters, 1);
 }
 
 }  // namespace

@@ -75,7 +75,9 @@ __device__ void adv_apply_tr(
             auto i = 0;
             auto idx_read = 0;
             while (i < row) {
-                const auto val_read_offs = write_offs + (i - row) * w_storage;
+                const auto val_read_offs =
+                    forward ? write_offs + (i - row) * w_storage
+                            : write_offs - (i + 1) * w_storage;
                 const auto x_read_offs = idx_read * w_storage;
                 const auto row_read = rows[x_read_offs];
                 if (row_read >= 0) {
@@ -92,13 +94,10 @@ __device__ void adv_apply_tr(
             val = forward ? val : one<ValueType>() / val;
             const auto x_row_global =
                 prepermuted ? row_global : perm_idxs[row_global];
-            const auto b_row = forward ? row_global * num_rhs + col_id
-                                       : x_row_global * num_rhs + col_id;
-            tmp += prepermuted ? b[row_global * num_rhs + col_id] +
-                                     x[x_row_global * num_rhs + col_id]
-                               : b[row_global * num_rhs + col_id];
-            x[x_row_global * num_rhs + col_id] =
-                scale(val * tmp, x[x_row_global * num_rhs + col_id]);
+            const auto x_id = x_row_global * num_rhs + col_id;
+            const auto b_id = forward ? row_global * num_rhs + col_id : x_id;
+            tmp += (prepermuted && forward) ? b[b_id] + x[x_id] : b[b_id];
+            x[x_id] = scale(val * tmp, x[x_id]);
         }
         ++row;
         idx_write += (row + 1);
