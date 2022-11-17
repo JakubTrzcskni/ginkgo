@@ -202,7 +202,11 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                     }
                 }
             } else if (use_reference_ && !permuted) {
-                lower_trs_->apply(dense_b, dense_x);
+                if (symmetric_preconditioner_) {
+                    GKO_NOT_IMPLEMENTED;
+                } else {
+                    lower_trs_->apply(dense_b, dense_x);
+                }
             } else if (permuted) {
                 const auto exec = this->get_executor()->get_master();
                 auto b_perm =
@@ -411,9 +415,10 @@ void GaussSeidel<ValueType, IndexType>::generate(
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
     const IndexType num_nodes = csr_matrix->get_size()[0];
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
-    csr_matrix->write(mat_data);
+
 
     if (!symmetric_preconditioner_) {
+        csr_matrix->write(mat_data);
         if (use_reference_) {
             utils::make_lower_triangular(mat_data);
             lower_triangular_matrix_->read(mat_data);
@@ -441,8 +446,26 @@ void GaussSeidel<ValueType, IndexType>::generate(
                           2 * color_ptrs_.get_num_elems() - 3);
         }
 
-    } else
+    } else {
         GKO_NOT_IMPLEMENTED;
+        if (use_reference_) {
+            // TODO
+            auto diag = csr_matrix->extract_diagonal();
+            auto diag_vals_view =
+                make_array_view(exec, num_nodes, diag->get_values());
+            exec->run(gauss_seidel::make_invert_diagonal(diag_vals_view,
+                                                         diag_vals_view));
+            // scale with omega
+            auto omega =
+                initialize<matrix::Dense<gko::remove_complex<ValueType>>>(
+                    {relaxation_factor_}, exec);
+            // csr_matrix->scale(lend(omega));
+
+            // scale the lower triangular part with the diag inverse
+            // diag->apply(lend(csr_matrix), lend(csr_matrix));
+            // make sure the diag of the upper part isn't scaled with omega
+        }
+    }
 }
 
 template <typename ValueType, typename IndexType>
@@ -471,13 +494,14 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     exec->run(gauss_seidel::make_setup_blocks(
         lend(csr_matrix), permutation_idxs_.get_const_data(),
         inv_permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
-        l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
-        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
-        l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
-        l_spmv_vals_.get_data(), u_diag_rows_.get_data(),
-        u_diag_mtx_col_idxs_.get_data(), u_diag_vals_.get_data(),
-        u_spmv_row_ptrs_.get_data(), u_spmv_col_idxs_.get_data(),
-        u_spmv_mtx_col_idxs_.get_data(), u_spmv_vals_.get_data()));
+        relaxation_factor_, l_diag_rows_.get_data(),
+        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
+        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
+        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(),
+        u_diag_rows_.get_data(), u_diag_mtx_col_idxs_.get_data(),
+        u_diag_vals_.get_data(), u_spmv_row_ptrs_.get_data(),
+        u_spmv_col_idxs_.get_data(), u_spmv_mtx_col_idxs_.get_data(),
+        u_spmv_vals_.get_data()));
 
     GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
                hbmc_storage_scheme_.forward_solve_.size());

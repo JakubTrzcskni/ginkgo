@@ -508,6 +508,7 @@ void apply_spmv_block(preconditioner::spmv_block* spmv_block,
                       const IndexType* perm_idxs)
 {
     const auto row_offs = spmv_block->start_row_global_;
+    const auto col_offs = spmv_block->start_col_global_;
     const size_type num_rows = spmv_block->end_row_global_ - row_offs;
     const auto row_ptrs_id_offs = spmv_block->row_ptrs_storage_id_;
     const auto val_id_offs = spmv_block->val_storage_id_;
@@ -517,7 +518,7 @@ void apply_spmv_block(preconditioner::spmv_block* spmv_block,
              k < static_cast<size_type>(row_ptrs[row_ptrs_id_offs + row + 1]);
              ++k) {
             auto val = vals[val_id_offs + k];
-            auto col = col_idxs[val_id_offs + k];
+            const auto col = col_idxs[val_id_offs + k] + col_offs;
             const auto x_col = perm_idxs[col];
             const auto b_row =
                 forward ? row_offs + row : perm_idxs[row_offs + row];
@@ -858,6 +859,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                   const IndexType* permutation_idxs,
                   const IndexType* inv_permutation_idxs,
                   preconditioner::storage_scheme& storage_scheme,
+                  const gko::remove_complex<ValueType> omega,
                   IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs,
                   ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,
                   IndexType* l_spmv_col_idxs, IndexType* l_spmv_mtx_col_idxs,
@@ -871,7 +873,6 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
     const auto mtx_vals = system_matrix->get_const_values();
     const auto num_nodes = system_matrix->get_size()[0];
     if (storage_scheme.symm_) {
-        gko::remove_complex<ValueType> omega = 1.5;
         auto forward_solve = storage_scheme.forward_solve_;
         auto backward_solve = storage_scheme.backward_solve_;
         const auto num_blocks = storage_scheme.num_blocks_;
@@ -1027,12 +1028,15 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                 if (u_spmv)
                     for (; k < nnz_in_row; ++k) {
                         const auto local_k = k - tmp_k;
+                        const IndexType local_col =
+                            tmp_perm.get_const_data()[k] -
+                            u_spmv->start_col_global_;
                         u_spmv_vals[curr_id_u_spmv_val_col + local_k] =
                             tmp_mtx_vals.get_const_data()[k] * omega;
                         u_spmv_mtx_col_idxs[curr_id_u_spmv_val_col + local_k] =
                             tmp_mtx_col_idxs.get_const_data()[k];
                         u_spmv_col_idxs[curr_id_u_spmv_val_col + local_k] =
-                            tmp_perm.get_const_data()[k];
+                            local_col;
                         nnz_in_u_spmv_row++;
                     }
                 curr_id_u_spmv_val_col += k - tmp_k;

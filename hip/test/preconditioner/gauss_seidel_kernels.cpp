@@ -52,24 +52,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{std::make_tuple(20, 5, 32, 4, false),
-                                  std::make_tuple(20, 5, 32, 4, true),
-                                  std::make_tuple(1000, 5, 32, 4, true),
-                                  std::make_tuple(1000, 5, 32, 4, false),
-                                  std::make_tuple(1000, 5, 32, 8, false),
-                                  std::make_tuple(1000, 5, 32, 8, true),
-                                  std::make_tuple(1000, 5, 32, 2, false),
-                                  std::make_tuple(1000, 5, 32, 2, true),
-                                  std::make_tuple(1000, 5, 32, 2, false),
-                                  std::make_tuple(1000, 5, 32, 2, true),
-                                  std::make_tuple(1000, 10, 16, 4, false),
-                                  std::make_tuple(1000, 10, 16, 4, true),
-                                  std::make_tuple(1000, 10, 4, 4, false),
-                                  std::make_tuple(1000, 10, 4, 4, true),
-                                  //   std::make_tuple(1003, 15, 32, 4, false),
-                                  //   std::make_tuple(1003, 15, 32, 4, true),
-                                  std::make_tuple(1000, 10, 4, 8, false),
-                                  std::make_tuple(1000, 10, 4, 8, true)};
+static apply_param_type allParams{
+    std::make_tuple(16, 2, 16, 8, false), std::make_tuple(20, 5, 32, 4, false),
+    std::make_tuple(20, 5, 32, 4, true), std::make_tuple(1000, 5, 32, 4, true),
+    std::make_tuple(1000, 5, 32, 4, false),
+    std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 8, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 10, 16, 4, false),
+    std::make_tuple(1000, 10, 16, 4, true),
+    std::make_tuple(1000, 10, 4, 4, false),
+    std::make_tuple(1000, 10, 4, 4, true),
+    //   std::make_tuple(1003, 15, 32, 4, false),
+    //   std::make_tuple(1003, 15, 32, 4, true),
+    std::make_tuple(1000, 10, 4, 8, false),
+    std::make_tuple(1000, 10, 4, 8, true)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing::Test {
@@ -372,7 +372,7 @@ TYPED_TEST(GaussSeidel, AdvancedApply)
     for (auto const& [num_rows, row_limit, w, b_s, padding] :
          this->apply_params_) {
         const auto omega_val = gko::remove_complex<ValueType>{1.5};
-        gko::size_type num_rhs = 10;
+        gko::size_type num_rhs = 1;
         auto nz_dist = std::uniform_int_distribution<IndexType>(
             1, static_cast<gko::size_type>(row_limit));
         auto val_dist =
@@ -430,7 +430,7 @@ TYPED_TEST(GaussSeidel, AdvancedApply)
         ref_gs->apply(gko::lend(rhs), gko::lend(x));
 
         device_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
-        std::cout << "tuple: " << i++ << std::endl;
+        // std::cout << "tuple: " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
     }
 }
@@ -444,10 +444,11 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
     using Vec = gko::matrix::Dense<ValueType>;
     auto ref_exec = this->ref;
     auto hip_exec = this->hip;
+    auto i = 1;
     for (auto const& [num_rows, row_limit, w, b_s, padding] :
          this->apply_params_) {
         const auto omega_val = gko::remove_complex<ValueType>{1.5};
-        gko::size_type num_rhs = 10;
+        gko::size_type num_rhs = 1;
         auto nz_dist = std::uniform_int_distribution<IndexType>(
             1, static_cast<gko::size_type>(row_limit));
         auto val_dist =
@@ -481,8 +482,8 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
                 .with_symmetric_preconditioner(true)
                 .with_relaxation_factor(omega_val)
                 .with_prepermuted_input(false)
-                .on(hip_exec);
-        auto perm_gs = perm_gs_factory->generate(mtx);
+                .on(ref_exec);
+        auto ref_gs = perm_gs_factory->generate(mtx);
 
         auto preperm_gs_factory =
             GS::build()
@@ -499,20 +500,24 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
 
         auto perm_idxs =
             gko::array<IndexType>(hip_exec, preperm_gs->get_permutation_idxs());
+        auto ref_perm_idxs =
+            gko::array<IndexType>(ref_exec, ref_gs->get_permutation_idxs());
+        GKO_ASSERT_ARRAY_EQ(perm_idxs, ref_perm_idxs);
         auto d_rhs = gko::clone(hip_exec, rhs);
         auto d_permuted_rhs =
             gko::as<Vec>(lend(d_rhs)->row_permute(&perm_idxs));
-        auto d_x = Vec::create_with_config_of(gko::lend(d_rhs));
-        d_x->fill(ValueType{0});
-        auto d_permuted_x = gko::clone(hip_exec, d_x);
+        auto x = Vec::create_with_config_of(gko::lend(rhs));
+        x->fill(ValueType{0});
+        auto d_permuted_x = gko::clone(hip_exec, x);
 
-        perm_gs->apply(gko::lend(d_rhs), gko::lend(d_x));
+        ref_gs->apply(gko::lend(rhs), gko::lend(x));
 
         preperm_gs->apply(gko::lend(d_permuted_rhs), gko::lend(d_permuted_x));
 
         auto ans =
             gko::as<Vec>(lend(d_permuted_x)->inverse_row_permute(&perm_idxs));
-        GKO_ASSERT_MTX_NEAR(ans, d_x, r<ValueType>::value);
+        // std::cout << "tuple: " << i++ << std::endl;
+        GKO_ASSERT_MTX_NEAR(ans, x, r<ValueType>::value);
     }
 }
 

@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/polymorphic_object.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/sparsity_csr.hpp>
-// #include <ginkgo/core/solver/lower_trs.hpp>
 #include <ginkgo/core/solver/triangular.hpp>
 
 #include <ginkgo/core/matrix/dense.hpp>
@@ -209,6 +208,7 @@ public:
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Dense = matrix::Dense<ValueType>;
     using LTrs = solver::LowerTrs<value_type, index_type>;
+    using UTrs = solver::UpperTrs<value_type, index_type>;
 
     std::unique_ptr<LinOp> transpose() const override;
 
@@ -290,7 +290,7 @@ protected:
           host_exec_{factory->get_executor()->get_master()},
           parameters_{factory->get_parameters()},
           lower_triangular_matrix_{Csr::create(host_exec_)},
-          upper_triangular_matrix_{Csr::create(host_exec_)},
+
           lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{
               array<index_type>(host_exec_, system_matrix->get_size()[0])},
@@ -319,6 +319,9 @@ protected:
                        lvl2_block_size_ > 0 && lvl2_block_size_ < 33);
             GKO_ASSERT_IS_POWER_OF_TWO(lvl2_block_size_);
             if (parameters_.symmetric_preconditioner) {
+                upper_triangular_matrix_ = share(Csr::create(host_exec_));
+                upper_trs_factory_ =
+                    share(UTrs::build().on(factory->get_executor()));
                 u_diag_rows_ = array<index_type>(host_exec_);
                 u_diag_mtx_col_idxs_ = array<index_type>(host_exec_);
                 u_diag_vals_ = array<value_type>(host_exec_);
@@ -372,6 +375,7 @@ private:
     std::shared_ptr<const LinOp> lower_trs_{};
     std::shared_ptr<typename LTrs::Factory> lower_trs_factory_{};
     std::shared_ptr<const LinOp> upper_trs_{};
+    std::shared_ptr<typename UTrs::Factory> upper_trs_factory_{};
     array<index_type> vertex_colors_;
     array<index_type> color_ptrs_;  // assuming that the colors found constitute
                                     // a span [0,max_color], i.e., there are no

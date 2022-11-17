@@ -99,8 +99,8 @@ template <bool forward, bool prepermuted, int subwarp_size, typename ValueType,
           typename IndexType>
 void const_adv_apply_hbmc(syn::value_list<int, subwarp_size>,
                           std::shared_ptr<const Executor> exec,
-                          const IndexType* l_diag_rows,
-                          const ValueType* l_diag_vals,
+                          const IndexType* diag_rows,
+                          const ValueType* diag_vals,
                           const preconditioner::parallel_block* p_block,
                           const matrix::Dense<ValueType>* b_perm,
                           matrix::Dense<ValueType>* x,
@@ -111,7 +111,7 @@ void const_adv_apply_hbmc(syn::value_list<int, subwarp_size>,
         p_block->end_row_global_ - p_block->start_row_global_;
     const auto num_rhs = b_perm->get_size()[1];
     const auto num_rows = b_perm->get_size()[0];
-    auto id_offs = p_block->val_storage_id_;
+    const auto id_offs = p_block->val_storage_id_;
     const auto num_involved_subwarps = p_block->degree_of_parallelism_;
     const auto min_num_threads =
         config::min_warps_per_block * config::warp_size;
@@ -128,7 +128,7 @@ void const_adv_apply_hbmc(syn::value_list<int, subwarp_size>,
     const auto grid_size_adv = dim3(grid_size, num_rhs, 1);
     kernel::adv_apply_kernel<forward, prepermuted, subwarp_size>
         <<<grid_size_adv, block_size>>>(
-            &(l_diag_rows[id_offs]), as_device_type(&(l_diag_vals[id_offs])),
+            &(diag_rows[id_offs]), as_device_type(&(diag_vals[id_offs])),
             p_block->end_row_global_, num_rows_p_block, b_s,
             p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
             p_block->residual_, num_rhs,

@@ -1,144 +1,277 @@
-// template <bool prepermuted, int subwarp_size, typename ValueType,
-//           typename IndexType, typename Closure>
-// __device__ void adv_apply_ltr(
-//     const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
-//     const size_type end_row, const size_type num_rows_in_block,
-//     const size_type b_s, const size_type w_storage, const size_type num_rhs,
-//     const ValueType* __restrict__ b, ValueType* __restrict__ x,
-//     const IndexType* __restrict__ perm_idxs, Closure scale)
-// {
-//     const auto tid = thread::get_thread_id_flat<int>();
-//     const auto col_id = blockIdx.y;
-//     const auto curr_b_s = (num_rows_in_block - tid * b_s) < b_s
-//                               ? (num_rows_in_block - tid * b_s)
-//                               : b_s;
-//     auto row = 0;
-//     auto idx_write = 0;
-//     while (row < curr_b_s) {
-//         ValueType tmp{0};
-//         const auto write_offs = idx_write * w_storage;
-//         const auto row_global = rows[write_offs];
-//         if (row_global >= 0) {
-//             if (row_global >= end_row) return;
-//             auto i = 0;
-//             auto idx_read = 0;
-//             while (i < row) {
-//                 const auto val_read_offs = write_offs + (i - row) *
-//                 w_storage; const auto x_read_offs = idx_read * w_storage;
-//                 const auto row_read = rows[x_read_offs];
-//                 if (row_read >= 0) {
-//                     const auto x_row_read =
-//                         prepermuted ? row_read : perm_idxs[row_read];
-//                     tmp -=
-//                         vals[val_read_offs] * x[x_row_read * num_rhs +
-//                         col_id];
-//                 }
-//                 ++i;
-//                 idx_read += (i + 1);
-//             }
-//             const auto val = vals[write_offs];
-//             const auto x_row_global =
-//                 prepermuted ? row_global : perm_idxs[row_global];
-//             tmp += prepermuted ? b[row_global * num_rhs + col_id] +
-//                                      x[x_row_global * num_rhs + col_id]
-//                                : b[row_global * num_rhs + col_id];
-//             x[x_row_global * num_rhs + col_id] =
-//                 scale(tmp, x[x_row_global * num_rhs + col_id]);
-//         }
-//         ++row;
-//         idx_write += (row + 1);
-//     }
-// }
 
-template <bool forward, bool prepermuted, int subwarp_size, typename ValueType,
-          typename IndexType, typename Closure>
-__device__ void adv_apply_tr(
-    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
-    const size_type end_row, const size_type num_rows_in_block,
-    const size_type b_s, const size_type w_storage, const size_type num_rhs,
-    const ValueType* __restrict__ b, ValueType* __restrict__ x,
-    const IndexType* __restrict__ perm_idxs, Closure scale)
+template <typename ValueType, typename IndexType>
+void advanced_apply(
+    std::shared_ptr<const DefaultExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const IndexType* u_diag_rows, const ValueType* u_diag_vals,
+    const IndexType* u_spmv_row_ptrs, const IndexType* u_spmv_col_idxs,
+    const ValueType* u_spmv_vals, const IndexType* permutation_idxs,
+    const preconditioner::storage_scheme& storage_scheme,
+    const remove_complex<ValueType> omega, matrix::Dense<ValueType>* b_perm,
+    matrix::Dense<ValueType>* x, int kernel_version)
 {
-    const auto tid = thread::get_thread_id_flat<int>();
-    const auto col_id = blockIdx.y;
-    const auto curr_b_s = (num_rows_in_block - tid * b_s) < b_s
-                              ? (num_rows_in_block - tid * b_s)
-                              : b_s;
-    auto row = 0;
-    auto idx_write = 0;
-    while (row < curr_b_s) {
-        ValueType tmp{0};
-        const auto write_offs = idx_write * w_storage;
-        const auto row_global = rows[write_offs];
-        if (row_global >= 0) {
-            if (row_global >= end_row) return;
-            auto i = 0;
-            auto idx_read = 0;
-            while (i < row) {
-                const auto val_read_offs =
-                    forward ? write_offs + (i - row) * w_storage
-                            : write_offs - (i + 1) * w_storage;
-                const auto x_read_offs = idx_read * w_storage;
-                const auto row_read = rows[x_read_offs];
-                if (row_read >= 0) {
-                    const auto x_row_read =
-                        prepermuted ? row_read : perm_idxs[row_read];
-                    tmp -=
-                        vals[val_read_offs] * x[x_row_read * num_rhs + col_id];
-                }
-                ++i;
-                idx_read += (i + 1);
-            }
-            auto val = vals[write_offs];
-            assert(val != zero<ValueType>());
-            val = forward ? val : one<ValueType>() / val;
-            const auto x_row_global =
-                prepermuted ? row_global : perm_idxs[row_global];
-            const auto x_id = x_row_global * num_rhs + col_id;
-            const auto b_id = forward ? row_global * num_rhs + col_id : x_id;
-            tmp += (prepermuted && forward) ? b[b_id] + x[x_id] : b[b_id];
-            x[x_id] = scale(val * tmp, x[x_id]);
+    GKO_ASSERT(storage_scheme.symm_);
+    GKO_ASSERT(kernel_version == 9);
+    const auto forward_solve = storage_scheme.forward_solve_;
+    const auto backward_solve = storage_scheme.backward_solve_;
+
+    const auto num_blocks = storage_scheme.num_blocks_;
+    const auto num_rhs = b_perm->get_size()[1];
+    const auto num_rows = b_perm->get_size()[0];
+    auto alpha_spmv = initialize<matrix::Dense<ValueType>>({-1.}, exec);
+    auto beta_spmv = initialize<matrix::Dense<ValueType>>({1.}, exec);
+    auto beta_spmv_backward = initialize<matrix::Dense<ValueType>>({0.}, exec);
+
+    // forward solve
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            forward_solve[block].get());
+        const auto w = p_block->lvl_2_block_size_;
+        host_kernel::select_const_adv_apply_hbmc(
+            kernel::hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, true, false>(), syn::type_list<>(), exec,
+            l_diag_rows, l_diag_vals, p_block, b_perm, x, permutation_idxs);
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                forward_solve[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = matrix::Csr<ValueType, IndexType>::create_const(
+                exec, dim<2>{spmv_size_row, spmv_size_col},
+                array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_vals[spmv_block->val_storage_id_])),
+                array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+                array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+
+            auto tmp_b =
+                b_perm->create_submatrix(span{spmv_block->start_row_global_,
+                                              spmv_block->end_row_global_},
+                                         span{0, num_rhs});
+
+            const auto perm_view = array<IndexType>::view(
+                exec, spmv_size_col,
+                const_cast<IndexType*>(
+                    &permutation_idxs[spmv_block->start_col_global_]));
+
+            auto tmp_x = x->row_gather(&perm_view);
+
+            csr::advanced_spmv(exec, lend(alpha_spmv), lend(tmp_csr),
+                               lend(tmp_x), lend(beta_spmv), lend(tmp_b));
         }
-        ++row;
-        idx_write += (row + 1);
+    }
+    b_perm->fill(ValueType{0.});
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            backward_solve[block].get());
+
+        const auto w = p_block->lvl_2_block_size_;
+        host_kernel::select_const_adv_apply_hbmc(
+            kernel::hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, false, false>(), syn::type_list<>(), exec,
+            u_diag_rows, u_diag_vals, p_block, b_perm, x, permutation_idxs);
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                backward_solve[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                u_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = matrix::Csr<ValueType, IndexType>::create_const(
+                exec, dim<2>{spmv_size_row, spmv_size_col},
+                array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(u_spmv_vals[spmv_block->val_storage_id_])),
+                array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(u_spmv_col_idxs[spmv_block->val_storage_id_])),
+                array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(u_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+            GKO_ASSERT(spmv_block->start_col_global_ + spmv_size_col <
+                       num_rows);
+            const auto perm_view_in = array<IndexType>::view(
+                exec, spmv_size_col,
+                const_cast<IndexType*>(
+                    &permutation_idxs[spmv_block->start_col_global_]));
+            auto tmp_x_in = x->row_gather(&perm_view_in);
+
+            auto tmp_b =
+                b_perm->create_submatrix(span{spmv_block->start_row_global_,
+                                              spmv_block->end_row_global_},
+                                         span{0, num_rhs});
+
+            /* std::cout << "block " << block << " row "
+                      << spmv_block->start_row_global_ << " "
+                      << spmv_block->end_row_global_ << " col "
+                      << spmv_block->start_col_global_ << " "
+                      << spmv_block->end_col_global_ << std::endl;
+            std::cout << "tmp_csr" << std::endl;
+            write(std::cout, lend(tmp_csr), layout_type::coordinate);
+            std::cout << "tmp_x_in" << std::endl;
+            write(std::cout, lend(tmp_x_in), layout_type::coordinate); */
+
+            csr::advanced_spmv(exec, lend(alpha_spmv), lend(tmp_csr),
+                               lend(tmp_x_in), lend(beta_spmv_backward),
+                               lend(tmp_b));
+            /*  std::cout << "tmp_b" << std::endl;
+             write(std::cout, lend(tmp_b), layout_type::coordinate); */
+        }
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_APPLY_KERNEL);
 
-
-template <bool forward, bool prepermuted, int subwarp_size, typename ValueType,
-          typename IndexType>
-__global__ void adv_apply_kernel(
-    const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
-    const size_type end_row, const size_type num_rows_in_block,
-    const size_type b_s, const size_type nz_p_b, const size_type num_p_blocks,
-    const bool res_blocks, const size_type num_rhs,
-    const ValueType* __restrict__ b_perm, ValueType* __restrict__ x,
-    const IndexType* __restrict__ perm_idxs)
+template <typename ValueType, typename IndexType>
+void advanced_prepermuted_apply(
+    std::shared_ptr<const DefaultExecutor> exec, const IndexType* l_diag_rows,
+    const ValueType* l_diag_vals, const IndexType* l_spmv_row_ptrs,
+    const IndexType* l_spmv_col_idxs, const ValueType* l_spmv_vals,
+    const IndexType* u_diag_rows, const ValueType* u_diag_vals,
+    const IndexType* u_spmv_row_ptrs, const IndexType* u_spmv_col_idxs,
+    const ValueType* u_spmv_vals, const IndexType* permutation_idxs,
+    const preconditioner::storage_scheme& storage_scheme,
+    const matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x_perm,
+    int kernel_version)
 {
-    const auto tid = thread::get_thread_id_flat<int>();
-    auto subwarp =
-        group::tiled_partition<subwarp_size>(group::this_thread_block());
-    const auto local_tid = subwarp.thread_rank();
-    const auto subwarp_id = thread::get_subwarp_id_flat<subwarp_size, int>();
+    GKO_ASSERT(storage_scheme.symm_);
+    GKO_ASSERT(kernel_version == 9);
+    const auto forward_solve = storage_scheme.forward_solve_;
+    const auto backward_solve = storage_scheme.backward_solve_;
 
-    if (subwarp_id >= num_p_blocks || tid * b_s >= num_rows_in_block) return;
-    const auto stride = nz_p_b * subwarp_size;
-    const auto base_offs = subwarp_id * stride;
-    if (subwarp_id == (num_p_blocks - 1) && res_blocks) {
-        // apply base_block_agg
-        const auto stride_base_block = nz_p_b;
-        const auto base_block_offs = base_offs + local_tid * stride_base_block;
-        adv_apply_tr<forward, prepermuted, subwarp_size>(
-            &(rows[base_block_offs]), &(vals[base_block_offs]), end_row,
-            num_rows_in_block, b_s, one<size_type>(), num_rhs, b_perm, x,
-            perm_idxs,
-            [](const ValueType& x, const ValueType& y) { return x; });
-    } else {
-        // apply lvl 1
-        adv_apply_tr<forward, prepermuted, subwarp_size>(
-            &(rows[base_offs + local_tid]), &(vals[base_offs + local_tid]),
-            end_row, num_rows_in_block, b_s, subwarp_size, num_rhs, b_perm, x,
-            perm_idxs,
-            [](const ValueType& x, const ValueType& y) { return x; });
+    const auto num_blocks = storage_scheme.num_blocks_;
+    const auto num_rhs = b_perm->get_size()[1];
+    const auto num_rows = b_perm->get_size()[0];
+    auto alpha_spmv =
+        gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
+    auto beta_spmv_forward =
+        gko::initialize<gko::matrix::Dense<ValueType>>({0.}, exec);
+    auto beta_spmv_backward =
+        gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
+    // forward solve
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            forward_solve[block].get());
+        const auto w = p_block->lvl_2_block_size_;
+        host_kernel::select_const_adv_apply_hbmc(
+            kernel::hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, true, true>(), syn::type_list<>(), exec,
+            l_diag_rows, l_diag_vals, p_block, b_perm, x_perm,
+            permutation_idxs);
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                forward_solve[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
+                exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+                gko::array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_vals[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(l_spmv_col_idxs[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(l_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+            auto x_in = x_perm->create_submatrix(
+                gko::span{spmv_block->start_col_global_,
+                          spmv_block->end_col_global_},
+                gko::span{0, num_rhs});
+            auto x_out_tmp = x_perm->create_submatrix(
+                gko::span{spmv_block->start_row_global_,
+                          spmv_block->end_row_global_},
+                gko::span{0, num_rhs});
+
+            csr::advanced_spmv(exec, lend(alpha_spmv), lend(tmp_csr),
+                               lend(x_in), lend(beta_spmv_forward),
+                               lend(x_out_tmp));
+        }
+    }
+
+    for (auto block = 0; block < num_blocks; block += 2) {
+        auto p_block = static_cast<preconditioner::parallel_block*>(
+            backward_solve[block].get());
+
+        const auto w = p_block->lvl_2_block_size_;
+        host_kernel::select_const_adv_apply_hbmc(
+            kernel::hbmc_kernels(),
+            [&](int compiled_subwarp_size) {
+                return compiled_subwarp_size == w;
+            },
+            syn::value_list<int, false, true>(), syn::type_list<>(), exec,
+            u_diag_rows, u_diag_vals, p_block, x_perm, x_perm,
+            permutation_idxs);
+
+        if (block < num_blocks - 1) {
+            auto spmv_block = static_cast<preconditioner::spmv_block*>(
+                backward_solve[block + 1].get());
+            const auto spmv_size_row =
+                spmv_block->end_row_global_ - spmv_block->start_row_global_;
+            const auto spmv_size_col =
+                spmv_block->end_col_global_ - spmv_block->start_col_global_;
+            const auto spmv_nnz =
+                u_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_ +
+                                spmv_size_row];
+
+            auto tmp_csr = gko::matrix::Csr<ValueType, IndexType>::create_const(
+                exec, gko::dim<2>{spmv_size_row, spmv_size_col},
+                gko::array<ValueType>::const_view(
+                    exec, spmv_nnz,
+                    &(u_spmv_vals[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_nnz,
+                    &(u_spmv_col_idxs[spmv_block->val_storage_id_])),
+                gko::array<IndexType>::const_view(
+                    exec, spmv_size_row + 1,
+                    &(u_spmv_row_ptrs[spmv_block->row_ptrs_storage_id_])));
+            auto x_in = x_perm->create_submatrix(
+                gko::span{spmv_block->start_col_global_,
+                          spmv_block->end_col_global_},
+                gko::span{0, num_rhs});
+            auto x_out_tmp = x_perm->create_submatrix(
+                gko::span{spmv_block->start_row_global_,
+                          spmv_block->end_row_global_},
+                gko::span{0, num_rhs});
+            // gko::write(std::cout, lend())
+            csr::advanced_spmv(exec, lend(alpha_spmv), lend(tmp_csr),
+                               lend(x_in), lend(beta_spmv_backward),
+                               lend(x_out_tmp));
+        }
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_GAUSS_SEIDEL_ADVANCED_PREPERMUTED_APPLY_KERNEL);

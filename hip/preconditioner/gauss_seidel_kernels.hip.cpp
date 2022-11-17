@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/exception_helpers.hpp>
 #include <ginkgo/core/base/executor.hpp>
 #include <ginkgo/core/base/math.hpp>
+#include <ginkgo/core/base/mtx_io.hpp>
 #include <ginkgo/core/base/types.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -128,6 +129,7 @@ void setup_blocks(std::shared_ptr<const HipExecutor> exec,
                   const IndexType* permutation_idxs,
                   const IndexType* inv_permutation_idxs,
                   preconditioner::storage_scheme& storage_scheme,
+                  const gko::remove_complex<ValueType> omega,
                   IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs,
                   ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,
                   IndexType* l_spmv_col_idxs, IndexType* l_spmv_mtx_col_idxs,

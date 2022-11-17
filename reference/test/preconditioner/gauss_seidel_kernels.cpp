@@ -72,27 +72,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace {
 
 using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
-static apply_param_type allParams{std::make_tuple(20, 5, 32, 4, false),
-                                  std::make_tuple(20, 5, 32, 4, true),
-                                  std::make_tuple(1000, 5, 32, 4, false),
-                                  std::make_tuple(1000, 5, 32, 4, true),
-                                  std::make_tuple(1000, 5, 32, 8, false),
-                                  std::make_tuple(1000, 5, 32, 8, true),
-                                  std::make_tuple(1000, 5, 32, 2, false),
-                                  std::make_tuple(1000, 5, 32, 2, true),
-                                  std::make_tuple(1000, 15, 32, 4, false),
-                                  std::make_tuple(1000, 15, 32, 4, true),
-                                  std::make_tuple(1000, 10, 16, 4, false),
-                                  std::make_tuple(1000, 10, 16, 4, true),
-                                  std::make_tuple(1000, 10, 4, 4, false),
-                                  std::make_tuple(1000, 10, 4, 4, true),
-                                  std::make_tuple(1000, 10, 4, 8, false),
-                                  std::make_tuple(1000, 10, 4, 8, true),
-                                  //   std::make_tuple(1003, 15, 32, 4, false),
-                                  //   std::make_tuple(1003, 15, 32, 4, true),
-                                  std::make_tuple(10000, 20, 32, 4, false),
-                                  std::make_tuple(10000, 20, 32, 4, true),
-                                  std::make_tuple(10000, 20, 16, 8, false)};
+static apply_param_type allParams{
+    std::make_tuple(16, 2, 16, 8, false), std::make_tuple(20, 5, 32, 4, false),
+    std::make_tuple(20, 5, 32, 4, true), std::make_tuple(1000, 5, 32, 4, false),
+    std::make_tuple(1000, 5, 32, 4, true),
+    std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 8, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 15, 32, 4, false),
+    std::make_tuple(1000, 15, 32, 4, true),
+    std::make_tuple(1000, 10, 16, 4, false),
+    std::make_tuple(1000, 10, 16, 4, true),
+    std::make_tuple(1000, 10, 4, 4, false),
+    std::make_tuple(1000, 10, 4, 4, true),
+    std::make_tuple(1000, 10, 4, 8, false),
+    std::make_tuple(1000, 10, 4, 8, true),
+    //   std::make_tuple(1003, 15, 32, 4, false),
+    //   std::make_tuple(1003, 15, 32, 4, true),
+    std::make_tuple(10000, 20, 32, 4, false),
+    std::make_tuple(10000, 20, 32, 4, true),
+    std::make_tuple(10000, 20, 16, 8, false)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing ::Test {
@@ -986,11 +986,12 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernel)
 
     gko::kernels::reference::gauss_seidel::setup_blocks(
         exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
-        dummy_storage_scheme, l_diag_rows_.get_data(),
-        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
-        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
-        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(), dummyInd,
-        dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+        dummy_storage_scheme, static_cast<gko::remove_complex<ValueType>>(1.),
+        l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
+        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
+        l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
+        l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
+        dummyInd, dummyInd, dummyVal);
 
     GKO_ASSERT_MTX_NEAR(expected_l_diag_vals_vec, l_diag_vals_vec_,
                         r<ValueType>::value);
@@ -1178,11 +1179,12 @@ TYPED_TEST(GaussSeidel, SimpleApplyHBMC)
 
     gko::kernels::reference::gauss_seidel::setup_blocks(
         exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
-        storage_scheme, l_diag_rows_.get_data(),
-        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
-        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
-        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(), dummyInd,
-        dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+        storage_scheme, static_cast<gko::remove_complex<ValueType>>(1.),
+        l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
+        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
+        l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
+        l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
+        dummyInd, dummyInd, dummyVal);
 
     auto rhs_perm = gko::as<Vec>(rhs->row_permute(&perm));
 
@@ -1376,11 +1378,12 @@ TYPED_TEST(GaussSeidel, SecondaryOrderingSetupBlocksKernelPadding)
 
     gko::kernels::reference::gauss_seidel::setup_blocks(
         exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
-        storage_scheme_padding, l_diag_rows_.get_data(),
-        l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
-        l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
-        l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(), dummyInd,
-        dummyInd, dummyVal, dummyInd, dummyInd, dummyInd, dummyVal);
+        storage_scheme_padding, static_cast<gko::remove_complex<ValueType>>(1.),
+        l_diag_rows_.get_data(), l_diag_mtx_col_idxs_.get_data(),
+        l_diag_vals_.get_data(), l_spmv_row_ptrs_.get_data(),
+        l_spmv_col_idxs_.get_data(), l_spmv_mtx_col_idxs_.get_data(),
+        l_spmv_vals_.get_data(), dummyInd, dummyInd, dummyVal, dummyInd,
+        dummyInd, dummyInd, dummyVal);
 
     gko::array<ValueType> expected_l_diag_vals(
         exec,
@@ -1534,9 +1537,6 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
 
     gko::array<IndexType> perm(exec, mtx->get_size()[0]);
     std::iota(perm.get_data(), perm.get_data() + perm.get_num_elems(), 0);
-    // this->template init_array<IndexType>(
-    //     perm.get_data(),
-    //     {0, 4, 1, 5, 2, 6, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15});
     gko::array<IndexType> inv_perm(exec, mtx->get_size()[0]);
 
     gko::array<IndexType> color_block_ptrs(exec, I<IndexType>({0, 8, 12, 16}));
@@ -1703,7 +1703,7 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
 
     gko::kernels::reference::gauss_seidel::setup_blocks(
         exec, gko::lend(mtx), perm.get_const_data(), inv_perm.get_const_data(),
-        dummy_storage_scheme, l_diag_rows_.get_data(),
+        dummy_storage_scheme, omega_val, l_diag_rows_.get_data(),
         l_diag_mtx_col_idxs_.get_data(), l_diag_vals_.get_data(),
         l_spmv_row_ptrs_.get_data(), l_spmv_col_idxs_.get_data(),
         l_spmv_mtx_col_idxs_.get_data(), l_spmv_vals_.get_data(),
@@ -1742,7 +1742,6 @@ TYPED_TEST(GaussSeidel, AdvancedSecondaryOrderingSetupBlocksKernel)
     auto ref_ans = Vec::create(exec);
     ref_ans->copy_from(
         std::move(gko::as<Vec>(ref_x->inverse_row_permute(&perm))));
-
 
     gko::kernels::reference::gauss_seidel::advanced_apply(
         exec, l_diag_rows_.get_const_data(), l_diag_vals_.get_const_data(),
@@ -1858,9 +1857,6 @@ TYPED_TEST(GaussSeidel, SystemSolveSGS_CG)
                                      .with_use_padding(true)
                                      .on(exec));
 
-    // auto jacobi = share(BJ::build().with_max_block_size(8u).on(exec));
-    // auto ltrs_factory =
-    //     share(solver::LowerTrs<ValueType, IndexType>::build().on(exec));
     auto gs_hbmc = share(gs_hbmc_factory->generate(mtx));
 
     iter_crit->add_logger(this->iter_logger_2);

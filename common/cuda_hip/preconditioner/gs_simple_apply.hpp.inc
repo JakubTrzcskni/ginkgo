@@ -229,7 +229,6 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
     auto alpha = gko::initialize<gko::matrix::Dense<ValueType>>({-1.}, exec);
     auto beta = gko::initialize<gko::matrix::Dense<ValueType>>({1.}, exec);
 
-
     for (auto block = 0; block < num_blocks; block += 2) {
         auto p_block = static_cast<preconditioner::parallel_block*>(
             block_ptrs[block].get());
@@ -276,7 +275,6 @@ void simple_apply(std::shared_ptr<const DefaultExecutor> exec,
                     &permutation_idxs[spmv_block->start_col_global_]));
 
             auto tmp_x = x->row_gather(&perm_view);
-
 
             csr::advanced_spmv(exec, lend(alpha), lend(tmp_csr), lend(tmp_x),
                                lend(beta), lend(tmp_b));

@@ -215,6 +215,7 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
                       const IndexType* permutation_idxs,                      \
                       const IndexType* inv_permutation_idxs,                  \
                       preconditioner::storage_scheme& storage_scheme,         \
+                      const gko::remove_complex<ValueType> omega,             \
                       IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs, \
                       ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,     \
                       IndexType* l_spmv_col_idxs,                             \
