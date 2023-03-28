@@ -46,11 +46,32 @@ protected:
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
     using index_type =
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
+    using csr = gko::matrix::Csr<value_type, index_type>;
+    using dense = gko::matrix::Dense<value_type>;
+    using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
 
-    GaussSeidel() : {}
-}
+    GaussSeidel()
+        : exec(gko::ReferenceExecutor::create()),
+          mtx(gko::initialize<csr>({{1., 2., 3.}, {4., 5., 6.}, {7., 8., 9.}},
+                                   exec)),
+          ref_l_mtx(gko::initialize<csr>(
+              {{1., 0., 0.}, {4., 5., 0.}, {7., 8., 9.}}, exec)),
+          gs_factory(GS::build().on(exec))
+    {}
+
+    std::shared_ptr<const gko::Executor> exec;
+    std::shared_ptr<csr> mtx;
+    std::shared_ptr<csr> ref_l_mtx;
+    std::shared_ptr<dense> x;
+    std::shared_ptr<dense> rhs;
+    std::unique_ptr<typename GS::Factory> gs_factory;
+};
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
+TYPED_TEST(GaussSeidel, ExtractsLowerTriangularCorrectly)
+{
+    auto gs = this->gs_factory->generate(gko::lend(this->mtx));
+}
 
 }  // namespace

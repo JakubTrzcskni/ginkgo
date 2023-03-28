@@ -192,7 +192,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
             if (!symmetric_preconditioner_)
                 lower_trs_->apply(dense_b, dense_x);
             else {
-                GKO_NOT_IMPLEMENTED;
                 lower_trs_->apply(dense_b, dense_x);
                 dense_b->copy_from(x);
                 upper_trs_->apply(dense_b, dense_x);
@@ -212,7 +211,6 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
             if (!symmetric_preconditioner_) {
                 lower_trs_->apply(dense_alpha, dense_b, dense_beta, dense_x);
             } else {
-                // TODO
                 auto x_clone = dense_x->clone();
                 this->apply_impl(dense_b, x_clone.get());
                 dense_x->scale(dense_beta);

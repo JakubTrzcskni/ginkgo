@@ -48,18 +48,26 @@ protected:
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
     using index_type =
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
+    using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
     using Csr = gko::matrix::Csr<value_type, index_type>;
-    GaussSeidelFactory() : exec(gko::ReferenceExecutor::create()) {}
+    GaussSeidelFactory()
+        : exec(gko::ReferenceExecutor::create()),
+          gs_factory(GS::build().on(exec))
+    {}
 
 private:
     std::shared_ptr<const gko::Executor> exec;
+    std::unique_ptr<typename GS::Factory> gs_factory;
 };
 
 TYPED_TEST_SUITE(GaussSeidelFactory, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
 
-TYPED_TEST(GaussSeidelFactory, KnowsItsExecutor) {}
-TYPED_TEST(GaussSeidelFactory, SetsSkipSortingCorrectly) {}
-// throws on dimensions, conversion etc.
+TYPED_TEST(GaussSeidelFactory, KnowsItsExecutor)
+{
+    ASSERT_EQ(this->gs_factory->get_executor(), this->exec);
+}
+// TYPED_TEST(GaussSeidelFactory, SetsSkipSortingCorrectly) {}
+//  throws on dimensions, conversion etc. ?
 
 }  // namespace

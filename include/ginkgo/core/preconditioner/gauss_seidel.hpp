@@ -92,10 +92,7 @@ public:
 
 protected:
     explicit GaussSeidel(std::shared_ptr<const Executor> exec)
-        : EnableLinOp<GaussSeidel>(exec),
-
-          symmetric_preconditioner_{parameters_.symmetric_preconditioner},
-          relaxation_factor_{parameters_.relaxation_factor}
+        : EnableLinOp<GaussSeidel>(std::move(exec))
     {}
 
     explicit GaussSeidel(const Factory* factory,
