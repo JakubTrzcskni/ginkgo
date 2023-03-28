@@ -33,10 +33,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/precision_dispatch.hpp>
 #include <ginkgo/core/base/utils.hpp>
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
+#include <ginkgo/core/utils/matrix_utils.hpp>
+
+#include "core/preconditioner/jacobi_kernels.hpp"
 
 namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
+GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 namespace {}
 }  // namespace gauss_seidel
 
@@ -117,8 +121,10 @@ void GaussSeidel<ValueType, IndexType>::generate(
 
     auto csr_matrix =
         convert_to_with_sorting<Csr>(host_exec_, system_matrix, skip_sorting);
+
+    auto mat_size = csr_matrix->get_size();
     if (!symmetric_preconditioner_) {
-        matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
+        matrix_data<ValueType, IndexType> mat_data{mat_size};
         csr_matrix->write(mat_data);
         utils::make_lower_triangular(mat_data);
         auto lower_triangular_matrix = Csr::create(exec);
@@ -129,7 +135,51 @@ void GaussSeidel<ValueType, IndexType>::generate(
                                .on(exec)
                                ->generate(lower_triangular_matrix));
     } else {
-        GKO_NOT_IMPLEMENTED;
+        // TODO
+        auto omega =
+            share(initialize<matrix::Dense<gko::remove_complex<ValueType>>>(
+                {relaxation_factor_}, exec));
+        auto diag = share(csr_matrix->extract_diagonal());
+        auto inv_diag = diag->clone();
+        auto diag_view = make_array_view(exec, mat_size[0], diag->get_values());
+        auto inv_diag_view =
+            make_array_view(exec, mat_size[0], inv_diag->get_values());
+
+        exec->run(gauss_seidel::make_invert_diagonal(diag_view, inv_diag_view));
+
+        csr_matrix->scale(lend(omega));
+        matrix_data<ValueType, IndexType> l_mat_data{mat_size};
+        csr_matrix->write(l_mat_data);
+        utils::make_lower_triangular(l_mat_data);
+        l_mat_data.ensure_row_major_order();
+
+        auto lower_triangular_matrix = Csr::create(exec);
+        lower_triangular_matrix->read(l_mat_data);
+        inv_diag->apply(lend(lower_triangular_matrix),
+                        lend(lower_triangular_matrix));
+
+        matrix_data<ValueType, IndexType> u_mat_data{mat_size};
+        csr_matrix->write(u_mat_data);
+        utils::make_upper_triangular(u_mat_data);
+        utils::make_remove_diagonal(u_mat_data);
+        for (auto i = 0; i < mat_size[0]; ++i) {
+            u_mat_data.nonzeros.emplace_back(i, i, diag->get_const_values()[i]);
+        }
+        u_mat_data.ensure_row_major_order();
+        auto upper_triangular_matrix = Csr::create(exec);
+        upper_triangular_matrix->read(u_mat_data);
+
+        lower_trs_ = share(solver::LowerTrs<ValueType, IndexType>::build()
+                               .with_num_rhs(parameters_.num_rhs)
+                               .with_algorithm(parameters_.algorithm)
+                               .with_unit_diagonal(true)
+                               .on(exec)
+                               ->generate(lower_triangular_matrix));
+        upper_trs_ = share(solver::UpperTrs<ValueType, IndexType>::build()
+                               .with_num_rhs(parameters_.num_rhs)
+                               .with_algorithm(parameters_.algorithm)
+                               .on(exec)
+                               ->generate(upper_triangular_matrix));
     }
 }
 
@@ -141,8 +191,12 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
         [this](auto dense_b, auto dense_x) {
             if (!symmetric_preconditioner_)
                 lower_trs_->apply(dense_b, dense_x);
-            else
+            else {
                 GKO_NOT_IMPLEMENTED;
+                lower_trs_->apply(dense_b, dense_x);
+                dense_b->copy_from(x);
+                upper_trs_->apply(dense_b, dense_x);
+            }
         },
         b, x);
 }
@@ -155,10 +209,14 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
 {
     precision_dispatch_real_complex<ValueType>(
         [this](auto dense_alpha, auto dense_b, auto dense_beta, auto dense_x) {
-            if (symmetric_preconditioner_) {
+            if (!symmetric_preconditioner_) {
                 lower_trs_->apply(dense_alpha, dense_b, dense_beta, dense_x);
             } else {
-                GKO_NOT_IMPLEMENTED;
+                // TODO
+                auto x_clone = dense_x->clone();
+                this->apply_impl(dense_b, x_clone.get());
+                dense_x->scale(dense_beta);
+                dense_x->add_scaled(dense_alpha, x_clone);
             }
         },
         alpha, b, beta, x);

@@ -47,7 +47,7 @@ template <typename ValueType = default_precision, typename IndexType = int32>
 class GaussSeidel : public EnableLinOp<GaussSeidel<ValueType, IndexType>>,
                     public Transposable {
     friend class EnableLinOp<GaussSeidel>;
-    friend class EnablePolymorphicObject<GaussSeidel, <LinOp>>;
+    friend class EnablePolymorphicObject<GaussSeidel, LinOp>;
 
 public:
     using value_type = ValueType;
@@ -76,9 +76,15 @@ public:
 
         double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
 
+        /**
+         * this argument is forwarded to the triangular solver factory
+         */
         solver::trisolve_algorithm GKO_FACTORY_PARAMETER_SCALAR(
             algorithm, solver::trisolve_algorithm::sparselib);
 
+        /**
+         * this argument is forwarded to the triangular solver factory
+         */
         gko::size_type GKO_FACTORY_PARAMETER_SCALAR(num_rhs, 1u);
     };
     GKO_ENABLE_LIN_OP_FACTORY(GaussSeidel, parameters, Factory);
