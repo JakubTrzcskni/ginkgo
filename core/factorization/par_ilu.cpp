@@ -124,7 +124,8 @@ ParIlu<ValueType, IndexType>::generate_l_u(
         std::move(u_row_ptrs), u_strategy);
 
     exec->run(par_ilu_factorization::make_initialize_l_u(
-        csr_system_matrix.get(), l_factor.get(), u_factor.get()));
+        csr_system_matrix.get(), l_factor.get(), u_factor.get(),
+        one<remove_complex<ValueType>>()));
 
     // We use `transpose()` here to convert the Csr format to Csc.
     auto u_factor_transpose_lin_op = u_factor->transpose();

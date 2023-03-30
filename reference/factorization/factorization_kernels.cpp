@@ -197,7 +197,8 @@ template <typename ValueType, typename IndexType>
 void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
                     const matrix::Csr<ValueType, IndexType>* system_matrix,
                     matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u)
+                    matrix::Csr<ValueType, IndexType>* csr_u,
+                    const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();
@@ -222,14 +223,14 @@ void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
             const auto val = vals[el];
             if (col < row) {
                 col_idxs_l[current_index_l] = col;
-                vals_l[current_index_l] = val;
+                vals_l[current_index_l] = val * scaling_factor;
                 ++current_index_l;
             } else if (col == row) {
                 // save diagonal value
                 diag_val = val;
             } else {  // col > row
                 col_idxs_u[current_index_u] = col;
-                vals_u[current_index_u] = val;
+                vals_u[current_index_u] = val * scaling_factor;
                 ++current_index_u;
             }
         }

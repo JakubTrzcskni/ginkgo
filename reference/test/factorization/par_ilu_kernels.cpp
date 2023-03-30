@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 #include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/coo.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -380,7 +381,8 @@ TYPED_TEST(ParIlu, KernelInitializeLU)
     std::copy(u_row_ptrs.begin(), u_row_ptrs.end(), actual_u->get_row_ptrs());
 
     gko::kernels::reference::factorization::initialize_l_u(
-        this->ref, this->mtx_csr_small.get(), actual_l.get(), actual_u.get());
+        this->ref, this->mtx_csr_small.get(), actual_l.get(), actual_u.get(),
+        gko::one<gko::remove_complex<value_type>>());
 
     GKO_ASSERT_MTX_NEAR(actual_l, expected_l, r<value_type>::value);
     GKO_ASSERT_MTX_NEAR(actual_u, expected_u, r<value_type>::value);
@@ -397,7 +399,8 @@ TYPED_TEST(ParIlu, KernelInitializeLUZeroMatrix)
     actual_u->copy_from(this->identity);
 
     gko::kernels::reference::factorization::initialize_l_u(
-        this->ref, this->empty_csr.get(), actual_l.get(), actual_u.get());
+        this->ref, this->empty_csr.get(), actual_l.get(), actual_u.get(),
+        gko::one<gko::remove_complex<value_type>>());
 
     GKO_ASSERT_MTX_NEAR(actual_l, this->identity, r<value_type>::value);
     GKO_ASSERT_MTX_NEAR(actual_u, this->identity, r<value_type>::value);

@@ -261,7 +261,8 @@ __global__ __launch_bounds__(default_block_size) void initialize_l_u(
     const IndexType* __restrict__ l_row_ptrs,
     IndexType* __restrict__ l_col_idxs, ValueType* __restrict__ l_values,
     const IndexType* __restrict__ u_row_ptrs,
-    IndexType* __restrict__ u_col_idxs, ValueType* __restrict__ u_values)
+    IndexType* __restrict__ u_col_idxs, ValueType* __restrict__ u_values,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row = thread::get_thread_id_flat<IndexType>();
     if (row < num_rows) {
@@ -278,12 +279,12 @@ __global__ __launch_bounds__(default_block_size) void initialize_l_u(
             }
             if (col < row) {
                 l_col_idxs[l_idx] = col;
-                l_values[l_idx] = val;
+                l_values[l_idx] = val * scaling_factor;
                 ++l_idx;
             }
             if (row < col) {
                 u_col_idxs[u_idx] = col;
-                u_values[u_idx] = val;
+                u_values[u_idx] = val * scaling_factor;
                 ++u_idx;
             }
         }
@@ -477,7 +478,8 @@ template <typename ValueType, typename IndexType>
 void initialize_l_u(std::shared_ptr<const DefaultExecutor> exec,
                     const matrix::Csr<ValueType, IndexType>* system_matrix,
                     matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u)
+                    matrix::Csr<ValueType, IndexType>* csr_u,
+                    const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const auto block_size = default_block_size;
@@ -491,7 +493,8 @@ void initialize_l_u(std::shared_ptr<const DefaultExecutor> exec,
             as_device_type(system_matrix->get_const_values()),
             csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
             as_device_type(csr_l->get_values()), csr_u->get_const_row_ptrs(),
-            csr_u->get_col_idxs(), as_device_type(csr_u->get_values()));
+            csr_u->get_col_idxs(), as_device_type(csr_u->get_values()),
+            as_device_type(scaling_factor));
     }
 }
 

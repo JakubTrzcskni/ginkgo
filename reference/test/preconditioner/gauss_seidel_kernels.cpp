@@ -31,8 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************<GINKGO LICENSE>*******************************/
 #include <ginkgo/core/preconditioner/gauss_seidel.hpp>
 
+#include <memory>
+
 #include <gtest/gtest.h>
 
+#include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/lin_op.hpp>
+#include <ginkgo/core/base/math.hpp>
+#include <ginkgo/core/base/utils_helper.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
 
@@ -46,32 +52,46 @@ protected:
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
     using index_type =
         typename std::tuple_element<1, decltype(ValueIndexType())>::type;
-    using csr = gko::matrix::Csr<value_type, index_type>;
-    using dense = gko::matrix::Dense<value_type>;
+    using Csr = gko::matrix::Csr<value_type, index_type>;
+    using Dense = gko::matrix::Dense<value_type>;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
 
     GaussSeidel()
         : exec(gko::ReferenceExecutor::create()),
-          mtx(gko::initialize<csr>({{1., 2., 3.}, {4., 5., 6.}, {7., 8., 9.}},
+          mtx(gko::initialize<Csr>({{1., 2., 3.}, {4., 5., 6.}, {7., 8., 9.}},
                                    exec)),
-          ref_l_mtx(gko::initialize<csr>(
+          ref_l_mtx(gko::initialize<Csr>(
               {{1., 0., 0.}, {4., 5., 0.}, {7., 8., 9.}}, exec)),
-          gs_factory(GS::build().on(exec))
+          x(gko::initialize<Dense>({0., 0., 0.}, exec)),
+          rhs(gko::initialize<Dense>({1., 1., 1.}, exec)),
+          gs_factory(GS::build().on(exec)),
+          tol{r<value_type>::value}
     {}
 
     std::shared_ptr<const gko::Executor> exec;
-    std::shared_ptr<csr> mtx;
-    std::shared_ptr<csr> ref_l_mtx;
-    std::shared_ptr<dense> x;
-    std::shared_ptr<dense> rhs;
+    std::shared_ptr<Csr> mtx;
+    std::shared_ptr<Csr> ref_l_mtx;
+    std::shared_ptr<Dense> x;
+    std::shared_ptr<Dense> rhs;
     std::unique_ptr<typename GS::Factory> gs_factory;
+    gko::remove_complex<value_type> tol;
 };
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
 TYPED_TEST(GaussSeidel, ExtractsLowerTriangularCorrectly)
 {
-    auto gs = this->gs_factory->generate(gko::lend(this->mtx));
+    using index_type = typename TestFixture::index_type;
+    using value_type = typename TestFixture::value_type;
+
+    auto gs = this->gs_factory->generate(gko::as<gko::LinOp>(this->mtx));
+    auto ref_ltrs = gko::solver::LowerTrs<value_type, index_type>::build()
+                        .on(this->exec)
+                        ->generate(this->ref_l_mtx);
+    auto x_copy = this->x->clone();
+    gs->apply(this->rhs, x_copy);
+    ref_ltrs->apply(this->rhs, this->x);
+    GKO_ASSERT_MTX_NEAR(x_copy, this->x, this->tol);
 }
 
 }  // namespace

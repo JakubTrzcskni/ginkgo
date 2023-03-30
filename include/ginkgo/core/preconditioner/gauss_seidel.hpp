@@ -54,8 +54,6 @@ public:
     using index_type = IndexType;
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Dense = matrix::Dense<ValueType>;
-    /*   using LTrs = solver::LowerTrs<value_type, index_type>;
-      using UTrs = solver::UpperTrs<value_type, index_type>; */
 
     std::unique_ptr<LinOp> transpose() const override;
 
@@ -74,7 +72,8 @@ public:
 
         bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
 
-        double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
+        remove_complex<value_type> GKO_FACTORY_PARAMETER_SCALAR(
+            relaxation_factor, 1.0);
 
         /**
          * this argument is forwarded to the triangular solver factory

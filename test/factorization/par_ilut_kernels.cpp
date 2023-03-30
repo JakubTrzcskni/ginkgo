@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/coo.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -149,7 +150,8 @@ protected:
             u_builder.get_col_idx_array().resize_and_reset(u_nnz);
             u_builder.get_value_array().resize_and_reset(u_nnz);
             gko::kernels::reference::factorization::initialize_l_u(
-                ref, mtx_ani.get(), mtx_l_ani.get(), mtx_u_ani.get());
+                ref, mtx_ani.get(), mtx_l_ani.get(), mtx_u_ani.get(),
+                gko::one<gko::remove_complex<value_type>>());
             mtx_ut_ani = Csr::create(ref, mtx_ani->get_size(),
                                      mtx_u_ani->get_num_stored_elements());
             gko::kernels::reference::csr::transpose(ref, mtx_u_ani.get(),

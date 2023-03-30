@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/executor.hpp>
+#include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/matrix/coo.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
 #include <ginkgo/core/matrix/dense.hpp>
@@ -156,9 +157,11 @@ protected:
         exec->copy(num_row_ptrs, du_row_ptrs.get_data(), du->get_row_ptrs());
 
         gko::kernels::reference::factorization::initialize_l_u(
-            ref, mtx.get(), l.get(), u.get());
+            ref, mtx.get(), l.get(), u.get(),
+            gko::one<gko::remove_complex<value_type>>());
         gko::kernels::EXEC_NAMESPACE::factorization::initialize_l_u(
-            exec, dmtx.get(), dl.get(), du.get());
+            exec, dmtx.get(), dl.get(), du.get(),
+            gko::one<gko::remove_complex<value_type>>());
     }
 
     void compute_lu(std::unique_ptr<Csr>& l, std::unique_ptr<Csr>& u,
