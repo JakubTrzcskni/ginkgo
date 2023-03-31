@@ -108,8 +108,9 @@ std::unique_ptr<Composition<ValueType>> Ic<ValueType, IndexType>::generate(
         std::move(l_row_ptrs), parameters_.l_strategy);
 
     // Extract lower factor: columns and values
-    exec->run(ic_factorization::make_initialize_l(local_system_matrix.get(),
-                                                  l_factor.get(), false));
+    exec->run(ic_factorization::make_initialize_l(
+        local_system_matrix.get(), l_factor.get(), false,
+        one<remove_complex<ValueType>>()));
 
     if (both_factors) {
         auto lh_factor = l_factor->conj_transpose();

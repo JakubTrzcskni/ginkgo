@@ -39,12 +39,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/base/utils.hpp"
 #include "core/factorization/factorization_kernels.hpp"
-#include "core/preconditioner/jacobi_kernels.hpp"
+// #include "core/preconditioner/jacobi_kernels.hpp"
 
 namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
-GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
+// GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 GKO_REGISTER_OPERATION(initialize_l, factorization::initialize_l);
 GKO_REGISTER_OPERATION(initialize_l_u, factorization::initialize_l_u);
 GKO_REGISTER_OPERATION(initialize_row_ptrs_l,
@@ -153,8 +153,8 @@ void GaussSeidel<ValueType, IndexType>::generate(
             exec, mat_size, std::move(l_vals), std::move(l_col_idxs),
             std::move(l_row_ptrs), mat_strategy);
 
-        exec->run(gauss_seidel::make_initialize_l(csr_matrix.get(),
-                                                  l_factor.get(), false));
+        exec->run(gauss_seidel::make_initialize_l(
+            csr_matrix.get(), l_factor.get(), false, relaxation_factor_));
 
         lower_trs_ = share(solver::LowerTrs<ValueType, IndexType>::build()
                                .with_num_rhs(parameters_.num_rhs)
@@ -164,12 +164,13 @@ void GaussSeidel<ValueType, IndexType>::generate(
     } else {
         // TODO
         auto diag = share(csr_matrix->extract_diagonal());
-        auto inv_diag = diag->clone();
+        /* auto inv_diag = diag->clone();
         auto diag_view = make_array_view(exec, mat_size[0], diag->get_values());
         auto inv_diag_view =
             make_array_view(exec, mat_size[0], inv_diag->get_values());
 
         exec->run(gauss_seidel::make_invert_diagonal(diag_view, inv_diag_view));
+      */
 
         array<IndexType> l_row_ptrs{exec, num_rows + 1};
         array<IndexType> u_row_ptrs{exec, num_rows + 1};
@@ -195,10 +196,16 @@ void GaussSeidel<ValueType, IndexType>::generate(
 
         // Separate L and U: columns and values
         exec->run(gauss_seidel::make_initialize_l_u(
-            csr_matrix.get(), l_factor.get(), u_factor.get(),
+            csr_matrix.get(), l_factor.get(), u_factor.get(), diag.get(),
             relaxation_factor_));
 
-        inv_diag->apply(l_factor, l_factor);
+        // incorrect?
+        // inv_diag->apply(l_factor, l_factor);
+        // would be correct, but cannot apply csr to dense and get csr as a
+        // result?
+        //  l_factor->apply(inv_diag, l_factor);
+        // not necessary after the kernel change
+        // inv_diag->rapply(l_factor, l_factor);
 
         lower_trs_ = share(solver::LowerTrs<ValueType, IndexType>::build()
                                .with_num_rhs(parameters_.num_rhs)

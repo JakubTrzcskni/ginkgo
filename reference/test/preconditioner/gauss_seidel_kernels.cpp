@@ -79,6 +79,7 @@ protected:
 
 TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
                  PairTypenameNameGenerator);
+
 TYPED_TEST(GaussSeidel, ExtractsLowerTriangularCorrectly)
 {
     using index_type = typename TestFixture::index_type;
@@ -92,6 +93,38 @@ TYPED_TEST(GaussSeidel, ExtractsLowerTriangularCorrectly)
     gs->apply(this->rhs, x_copy);
     ref_ltrs->apply(this->rhs, this->x);
     GKO_ASSERT_MTX_NEAR(x_copy, this->x, this->tol);
+}
+TYPED_TEST(GaussSeidel, AppliesSORCorrectly)
+{
+    using value_type = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    auto sor = GS::build()
+                   .with_symmetric_preconditioner(false)
+                   .with_relaxation_factor(gko::remove_complex<value_type>{1.5})
+                   .on(this->exec)
+                   ->generate(gko::as<gko::LinOp>(this->mtx));
+    sor->apply(this->rhs, this->x);
+    GKO_ASSERT_MTX_NEAR(this->x,
+                        l({{value_type{1.}},
+                           {value_type{-1.}},
+                           {value_type{2.5} / value_type{9.}}}),
+                        this->tol);
+}
+
+TYPED_TEST(GaussSeidel, AppliesSGSCorrectly)
+{
+    using value_type = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    auto sgs = GS::build()
+                   .with_symmetric_preconditioner(true)
+                   .on(this->exec)
+                   ->generate(gko::as<gko::LinOp>(this->mtx));
+    sgs->apply(this->rhs, this->x);
+    GKO_ASSERT_MTX_NEAR(this->x,
+                        l({{value_type{1026.} / value_type{450.}},
+                           {value_type{-198.} / value_type{450.}},
+                           {value_type{-12.} / value_type{90.}}}),
+                        this->tol);
 }
 
 }  // namespace

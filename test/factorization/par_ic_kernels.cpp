@@ -95,7 +95,8 @@ protected:
             l_builder.get_col_idx_array().resize_and_reset(l_nnz);
             l_builder.get_value_array().resize_and_reset(l_nnz);
             gko::kernels::reference::factorization::initialize_l(
-                ref, mtx_ani.get(), mtx_l_ani.get(), false);
+                ref, mtx_ani.get(), mtx_l_ani.get(), false,
+                gko::one<gko::remove_complex<value_type>>());
             mtx_l_ani_init = gko::clone(ref, mtx_l_ani);
             gko::kernels::reference::par_ic_factorization::init_factor(
                 ref, mtx_l_ani_init.get());

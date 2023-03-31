@@ -55,7 +55,6 @@ protected:
           gs_factory(GS::build().on(exec))
     {}
 
-private:
     std::shared_ptr<const gko::Executor> exec;
     std::unique_ptr<typename GS::Factory> gs_factory;
 };
@@ -67,7 +66,29 @@ TYPED_TEST(GaussSeidelFactory, KnowsItsExecutor)
 {
     ASSERT_EQ(this->gs_factory->get_executor(), this->exec);
 }
-// TYPED_TEST(GaussSeidelFactory, SetsSkipSortingCorrectly) {}
+TYPED_TEST(GaussSeidelFactory, SetsSkipSortingCorrectly)
+{
+    using GS = typename TestFixture::GS;
+    ASSERT_EQ(this->gs_factory->get_parameters().skip_sorting, true);
+    auto newFactory = GS::build().with_skip_sorting(false).on(this->exec);
+    ASSERT_EQ(newFactory->get_parameters().skip_sorting, false);
+}
+TYPED_TEST(GaussSeidelFactory, SetsRelaxationFactorCorrectly)
+{
+    using GS = typename TestFixture::GS;
+    ASSERT_EQ(this->gs_factory->get_parameters().relaxation_factor, 1.0);
+    auto newFactory = GS::build().with_relaxation_factor(1.5).on(this->exec);
+    ASSERT_EQ(newFactory->get_parameters().relaxation_factor, 1.5);
+}
+TYPED_TEST(GaussSeidelFactory, SetsSymmetricPreconditionerCorrectly)
+{
+    using GS = typename TestFixture::GS;
+    ASSERT_EQ(this->gs_factory->get_parameters().symmetric_preconditioner,
+              false);
+    auto newFactory =
+        GS::build().with_symmetric_preconditioner(true).on(this->exec);
+    ASSERT_EQ(newFactory->get_parameters().symmetric_preconditioner, true);
+}
 //  throws on dimensions, conversion etc. ?
 
 }  // namespace

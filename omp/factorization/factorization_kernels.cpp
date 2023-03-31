@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
 
 
 #include "core/components/prefix_sum_kernels.hpp"
@@ -254,6 +255,7 @@ void initialize_l_u(std::shared_ptr<const OmpExecutor> exec,
                     const matrix::Csr<ValueType, IndexType>* system_matrix,
                     matrix::Csr<ValueType, IndexType>* csr_l,
                     matrix::Csr<ValueType, IndexType>* csr_u,
+                    const matrix::Diagonal<ValueType>* diag,
                     const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
@@ -280,7 +282,13 @@ void initialize_l_u(std::shared_ptr<const OmpExecutor> exec,
             const auto val = vals[el];
             if (col < row) {
                 col_idxs_l[current_index_l] = col;
-                vals_l[current_index_l] = val * scaling_factor;
+                auto inv_diag_val_in_col = one<ValueType>();
+                if (diag) {
+                    if (diag->get_const_values()[col] != zero<ValueType>())
+                        inv_diag_val_in_col /= diag->get_const_values()[col];
+                }
+                vals_l[current_index_l] =
+                    val * scaling_factor * inv_diag_val_in_col;
                 ++current_index_l;
             } else if (col == row) {
                 // save value for later
@@ -339,7 +347,8 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 template <typename ValueType, typename IndexType>
 void initialize_l(std::shared_ptr<const OmpExecutor> exec,
                   const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+                  const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();

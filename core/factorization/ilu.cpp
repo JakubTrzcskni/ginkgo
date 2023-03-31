@@ -118,6 +118,7 @@ std::unique_ptr<Composition<ValueType>> Ilu<ValueType, IndexType>::generate_l_u(
     // Separate L and U: columns and values
     exec->run(ilu_factorization::make_initialize_l_u(
         local_system_matrix.get(), l_factor.get(), u_factor.get(),
+        static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
         one<remove_complex<ValueType>>()));
 
     return Composition<ValueType>::create(std::move(l_factor),

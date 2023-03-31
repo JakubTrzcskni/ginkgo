@@ -109,7 +109,8 @@ protected:
             l_builder.get_col_idx_array().resize_and_reset(l_nnz);
             l_builder.get_value_array().resize_and_reset(l_nnz);
             gko::kernels::reference::factorization::initialize_l(
-                ref, mtx_ani.get(), mtx_l_ani.get(), true);
+                ref, mtx_ani.get(), mtx_l_ani.get(), true,
+                gko::one<gko::remove_complex<value_type>>());
         }
         dmtx_ani->copy_from(mtx_ani);
         dmtx_l_ani->copy_from(mtx_l_ani);

@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/base/math.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
 
 
 #include "core/components/prefix_sum_kernels.hpp"
@@ -621,6 +622,7 @@ void initialize_l_u(std::shared_ptr<const DpcppExecutor> exec,
                     const matrix::Csr<ValueType, IndexType>* system_matrix,
                     matrix::Csr<ValueType, IndexType>* csr_l,
                     matrix::Csr<ValueType, IndexType>* csr_u,
+                    const matrix::Diagonal<ValueType>* diag,
                     const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
@@ -670,7 +672,8 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 template <typename ValueType, typename IndexType>
 void initialize_l(std::shared_ptr<const DpcppExecutor> exec,
                   const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+                  const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const dim3 block_size{default_block_size, 1, 1};

@@ -125,6 +125,7 @@ ParIlu<ValueType, IndexType>::generate_l_u(
 
     exec->run(par_ilu_factorization::make_initialize_l_u(
         csr_system_matrix.get(), l_factor.get(), u_factor.get(),
+        static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
         one<remove_complex<ValueType>>()));
 
     // We use `transpose()` here to convert the Csr format to Csc.

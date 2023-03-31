@@ -151,6 +151,7 @@ protected:
             u_builder.get_value_array().resize_and_reset(u_nnz);
             gko::kernels::reference::factorization::initialize_l_u(
                 ref, mtx_ani.get(), mtx_l_ani.get(), mtx_u_ani.get(),
+                static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
                 gko::one<gko::remove_complex<value_type>>());
             mtx_ut_ani = Csr::create(ref, mtx_ani->get_size(),
                                      mtx_u_ani->get_num_stored_elements());

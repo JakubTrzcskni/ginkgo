@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ginkgo/core/base/math.hpp>
 #include <ginkgo/core/base/types.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
 
 
 #include "core/base/kernel_declaration.hpp"
@@ -69,6 +70,7 @@ namespace kernels {
         const matrix::Csr<ValueType, IndexType>* system_matrix,               \
         matrix::Csr<ValueType, IndexType>* l_factor,                          \
         matrix::Csr<ValueType, IndexType>* u_factor,                          \
+        const matrix::Diagonal<ValueType>* diag,                              \
         const remove_complex<ValueType> scaling_factor)
 
 #define GKO_DECLARE_FACTORIZATION_INITIALIZE_ROW_PTRS_L_KERNEL(ValueType, \
@@ -82,7 +84,8 @@ namespace kernels {
     void initialize_l(std::shared_ptr<const DefaultExecutor> exec,            \
                       const matrix::Csr<ValueType, IndexType>* system_matrix, \
                       matrix::Csr<ValueType, IndexType>* l_factor,            \
-                      bool diag_sqrt)
+                      bool diag_sqrt,                                         \
+                      const remove_complex<ValueType> scaling_factor)
 
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                       \

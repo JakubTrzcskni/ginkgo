@@ -382,6 +382,7 @@ TYPED_TEST(ParIlu, KernelInitializeLU)
 
     gko::kernels::reference::factorization::initialize_l_u(
         this->ref, this->mtx_csr_small.get(), actual_l.get(), actual_u.get(),
+        static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
         gko::one<gko::remove_complex<value_type>>());
 
     GKO_ASSERT_MTX_NEAR(actual_l, expected_l, r<value_type>::value);
@@ -400,6 +401,7 @@ TYPED_TEST(ParIlu, KernelInitializeLUZeroMatrix)
 
     gko::kernels::reference::factorization::initialize_l_u(
         this->ref, this->empty_csr.get(), actual_l.get(), actual_u.get(),
+        static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
         gko::one<gko::remove_complex<value_type>>());
 
     GKO_ASSERT_MTX_NEAR(actual_l, this->identity, r<value_type>::value);
