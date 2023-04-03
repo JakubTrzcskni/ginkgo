@@ -60,10 +60,17 @@ protected:
         : exec(gko::ReferenceExecutor::create()),
           mtx(gko::initialize<Csr>({{1., 2., 3.}, {4., 5., 6.}, {7., 8., 9.}},
                                    exec)),
+          mtx2(gko::initialize<Csr>({{2., 3., 4., 5.},
+                                     {3., 4., 5., 6.},
+                                     {4., 5., 6., 7.},
+                                     {5., 6., 7., 8.}},
+                                    exec)),
           ref_l_mtx(gko::initialize<Csr>(
               {{1., 0., 0.}, {4., 5., 0.}, {7., 8., 9.}}, exec)),
           x(gko::initialize<Dense>({0., 0., 0.}, exec)),
+          x2(gko::initialize<Dense>({0., 0., 0., 0.}, exec)),
           rhs(gko::initialize<Dense>({1., 1., 1.}, exec)),
+          rhs2(gko::initialize<Dense>({1., 1., 1., 1.}, exec)),
           gs_factory(GS::build().on(exec)),
           tol{r<value_type>::value}
     {}
@@ -71,8 +78,11 @@ protected:
     std::shared_ptr<const gko::Executor> exec;
     std::shared_ptr<Csr> mtx;
     std::shared_ptr<Csr> ref_l_mtx;
+    std::shared_ptr<Csr> mtx2;
     std::shared_ptr<Dense> x;
+    std::shared_ptr<Dense> x2;
     std::shared_ptr<Dense> rhs;
+    std::shared_ptr<Dense> rhs2;
     std::unique_ptr<typename GS::Factory> gs_factory;
     gko::remove_complex<value_type> tol;
 };
@@ -126,5 +136,24 @@ TYPED_TEST(GaussSeidel, AppliesSGSCorrectly)
                            {value_type{-12.} / value_type{90.}}}),
                         this->tol);
 }
+
+TYPED_TEST(GaussSeidel, AppliesSSORCorrectly)
+{
+    using value_type = typename TestFixture::value_type;
+    using GS = typename TestFixture::GS;
+    auto ssor = GS::build()
+                    .with_symmetric_preconditioner(true)
+                    .with_relaxation_factor(gko::remove_complex<value_type>{2.})
+                    .on(this->exec)
+                    ->generate(gko::as<gko::LinOp>(this->mtx2));
+    ssor->apply(this->rhs2, this->x2);
+    GKO_ASSERT_MTX_NEAR(this->x2,
+                        l({{value_type{41.} / value_type{9.}},
+                           {value_type{-41.} / value_type{18.}},
+                           {value_type{20.} / value_type{18.}},
+                           {value_type{-1.} / value_type{3.}}}),
+                        this->tol);
+}
+
 
 }  // namespace

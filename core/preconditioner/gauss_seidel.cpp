@@ -39,12 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "core/base/utils.hpp"
 #include "core/factorization/factorization_kernels.hpp"
-// #include "core/preconditioner/jacobi_kernels.hpp"
 
 namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
-// GKO_REGISTER_OPERATION(invert_diagonal, jacobi::invert_diagonal);
 GKO_REGISTER_OPERATION(initialize_l, factorization::initialize_l);
 GKO_REGISTER_OPERATION(initialize_l_u, factorization::initialize_l_u);
 GKO_REGISTER_OPERATION(initialize_row_ptrs_l,
@@ -62,14 +60,10 @@ GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
     if (&other != this) {
         EnableLinOp<GaussSeidel>::operator=(other);
         auto exec = this->get_executor();
-        lower_trs_ = other.lower_trs_;
-        upper_trs_ = other.upper_trs_;
+        solver_comp_ = other.solver_comp_;
         parameters_ = other.parameters_;
-        if (lower_trs_ && other.lower_trs_->get_executor() != exec) {
-            lower_trs_ = gko::clone(exec, lower_trs_);
-        }
-        if (upper_trs_ && other.upper_trs_->get_executor() != exec) {
-            upper_trs_ = gko::clone(exec, upper_trs_);
+        if (solver_comp_ && other.solver_comp_->get_executor() != exec) {
+            solver_comp_ = gko::clone(exec, solver_comp_);
         }
     }
     return *this;
@@ -83,14 +77,10 @@ GaussSeidel<ValueType, IndexType>& GaussSeidel<ValueType, IndexType>::operator=(
     if (&other != this) {
         EnableLinOp<GaussSeidel>::operator=(std::move(other));
         auto exec = this->get_executor();
-        lower_trs_ = std::move(other.lower_trs_);
-        upper_trs_ = std::move(other.upper_trs_);
+        solver_comp_ = std::move(other.solver_comp_);
         parameters_ = std::exchange(other.parameters_, parameters_type{});
-        if (lower_trs_ && other.lower_trs_->get_executor() != exec) {
-            lower_trs_ = gko::clone(exec, lower_trs_);
-        }
-        if (upper_trs_ && other.upper_trs_->get_executor() != exec) {
-            upper_trs_ = gko::clone(exec, upper_trs_);
+        if (solver_comp_ && other.solver_comp_->get_executor() != exec) {
+            solver_comp_ = gko::clone(exec, solver_comp_);
         }
     }
     return *this;
@@ -148,41 +138,38 @@ void GaussSeidel<ValueType, IndexType>::generate(
         // Init arrays
         array<IndexType> l_col_idxs{exec, l_nnz};
         array<ValueType> l_vals{exec, l_nnz};
-
         std::shared_ptr<Csr> l_factor = Csr::create(
             exec, mat_size, std::move(l_vals), std::move(l_col_idxs),
             std::move(l_row_ptrs), mat_strategy);
 
+        // extract the lower factor
         exec->run(gauss_seidel::make_initialize_l(
             csr_matrix.get(), l_factor.get(), false, relaxation_factor_));
 
-        lower_trs_ = share(solver::LowerTrs<ValueType, IndexType>::build()
-                               .with_num_rhs(parameters_.num_rhs)
-                               .with_algorithm(parameters_.algorithm)
-                               .on(exec)
-                               ->generate(l_factor));
+        // create the solver
+        auto lower_trs = share(solver::LowerTrs<ValueType, IndexType>::build()
+                                   .with_num_rhs(parameters_.num_rhs)
+                                   .with_algorithm(parameters_.algorithm)
+                                   .on(exec)
+                                   ->generate(l_factor));
+        solver_comp_ = Composition<ValueType>::create(lower_trs);
     } else {
-        // TODO
+        // extract the diagonal to scale the lower factor on initialization
         auto diag = share(csr_matrix->extract_diagonal());
-        /* auto inv_diag = diag->clone();
-        auto diag_view = make_array_view(exec, mat_size[0], diag->get_values());
-        auto inv_diag_view =
-            make_array_view(exec, mat_size[0], inv_diag->get_values());
 
-        exec->run(gauss_seidel::make_invert_diagonal(diag_view, inv_diag_view));
-      */
-
+        // init row pointers
         array<IndexType> l_row_ptrs{exec, num_rows + 1};
         array<IndexType> u_row_ptrs{exec, num_rows + 1};
         exec->run(gauss_seidel::make_initialize_row_ptrs_l_u(
             csr_matrix.get(), l_row_ptrs.get_data(), u_row_ptrs.get_data()));
 
+        // Get nnz from device memory
         auto l_nnz = static_cast<size_type>(
             exec->copy_val_to_host(l_row_ptrs.get_data() + num_rows));
         auto u_nnz = static_cast<size_type>(
             exec->copy_val_to_host(u_row_ptrs.get_data() + num_rows));
 
-        // Init arrays
+        // Init l and u factors
         array<IndexType> l_col_idxs{exec, l_nnz};
         array<ValueType> l_vals{exec, l_nnz};
         std::shared_ptr<Csr> l_factor = Csr::create(
@@ -199,25 +186,19 @@ void GaussSeidel<ValueType, IndexType>::generate(
             csr_matrix.get(), l_factor.get(), u_factor.get(), diag.get(),
             relaxation_factor_));
 
-        // incorrect?
-        // inv_diag->apply(l_factor, l_factor);
-        // would be correct, but cannot apply csr to dense and get csr as a
-        // result?
-        //  l_factor->apply(inv_diag, l_factor);
-        // not necessary after the kernel change
-        // inv_diag->rapply(l_factor, l_factor);
+        auto lower_trs = share(solver::LowerTrs<ValueType, IndexType>::build()
+                                   .with_num_rhs(parameters_.num_rhs)
+                                   .with_algorithm(parameters_.algorithm)
+                                   .with_unit_diagonal(true)
+                                   .on(exec)
+                                   ->generate(l_factor));
+        auto upper_trs = share(solver::UpperTrs<ValueType, IndexType>::build()
+                                   .with_num_rhs(parameters_.num_rhs)
+                                   .with_algorithm(parameters_.algorithm)
+                                   .on(exec)
+                                   ->generate(u_factor));
 
-        lower_trs_ = share(solver::LowerTrs<ValueType, IndexType>::build()
-                               .with_num_rhs(parameters_.num_rhs)
-                               .with_algorithm(parameters_.algorithm)
-                               .with_unit_diagonal(true)
-                               .on(exec)
-                               ->generate(l_factor));
-        upper_trs_ = share(solver::UpperTrs<ValueType, IndexType>::build()
-                               .with_num_rhs(parameters_.num_rhs)
-                               .with_algorithm(parameters_.algorithm)
-                               .on(exec)
-                               ->generate(u_factor));
+        solver_comp_ = Composition<ValueType>::create(upper_trs, lower_trs);
     }
 }
 
@@ -227,12 +208,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
 {
     precision_dispatch_real_complex<ValueType>(
         [this](auto dense_b, auto dense_x) {
-            if (!symmetric_preconditioner_)
-                lower_trs_->apply(dense_b, dense_x);
-            else {
-                lower_trs_->apply(dense_b, dense_x);
-                upper_trs_->apply(dense_x, dense_x);
-            }
+            solver_comp_->apply(dense_b, dense_x);
         },
         b, x);
 }
@@ -245,14 +221,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* alpha,
 {
     precision_dispatch_real_complex<ValueType>(
         [this](auto dense_alpha, auto dense_b, auto dense_beta, auto dense_x) {
-            if (!symmetric_preconditioner_) {
-                lower_trs_->apply(dense_alpha, dense_b, dense_beta, dense_x);
-            } else {
-                auto x_clone = dense_x->clone();
-                this->apply_impl(dense_b, x_clone.get());
-                dense_x->scale(dense_beta);
-                dense_x->add_scaled(dense_alpha, x_clone);
-            }
+            solver_comp_->apply(dense_alpha, dense_b, dense_beta, dense_x);
         },
         alpha, b, beta, x);
 }

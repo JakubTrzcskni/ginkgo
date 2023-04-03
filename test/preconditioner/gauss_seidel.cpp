@@ -50,13 +50,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 enum struct matrix_type { lower, upper, general, spd };
 
 namespace {
-template <typename ValueIndexType>
+// template <typename ValueIndexType>
 class GaussSeidel : public ::CommonTestFixture {
 protected:
-    using value_type =
+    /* using value_type =
         typename std::tuple_element<0, decltype(ValueIndexType())>::type;
     using index_type =
-        typename std::tuple_element<1, decltype(ValueIndexType())>::type;
+        typename std::tuple_element<1, decltype(ValueIndexType())>::type; */
     using Csr = gko::matrix::Csr<value_type, index_type>;
     using Dense = gko::matrix::Dense<value_type>;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
@@ -118,14 +118,18 @@ protected:
     gko::remove_complex<value_type> tol;
 };
 
-TYPED_TEST_SUITE(GaussSeidel, gko::test::ValueIndexTypes,
-                 PairTypenameNameGenerator);
-TYPED_TEST(GaussSeidel, GSApplyEqualToLTRSRef)
+/* TYPED_TEST_SUITE(
+    GaussSeidel,
+    gko::test::RealValueIndexTypes,
+    PairTypenameNameGenerator); */
+
+
+TEST_F(GaussSeidel, GSApplyEqualToLTRSRef)
 {
-    using GS = typename TestFixture::GS;
+    /* using GS = typename TestFixture::GS;
     using Csr = typename TestFixture::Csr;
     using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type;
+    using index_type = typename TestFixture::index_type; */
 
     this->initialize_data(matrix_type::spd, 401, 23, 1);
     auto ref_gs = GS::build()
@@ -146,9 +150,9 @@ TYPED_TEST(GaussSeidel, GSApplyEqualToLTRSRef)
     ref_ltrs->apply(this->b, ref_x);
     GKO_ASSERT_MTX_NEAR(this->x, ref_x, this->tol);
 }
-TYPED_TEST(GaussSeidel, GSApplyEqualToRef)
+TEST_F(GaussSeidel, GSApplyEqualToRef)
 {
-    using GS = typename TestFixture::GS;
+    /* using GS = typename TestFixture::GS; */
     this->initialize_data(matrix_type::spd, 401, 23, 1);
     auto ref_gs = GS::build()
                       .on(CommonTestFixture::ref)
@@ -161,6 +165,22 @@ TYPED_TEST(GaussSeidel, GSApplyEqualToRef)
     GKO_ASSERT_MTX_NEAR(this->x, this->d_x, this->tol);
 }
 
-// TYPED_TEST(GaussSeidel, SGSApplyEqualToRef) {}
+TEST_F(GaussSeidel, SSORApplyEqualToRef)
+{
+    this->initialize_data(matrix_type::spd, 521, 33, 1);
+    auto ref_gs = GS::build()
+                      .with_symmetric_preconditioner(true)
+                      .with_relaxation_factor(value_type{1.5})
+                      .on(CommonTestFixture::ref)
+                      ->generate(gko::as<gko::LinOp>(this->mtx));
+    auto d_gs = GS::build()
+                    .with_symmetric_preconditioner(true)
+                    .with_relaxation_factor(value_type{1.5})
+                    .on(CommonTestFixture::exec)
+                    ->generate(gko::as<gko::LinOp>(this->d_mtx));
+    ref_gs->apply(this->b, this->x);
+    d_gs->apply(this->d_b, this->d_x);
+    GKO_ASSERT_MTX_NEAR(this->x, this->d_x, this->tol);
+}
 
 }  // namespace

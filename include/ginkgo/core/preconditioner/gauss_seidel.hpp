@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GKO_PUBLIC_CORE_PRECONDITIONER_GAUSS_SEIDEL_HPP_
 
 #include <ginkgo/core/base/abstract_factory.hpp>
+#include <ginkgo/core/base/composition.hpp>
 #include <ginkgo/core/base/lin_op.hpp>
 #include <ginkgo/core/base/polymorphic_object.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
@@ -54,6 +55,7 @@ public:
     using index_type = IndexType;
     using Csr = matrix::Csr<ValueType, IndexType>;
     using Dense = matrix::Dense<ValueType>;
+    using Comp = Composition<value_type>;
 
     std::unique_ptr<LinOp> transpose() const override;
 
@@ -115,8 +117,7 @@ protected:
 
 private:
     std::shared_ptr<const Executor> host_exec_;
-    std::shared_ptr<const LinOp> lower_trs_{};
-    std::shared_ptr<const LinOp> upper_trs_{};
+    std::shared_ptr<const Comp> solver_comp_;
     remove_complex<value_type> relaxation_factor_;
     bool symmetric_preconditioner_;
 };
