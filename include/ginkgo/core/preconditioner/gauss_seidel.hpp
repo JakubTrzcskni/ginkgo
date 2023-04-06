@@ -100,7 +100,6 @@ protected:
                          std::shared_ptr<const LinOp> system_matrix)
         : EnableLinOp<GaussSeidel>(factory->get_executor(),
                                    gko::transpose(system_matrix->get_size())),
-          host_exec_{factory->get_executor()->get_master()},
           parameters_{factory->get_parameters()},
           symmetric_preconditioner_{parameters_.symmetric_preconditioner},
           relaxation_factor_{parameters_.relaxation_factor}
@@ -116,7 +115,6 @@ protected:
                     LinOp* x) const override;
 
 private:
-    std::shared_ptr<const Executor> host_exec_;
     std::shared_ptr<const Comp> solver_comp_;
     remove_complex<value_type> relaxation_factor_;
     bool symmetric_preconditioner_;

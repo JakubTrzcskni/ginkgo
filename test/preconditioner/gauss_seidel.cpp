@@ -50,13 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 enum struct matrix_type { lower, upper, general, spd };
 
 namespace {
-// template <typename ValueIndexType>
 class GaussSeidel : public ::CommonTestFixture {
 protected:
-    /* using value_type =
-        typename std::tuple_element<0, decltype(ValueIndexType())>::type;
-    using index_type =
-        typename std::tuple_element<1, decltype(ValueIndexType())>::type; */
     using Csr = gko::matrix::Csr<value_type, index_type>;
     using Dense = gko::matrix::Dense<value_type>;
     using GS = gko::preconditioner::GaussSeidel<value_type, index_type>;
@@ -118,19 +113,8 @@ protected:
     gko::remove_complex<value_type> tol;
 };
 
-/* TYPED_TEST_SUITE(
-    GaussSeidel,
-    gko::test::RealValueIndexTypes,
-    PairTypenameNameGenerator); */
-
-
 TEST_F(GaussSeidel, GSApplyEqualToLTRSRef)
 {
-    /* using GS = typename TestFixture::GS;
-    using Csr = typename TestFixture::Csr;
-    using value_type = typename TestFixture::value_type;
-    using index_type = typename TestFixture::index_type; */
-
     this->initialize_data(matrix_type::spd, 401, 23, 1);
     auto ref_gs = GS::build()
                       .on(CommonTestFixture::ref)
@@ -152,7 +136,6 @@ TEST_F(GaussSeidel, GSApplyEqualToLTRSRef)
 }
 TEST_F(GaussSeidel, GSApplyEqualToRef)
 {
-    /* using GS = typename TestFixture::GS; */
     this->initialize_data(matrix_type::spd, 401, 23, 1);
     auto ref_gs = GS::build()
                       .on(CommonTestFixture::ref)

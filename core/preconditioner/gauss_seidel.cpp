@@ -135,14 +135,12 @@ void GaussSeidel<ValueType, IndexType>::generate(
         auto l_nnz = static_cast<size_type>(
             exec->copy_val_to_host(l_row_ptrs.get_data() + num_rows));
 
-        // Init arrays
-        array<IndexType> l_col_idxs{exec, l_nnz};
-        array<ValueType> l_vals{exec, l_nnz};
+        // Init the L factor
         std::shared_ptr<Csr> l_factor = Csr::create(
-            exec, mat_size, std::move(l_vals), std::move(l_col_idxs),
-            std::move(l_row_ptrs), mat_strategy);
+            exec, mat_size, array<ValueType>{exec, l_nnz},
+            array<IndexType>{exec, l_nnz}, std::move(l_row_ptrs), mat_strategy);
 
-        // extract the lower factor
+        // fill the L factor with col_idxs & values
         exec->run(gauss_seidel::make_initialize_l(
             csr_matrix.get(), l_factor.get(), false, relaxation_factor_));
 
@@ -169,19 +167,15 @@ void GaussSeidel<ValueType, IndexType>::generate(
         auto u_nnz = static_cast<size_type>(
             exec->copy_val_to_host(u_row_ptrs.get_data() + num_rows));
 
-        // Init l and u factors
-        array<IndexType> l_col_idxs{exec, l_nnz};
-        array<ValueType> l_vals{exec, l_nnz};
+        // Init L and U factors
         std::shared_ptr<Csr> l_factor = Csr::create(
-            exec, mat_size, std::move(l_vals), std::move(l_col_idxs),
-            std::move(l_row_ptrs), mat_strategy);
-        array<IndexType> u_col_idxs{exec, u_nnz};
-        array<ValueType> u_vals{exec, u_nnz};
+            exec, mat_size, array<ValueType>{exec, l_nnz},
+            array<IndexType>{exec, l_nnz}, std::move(l_row_ptrs), mat_strategy);
         std::shared_ptr<Csr> u_factor = Csr::create(
-            exec, mat_size, std::move(u_vals), std::move(u_col_idxs),
-            std::move(u_row_ptrs), mat_strategy);
+            exec, mat_size, array<ValueType>{exec, u_nnz},
+            array<IndexType>{exec, u_nnz}, std::move(u_row_ptrs), mat_strategy);
 
-        // Separate L and U: columns and values
+        // fill the L and U factors with col_idxs & values
         exec->run(gauss_seidel::make_initialize_l_u(
             csr_matrix.get(), l_factor.get(), u_factor.get(), diag.get(),
             relaxation_factor_));

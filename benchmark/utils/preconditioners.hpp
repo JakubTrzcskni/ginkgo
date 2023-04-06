@@ -49,11 +49,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "benchmark/utils/types.hpp"
 
 
-DEFINE_string(preconditioners, "none",
-              "A comma-separated list of preconditioners to use. "
-              "Supported values are: none, jacobi, paric, parict, parilu, "
-              "parilut, ic, ilu, paric-isai, parict-isai, parilu-isai, "
-              "parilut-isai, ic-isai, ilu-isai, overhead");
+DEFINE_string(
+    preconditioners, "none",
+    "A comma-separated list of preconditioners to use. "
+    "Supported values are: none, jacobi, gauss-seidel, paric, parict, parilu, "
+    "parilut, ic, ilu, paric-isai, parict-isai, parilu-isai, "
+    "parilut-isai, ic-isai, ilu-isai, overhead");
 
 DEFINE_uint32(parilu_iterations, 5,
               "The number of iterations for ParIC(T)/ParILU(T)");
@@ -79,6 +80,14 @@ DEFINE_double(jacobi_accuracy, 1e-1,
 
 DEFINE_uint32(jacobi_max_block_size, 32,
               "Maximal block size of the block-Jacobi preconditioner");
+
+DEFINE_double(
+    gauss_seidel_relaxation_factor, 1.0,
+    "Defines the relaxation factor of the Successive Over-Relaxation method.");
+
+DEFINE_bool(
+    gauss_seidel_symmetric_preconditioner, true,
+    "Use symmetric version of the preconditioner - SSOR/SGS vs. SOR/GS.");
 
 
 // parses the Jacobi storage optimization command line argument
@@ -110,6 +119,15 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_storage_optimization(
                      parse_storage_optimization(FLAGS_jacobi_storage))
                  .with_accuracy(static_cast<rc_etype>(FLAGS_jacobi_accuracy))
+                 .with_skip_sorting(true)
+                 .on(exec);
+         }},
+        {"gauss-seidel",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_symmetric_preconditioner(
+                     FLAGS_gauss_seidel_symmetric_preconditioner)
+                 .with_relaxation_factor(FLAGS_gauss_seidel_relaxation_factor)
                  .with_skip_sorting(true)
                  .on(exec);
          }},
