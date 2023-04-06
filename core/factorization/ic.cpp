@@ -100,12 +100,11 @@ std::unique_ptr<Composition<ValueType>> Ic<ValueType, IndexType>::generate(
     auto l_nnz = static_cast<size_type>(
         exec->copy_val_to_host(l_row_ptrs.get_data() + num_rows));
 
-    // Init arrays
-    array<IndexType> l_col_idxs{exec, l_nnz};
-    array<ValueType> l_vals{exec, l_nnz};
-    std::shared_ptr<matrix_type> l_factor = matrix_type::create(
-        exec, matrix_size, std::move(l_vals), std::move(l_col_idxs),
-        std::move(l_row_ptrs), parameters_.l_strategy);
+    // Init the L factor
+    std::shared_ptr<matrix_type> l_factor =
+        matrix_type::create(exec, matrix_size, array<ValueType>{exec, l_nnz},
+                            array<IndexType>{exec, l_nnz},
+                            std::move(l_row_ptrs), parameters_.l_strategy);
 
     // Extract lower factor: columns and values
     exec->run(ic_factorization::make_initialize_l(local_system_matrix.get(),

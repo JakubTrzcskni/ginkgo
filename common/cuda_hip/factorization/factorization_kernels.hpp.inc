@@ -261,7 +261,9 @@ __global__ __launch_bounds__(default_block_size) void initialize_l_u(
     const IndexType* __restrict__ l_row_ptrs,
     IndexType* __restrict__ l_col_idxs, ValueType* __restrict__ l_values,
     const IndexType* __restrict__ u_row_ptrs,
-    IndexType* __restrict__ u_col_idxs, ValueType* __restrict__ u_values)
+    IndexType* __restrict__ u_col_idxs, ValueType* __restrict__ u_values,
+    const ValueType* __restrict__ diag,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row = thread::get_thread_id_flat<IndexType>();
     if (row < num_rows) {
@@ -278,12 +280,17 @@ __global__ __launch_bounds__(default_block_size) void initialize_l_u(
             }
             if (col < row) {
                 l_col_idxs[l_idx] = col;
-                l_values[l_idx] = val;
+                auto inv_diag_val_in_col = one<ValueType>();
+                if (diag) {
+                    if (diag[col] != zero<ValueType>())
+                        inv_diag_val_in_col /= diag[col];
+                }
+                l_values[l_idx] = val * scaling_factor * inv_diag_val_in_col;
                 ++l_idx;
             }
             if (row < col) {
                 u_col_idxs[u_idx] = col;
-                u_values[u_idx] = val;
+                u_values[u_idx] = val * scaling_factor;
                 ++u_idx;
             }
         }
@@ -325,7 +332,7 @@ __global__ __launch_bounds__(default_block_size) void initialize_l(
     const ValueType* __restrict__ values,
     const IndexType* __restrict__ l_row_ptrs,
     IndexType* __restrict__ l_col_idxs, ValueType* __restrict__ l_values,
-    bool use_sqrt)
+    bool use_sqrt, const remove_complex<ValueType> scaling_factor)
 {
     const auto row = thread::get_thread_id_flat<IndexType>();
     if (row < num_rows) {
@@ -341,7 +348,7 @@ __global__ __launch_bounds__(default_block_size) void initialize_l(
             }
             if (col < row) {
                 l_col_idxs[l_idx] = col;
-                l_values[l_idx] = val;
+                l_values[l_idx] = val * scaling_factor;
                 ++l_idx;
             }
         }
@@ -474,10 +481,13 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l_u(std::shared_ptr<const DefaultExecutor> exec,
-                    const matrix::Csr<ValueType, IndexType>* system_matrix,
-                    matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u)
+void initialize_w_scaling_l_u(
+    std::shared_ptr<const DefaultExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l,
+    matrix::Csr<ValueType, IndexType>* csr_u,
+    const matrix::Diagonal<ValueType>* diag,
+    const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const auto block_size = default_block_size;
@@ -485,16 +495,32 @@ void initialize_l_u(std::shared_ptr<const DefaultExecutor> exec,
         ceildiv(num_rows, static_cast<size_type>(block_size)));
 
     if (grid_dim > 0) {
+        ValueType* diag_vals = nullptr;
+        if (diag) auto diag_vals = diag->get_const_values();
         kernel::initialize_l_u<<<grid_dim, block_size, 0, exec->get_stream()>>>(
             num_rows, system_matrix->get_const_row_ptrs(),
             system_matrix->get_const_col_idxs(),
             as_device_type(system_matrix->get_const_values()),
             csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
             as_device_type(csr_l->get_values()), csr_u->get_const_row_ptrs(),
-            csr_u->get_col_idxs(), as_device_type(csr_u->get_values()));
+            csr_u->get_col_idxs(), as_device_type(csr_u->get_values()),
+            as_device_type(diag_vals), as_device_type(scaling_factor));
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL);
 
+
+template <typename ValueType, typename IndexType>
+void initialize_l_u(std::shared_ptr<const DefaultExecutor> exec,
+                    const matrix::Csr<ValueType, IndexType>* system_matrix,
+                    matrix::Csr<ValueType, IndexType>* csr_l,
+                    matrix::Csr<ValueType, IndexType>* csr_u)
+{
+    initialize_w_scaling_l_u(exec, system_matrix, csr_l, csr_u,
+                             static_cast<matrix::Diagonal<ValueType>*>(nullptr),
+                             one<remove_complex<ValueType>>());
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_KERNEL);
 
@@ -528,9 +554,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l(std::shared_ptr<const DefaultExecutor> exec,
-                  const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+void initialize_w_scaling_l(
+    std::shared_ptr<const DefaultExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+    const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const auto block_size = default_block_size;
@@ -543,8 +571,21 @@ void initialize_l(std::shared_ptr<const DefaultExecutor> exec,
             system_matrix->get_const_col_idxs(),
             as_device_type(system_matrix->get_const_values()),
             csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
-            as_device_type(csr_l->get_values()), diag_sqrt);
+            as_device_type(csr_l->get_values()), diag_sqrt,
+            as_device_type(scaling_factor));
     }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL);
+
+
+template <typename ValueType, typename IndexType>
+void initialize_l(std::shared_ptr<const DefaultExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* system_matrix,
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+{
+    initialize_w_scaling_l(exec, system_matrix, csr_l, diag_sqrt,
+                           one<remove_complex<ValueType>>());
 }
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

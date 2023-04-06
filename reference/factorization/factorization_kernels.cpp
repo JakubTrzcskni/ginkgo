@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ginkgo/core/base/array.hpp>
 #include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
 
 
 #include "core/components/prefix_sum_kernels.hpp"
@@ -194,10 +195,13 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
-                    const matrix::Csr<ValueType, IndexType>* system_matrix,
-                    matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u)
+void initialize_w_scaling_l_u(
+    std::shared_ptr<const ReferenceExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l,
+    matrix::Csr<ValueType, IndexType>* csr_u,
+    const matrix::Diagonal<ValueType>* diag,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();
@@ -222,14 +226,20 @@ void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
             const auto val = vals[el];
             if (col < row) {
                 col_idxs_l[current_index_l] = col;
-                vals_l[current_index_l] = val;
+                auto inv_diag_val_in_col = one<ValueType>();
+                if (diag) {
+                    if (diag->get_const_values()[col] != zero<ValueType>())
+                        inv_diag_val_in_col /= diag->get_const_values()[col];
+                }
+                vals_l[current_index_l] =
+                    val * scaling_factor * inv_diag_val_in_col;
                 ++current_index_l;
             } else if (col == row) {
                 // save diagonal value
                 diag_val = val;
             } else {  // col > row
                 col_idxs_u[current_index_u] = col;
-                vals_u[current_index_u] = val;
+                vals_u[current_index_u] = val * scaling_factor;
                 ++current_index_u;
             }
         }
@@ -242,10 +252,22 @@ void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
         vals_u[u_diag_idx] = diag_val;
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL);
 
+
+template <typename ValueType, typename IndexType>
+void initialize_l_u(std::shared_ptr<const ReferenceExecutor> exec,
+                    const matrix::Csr<ValueType, IndexType>* system_matrix,
+                    matrix::Csr<ValueType, IndexType>* csr_l,
+                    matrix::Csr<ValueType, IndexType>* csr_u)
+{
+    initialize_w_scaling_l_u(exec, system_matrix, csr_l, csr_u,
+                             static_cast<matrix::Diagonal<ValueType>*>(nullptr),
+                             one<remove_complex<ValueType>>());
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_KERNEL);
-
 
 template <typename ValueType, typename IndexType>
 void initialize_row_ptrs_l(
@@ -275,9 +297,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l(std::shared_ptr<const ReferenceExecutor> exec,
-                  const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+void initialize_w_scaling_l(
+    std::shared_ptr<const ReferenceExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();
@@ -296,7 +320,7 @@ void initialize_l(std::shared_ptr<const ReferenceExecutor> exec,
             const auto val = vals[el];
             if (col < row) {
                 col_idxs_l[current_index_l] = col;
-                vals_l[current_index_l] = val;
+                vals_l[current_index_l] = val * scaling_factor;
                 ++current_index_l;
             } else if (col == row) {
                 // save diagonal value
@@ -316,7 +340,18 @@ void initialize_l(std::shared_ptr<const ReferenceExecutor> exec,
         vals_l[l_diag_idx] = diag_val;
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL);
 
+
+template <typename ValueType, typename IndexType>
+void initialize_l(std::shared_ptr<const ReferenceExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* system_matrix,
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+{
+    initialize_w_scaling_l(exec, system_matrix, csr_l, diag_sqrt,
+                           one<remove_complex<ValueType>>());
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_KERNEL);
 

@@ -102,20 +102,17 @@ std::unique_ptr<Composition<ValueType>> Ilu<ValueType, IndexType>::generate_l_u(
         exec->copy_val_to_host(l_row_ptrs.get_data() + num_rows));
     auto u_nnz = static_cast<size_type>(
         exec->copy_val_to_host(u_row_ptrs.get_data() + num_rows));
+    // Init L and U factors
+    std::shared_ptr<matrix_type> l_factor =
+        matrix_type::create(exec, matrix_size, array<ValueType>{exec, l_nnz},
+                            array<IndexType>{exec, l_nnz},
+                            std::move(l_row_ptrs), parameters_.l_strategy);
+    std::shared_ptr<matrix_type> u_factor =
+        matrix_type::create(exec, matrix_size, array<ValueType>{exec, u_nnz},
+                            array<IndexType>{exec, u_nnz},
+                            std::move(u_row_ptrs), parameters_.u_strategy);
 
-    // Init arrays
-    array<IndexType> l_col_idxs{exec, l_nnz};
-    array<ValueType> l_vals{exec, l_nnz};
-    std::shared_ptr<matrix_type> l_factor = matrix_type::create(
-        exec, matrix_size, std::move(l_vals), std::move(l_col_idxs),
-        std::move(l_row_ptrs), parameters_.l_strategy);
-    array<IndexType> u_col_idxs{exec, u_nnz};
-    array<ValueType> u_vals{exec, u_nnz};
-    std::shared_ptr<matrix_type> u_factor = matrix_type::create(
-        exec, matrix_size, std::move(u_vals), std::move(u_col_idxs),
-        std::move(u_row_ptrs), parameters_.u_strategy);
-
-    // Separate L and U: columns and values
+    // fill the L and U factors with col_idxs & values
     exec->run(ilu_factorization::make_initialize_l_u(
         local_system_matrix.get(), l_factor.get(), u_factor.get()));
 

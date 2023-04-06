@@ -66,6 +66,14 @@ std::string encode_parameters(const char* precond_name)
                  << FLAGS_jacobi_storage;
              return oss.str();
          }},
+        {"gauss-seidel",
+         [] {
+             std::ostringstream oss;
+             oss << "gauss-seidel-"
+                 << FLAGS_gauss_seidel_symmetric_preconditioner << "-"
+                 << FLAGS_gauss_seidel_relaxation_factor;
+             return oss.str();
+         }},
         {"parict",
          [] {
              std::ostringstream oss;

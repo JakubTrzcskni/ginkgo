@@ -160,7 +160,7 @@ public:
 
     /**
      * Applies the inverse of the diagonal matrix to a matrix b,
-     * which means scales the columns of b with the inverse of the according
+     * which means scales the rows of b with the inverse of the according
      * diagonal entries.
      *
      * @param b  the input vector(s) on which the inverse of the diagonal matrix

@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 #include <ginkgo/core/base/array.hpp>
+#include <ginkgo/core/base/math.hpp>
+#include <ginkgo/core/matrix/diagonal.hpp>
 
 
 #include "core/components/prefix_sum_kernels.hpp"
@@ -359,7 +361,9 @@ void initialize_l_u(size_type num_rows, const IndexType* __restrict__ row_ptrs,
                     ValueType* __restrict__ l_values,
                     const IndexType* __restrict__ u_row_ptrs,
                     IndexType* __restrict__ u_col_idxs,
-                    ValueType* __restrict__ u_values, sycl::nd_item<3> item_ct1)
+                    ValueType* __restrict__ u_values,
+                    const remove_complex<ValueType> scaling_factor,
+                    sycl::nd_item<3> item_ct1)
 {
     const auto row = thread::get_thread_id_flat<IndexType>(item_ct1);
     if (row < num_rows) {
@@ -376,12 +380,12 @@ void initialize_l_u(size_type num_rows, const IndexType* __restrict__ row_ptrs,
             }
             if (col < row) {
                 l_col_idxs[l_idx] = col;
-                l_values[l_idx] = val;
+                l_values[l_idx] = val * scaling_factor;
                 ++l_idx;
             }
             if (row < col) {
                 u_col_idxs[u_idx] = col;
-                u_values[u_idx] = val;
+                u_values[u_idx] = val * scaling_factor;
                 ++u_idx;
             }
         }
@@ -402,13 +406,14 @@ void initialize_l_u(dim3 grid, dim3 block, size_type dynamic_shared_memory,
                     const ValueType* values, const IndexType* l_row_ptrs,
                     IndexType* l_col_idxs, ValueType* l_values,
                     const IndexType* u_row_ptrs, IndexType* u_col_idxs,
-                    ValueType* u_values)
+                    ValueType* u_values,
+                    const remove_complex<ValueType> scaling_factor)
 {
     queue->parallel_for(
         sycl_nd_range(grid, block), [=](sycl::nd_item<3> item_ct1) {
             initialize_l_u(num_rows, row_ptrs, col_idxs, values, l_row_ptrs,
                            l_col_idxs, l_values, u_row_ptrs, u_col_idxs,
-                           u_values, item_ct1);
+                           u_values, scaling_factor, item_ct1);
         });
 }
 
@@ -613,10 +618,13 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l_u(std::shared_ptr<const DpcppExecutor> exec,
-                    const matrix::Csr<ValueType, IndexType>* system_matrix,
-                    matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u)
+void initialize_w_scaling_l_u(
+    std::shared_ptr<const DpcppExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l,
+    matrix::Csr<ValueType, IndexType>* csr_u,
+    const matrix::Diagonal<ValueType>* diag,
+    const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const dim3 block_size{default_block_size, 1, 1};
@@ -624,15 +632,28 @@ void initialize_l_u(std::shared_ptr<const DpcppExecutor> exec,
                             num_rows, static_cast<size_type>(block_size.x))),
                         1, 1};
 
-    kernel::initialize_l_u(grid_dim, block_size, 0, exec->get_queue(), num_rows,
-                           system_matrix->get_const_row_ptrs(),
-                           system_matrix->get_const_col_idxs(),
-                           system_matrix->get_const_values(),
-                           csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
-                           csr_l->get_values(), csr_u->get_const_row_ptrs(),
-                           csr_u->get_col_idxs(), csr_u->get_values());
+    kernel::initialize_l_u(
+        grid_dim, block_size, 0, exec->get_queue(), num_rows,
+        system_matrix->get_const_row_ptrs(),
+        system_matrix->get_const_col_idxs(), system_matrix->get_const_values(),
+        csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(), csr_l->get_values(),
+        csr_u->get_const_row_ptrs(), csr_u->get_col_idxs(), csr_u->get_values(),
+        scaling_factor);
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL);
 
+
+template <typename ValueType, typename IndexType>
+void initialize_l_u(std::shared_ptr<const DpcppExecutor> exec,
+                    const matrix::Csr<ValueType, IndexType>* system_matrix,
+                    matrix::Csr<ValueType, IndexType>* csr_l,
+                    matrix::Csr<ValueType, IndexType>* csr_u)
+{
+    initialize_w_scaling_l_u(exec, system_matrix, csr_l, csr_u,
+                             static_cast<matrix::Diagonal<ValueType>*>(nullptr),
+                             one<remove_complex<ValueType>>());
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_KERNEL);
 
@@ -663,9 +684,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l(std::shared_ptr<const DpcppExecutor> exec,
-                  const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+void initialize_w_scaling_l(
+    std::shared_ptr<const DpcppExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+    const remove_complex<ValueType> scaling_factor)
 {
     const size_type num_rows{system_matrix->get_size()[0]};
     const dim3 block_size{default_block_size, 1, 1};
@@ -679,6 +702,18 @@ void initialize_l(std::shared_ptr<const DpcppExecutor> exec,
                          system_matrix->get_const_values(),
                          csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
                          csr_l->get_values(), diag_sqrt);
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL);
+
+
+template <typename ValueType, typename IndexType>
+void initialize_l(std::shared_ptr<const DpcppExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* system_matrix,
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+{
+    initialize_w_scaling_l(exec, system_matrix, csr_l, diag_sqrt,
+                           one<remove_complex<ValueType>>());
 }
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
