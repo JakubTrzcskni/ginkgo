@@ -495,6 +495,8 @@ void initialize_w_scaling_l_u(
         ceildiv(num_rows, static_cast<size_type>(block_size)));
 
     if (grid_dim > 0) {
+        ValueType* diag_vals = nullptr;
+        if (diag) auto diag_vals = diag->get_const_values();
         kernel::initialize_l_u<<<grid_dim, block_size, 0, exec->get_stream()>>>(
             num_rows, system_matrix->get_const_row_ptrs(),
             system_matrix->get_const_col_idxs(),
@@ -502,8 +504,7 @@ void initialize_w_scaling_l_u(
             csr_l->get_const_row_ptrs(), csr_l->get_col_idxs(),
             as_device_type(csr_l->get_values()), csr_u->get_const_row_ptrs(),
             csr_u->get_col_idxs(), as_device_type(csr_u->get_values()),
-            as_device_type(diag->get_const_values()),
-            as_device_type(scaling_factor));
+            as_device_type(diag_vals), as_device_type(scaling_factor));
     }
 }
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(

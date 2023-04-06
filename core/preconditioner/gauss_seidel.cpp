@@ -143,6 +143,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
             array<IndexType>{exec, l_nnz}, std::move(l_row_ptrs), mat_strategy);
 
         // fill the L factor with col_idxs & values
+        // values not on the diagonal are scaled with the relaxation factor,
         exec->run(gauss_seidel::make_initialize_w_scaling_l(
             csr_matrix.get(), l_factor.get(), false, relaxation_factor_));
 
@@ -178,6 +179,9 @@ void GaussSeidel<ValueType, IndexType>::generate(
             array<IndexType>{exec, u_nnz}, std::move(u_row_ptrs), mat_strategy);
 
         // fill the L and U factors with col_idxs & values
+        // values not on the diagonal are scaled with the relaxation factor,
+        // values of the strict lower factor are column scaled with the inverse
+        // of the diagonal
         exec->run(gauss_seidel::make_initialize_w_scaling_l_u(
             csr_matrix.get(), l_factor.get(), u_factor.get(), diag.get(),
             relaxation_factor_));
