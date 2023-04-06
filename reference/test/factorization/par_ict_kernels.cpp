@@ -200,8 +200,7 @@ TYPED_TEST(ParIct, KernelInitializeL)
     gko::kernels::reference::factorization::initialize_row_ptrs_l(
         this->ref, this->mtx_init.get(), res_mtx_l->get_row_ptrs());
     gko::kernels::reference::factorization::initialize_l(
-        this->ref, this->mtx_init.get(), res_mtx_l.get(), true,
-        gko::one<gko::remove_complex<value_type>>());
+        this->ref, this->mtx_init.get(), res_mtx_l.get(), true);
 
     GKO_ASSERT_MTX_NEAR(res_mtx_l, this->mtx_l_init_expect, this->tol);
     GKO_ASSERT_MTX_EQ_SPARSITY(res_mtx_l, this->mtx_l_init_expect);

@@ -227,10 +227,7 @@ ParIlut<ValueType, IndexType>::generate_l_u(
                                std::move(u_row_ptrs_array));
 
     // initialize L and U
-    exec->run(make_initialize_l_u(
-        csr_system_matrix.get(), l.get(), u.get(),
-        static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
-        one<remove_complex<ValueType>>()));
+    exec->run(make_initialize_l_u(csr_system_matrix.get(), l.get(), u.get()));
 
     // compute limit #nnz for L and U
     auto l_nnz_limit =

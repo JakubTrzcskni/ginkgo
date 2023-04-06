@@ -43,8 +43,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace gko {
 namespace preconditioner {
 namespace gauss_seidel {
-GKO_REGISTER_OPERATION(initialize_l, factorization::initialize_l);
-GKO_REGISTER_OPERATION(initialize_l_u, factorization::initialize_l_u);
+GKO_REGISTER_OPERATION(initialize_w_scaling_l,
+                       factorization::initialize_w_scaling_l);
+GKO_REGISTER_OPERATION(initialize_w_scaling_l_u,
+                       factorization::initialize_w_scaling_l_u);
 GKO_REGISTER_OPERATION(initialize_row_ptrs_l,
                        factorization::initialize_row_ptrs_l);
 GKO_REGISTER_OPERATION(initialize_row_ptrs_l_u,
@@ -141,7 +143,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
             array<IndexType>{exec, l_nnz}, std::move(l_row_ptrs), mat_strategy);
 
         // fill the L factor with col_idxs & values
-        exec->run(gauss_seidel::make_initialize_l(
+        exec->run(gauss_seidel::make_initialize_w_scaling_l(
             csr_matrix.get(), l_factor.get(), false, relaxation_factor_));
 
         // create the solver
@@ -176,7 +178,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
             array<IndexType>{exec, u_nnz}, std::move(u_row_ptrs), mat_strategy);
 
         // fill the L and U factors with col_idxs & values
-        exec->run(gauss_seidel::make_initialize_l_u(
+        exec->run(gauss_seidel::make_initialize_w_scaling_l_u(
             csr_matrix.get(), l_factor.get(), u_factor.get(), diag.get(),
             relaxation_factor_));
 

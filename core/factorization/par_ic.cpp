@@ -116,9 +116,8 @@ std::unique_ptr<Composition<ValueType>> ParIc<ValueType, IndexType>::generate(
         exec, matrix_size, std::move(l_vals), std::move(l_col_idxs),
         std::move(l_row_ptrs), parameters_.l_strategy);
 
-    exec->run(par_ic_factorization::make_initialize_l(
-        csr_system_matrix.get(), l_factor.get(), false,
-        one<remove_complex<ValueType>>()));
+    exec->run(par_ic_factorization::make_initialize_l(csr_system_matrix.get(),
+                                                      l_factor.get(), false));
 
     // build COO representation of lower factor
     array<IndexType> l_row_idxs{exec, l_nnz};

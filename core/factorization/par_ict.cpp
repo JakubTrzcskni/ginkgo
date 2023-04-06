@@ -203,8 +203,7 @@ ParIct<ValueType, IndexType>::generate_l_lt(
                                std::move(l_row_ptrs_array));
 
     // initialize L
-    exec->run(make_initialize_l(csr_system_matrix.get(), l.get(), true,
-                                one<remove_complex<ValueType>>()));
+    exec->run(make_initialize_l(csr_system_matrix.get(), l.get(), true));
 
     // compute limit #nnz for L
     auto l_nnz_limit =

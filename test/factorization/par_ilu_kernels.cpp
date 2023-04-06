@@ -157,13 +157,9 @@ protected:
         exec->copy(num_row_ptrs, du_row_ptrs.get_data(), du->get_row_ptrs());
 
         gko::kernels::reference::factorization::initialize_l_u(
-            ref, mtx.get(), l.get(), u.get(),
-            static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
-            gko::one<gko::remove_complex<value_type>>());
+            ref, mtx.get(), l.get(), u.get());
         gko::kernels::EXEC_NAMESPACE::factorization::initialize_l_u(
-            exec, dmtx.get(), dl.get(), du.get(),
-            static_cast<gko::matrix::Diagonal<value_type>*>(nullptr),
-            gko::one<gko::remove_complex<value_type>>());
+            exec, dmtx.get(), dl.get(), du.get());
     }
 
     void compute_lu(std::unique_ptr<Csr>& l, std::unique_ptr<Csr>& u,

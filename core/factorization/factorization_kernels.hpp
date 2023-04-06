@@ -69,8 +69,16 @@ namespace kernels {
         std::shared_ptr<const DefaultExecutor> exec,                          \
         const matrix::Csr<ValueType, IndexType>* system_matrix,               \
         matrix::Csr<ValueType, IndexType>* l_factor,                          \
-        matrix::Csr<ValueType, IndexType>* u_factor,                          \
-        const matrix::Diagonal<ValueType>* diag,                              \
+        matrix::Csr<ValueType, IndexType>* u_factor)
+
+#define GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL(ValueType, \
+                                                                IndexType) \
+    void initialize_w_scaling_l_u(                                         \
+        std::shared_ptr<const DefaultExecutor> exec,                       \
+        const matrix::Csr<ValueType, IndexType>* system_matrix,            \
+        matrix::Csr<ValueType, IndexType>* l_factor,                       \
+        matrix::Csr<ValueType, IndexType>* u_factor,                       \
+        const matrix::Diagonal<ValueType>* diag,                           \
         const remove_complex<ValueType> scaling_factor)
 
 #define GKO_DECLARE_FACTORIZATION_INITIALIZE_ROW_PTRS_L_KERNEL(ValueType, \
@@ -84,8 +92,15 @@ namespace kernels {
     void initialize_l(std::shared_ptr<const DefaultExecutor> exec,            \
                       const matrix::Csr<ValueType, IndexType>* system_matrix, \
                       matrix::Csr<ValueType, IndexType>* l_factor,            \
-                      bool diag_sqrt,                                         \
-                      const remove_complex<ValueType> scaling_factor)
+                      bool diag_sqrt)
+
+#define GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL(ValueType, \
+                                                              IndexType) \
+    void initialize_w_scaling_l(                                         \
+        std::shared_ptr<const DefaultExecutor> exec,                     \
+        const matrix::Csr<ValueType, IndexType>* system_matrix,          \
+        matrix::Csr<ValueType, IndexType>* l_factor, bool diag_sqrt,     \
+        const remove_complex<ValueType> scaling_factor)
 
 
 #define GKO_DECLARE_ALL_AS_TEMPLATES                                       \
@@ -98,10 +113,16 @@ namespace kernels {
     template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_KERNEL(ValueType, IndexType); \
     template <typename ValueType, typename IndexType>                      \
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL(ValueType,     \
+                                                            IndexType);    \
+    template <typename ValueType, typename IndexType>                      \
     GKO_DECLARE_FACTORIZATION_INITIALIZE_ROW_PTRS_L_KERNEL(ValueType,      \
                                                            IndexType);     \
     template <typename ValueType, typename IndexType>                      \
-    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_KERNEL(ValueType, IndexType)
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_KERNEL(ValueType, IndexType);   \
+    template <typename ValueType, typename IndexType>                      \
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL(ValueType,       \
+                                                          IndexType)
 
 
 GKO_DECLARE_FOR_ALL_EXECUTOR_NAMESPACES(factorization,

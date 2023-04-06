@@ -157,8 +157,7 @@ void Isai<IsaiType, ValueType, IndexType>::generate_inverse(
 
         // Extract lower factor: columns and values
         exec->run(isai::make_initialize_l(to_invert.get(), inverted_base.get(),
-                                          false,
-                                          one<remove_complex<ValueType>>()));
+                                          false));
 
         inverted = power == 1
                        ? std::move(inverted_base)

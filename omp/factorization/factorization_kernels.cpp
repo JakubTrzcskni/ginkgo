@@ -251,12 +251,13 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l_u(std::shared_ptr<const OmpExecutor> exec,
-                    const matrix::Csr<ValueType, IndexType>* system_matrix,
-                    matrix::Csr<ValueType, IndexType>* csr_l,
-                    matrix::Csr<ValueType, IndexType>* csr_u,
-                    const matrix::Diagonal<ValueType>* diag,
-                    const remove_complex<ValueType> scaling_factor)
+void initialize_w_scaling_l_u(
+    std::shared_ptr<const OmpExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l,
+    matrix::Csr<ValueType, IndexType>* csr_u,
+    const matrix::Diagonal<ValueType>* diag,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();
@@ -308,7 +309,20 @@ void initialize_l_u(std::shared_ptr<const OmpExecutor> exec,
         vals_u[u_diag_idx] = diag_val;
     }
 }
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_SCALING_KERNEL);
 
+
+template <typename ValueType, typename IndexType>
+void initialize_l_u(std::shared_ptr<const OmpExecutor> exec,
+                    const matrix::Csr<ValueType, IndexType>* system_matrix,
+                    matrix::Csr<ValueType, IndexType>* csr_l,
+                    matrix::Csr<ValueType, IndexType>* csr_u)
+{
+    initialize_w_scaling_l_u(exec, system_matrix, csr_l, csr_u,
+                             static_cast<matrix::Diagonal<ValueType>*>(nullptr),
+                             one<remove_complex<ValueType>>());
+}
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_FACTORIZATION_INITIALIZE_L_U_KERNEL);
 
@@ -345,10 +359,11 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
 
 
 template <typename ValueType, typename IndexType>
-void initialize_l(std::shared_ptr<const OmpExecutor> exec,
-                  const matrix::Csr<ValueType, IndexType>* system_matrix,
-                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
-                  const remove_complex<ValueType> scaling_factor)
+void initialize_w_scaling_l(
+    std::shared_ptr<const OmpExecutor> exec,
+    const matrix::Csr<ValueType, IndexType>* system_matrix,
+    matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt,
+    const remove_complex<ValueType> scaling_factor)
 {
     const auto row_ptrs = system_matrix->get_const_row_ptrs();
     const auto col_idxs = system_matrix->get_const_col_idxs();
@@ -387,6 +402,18 @@ void initialize_l(std::shared_ptr<const OmpExecutor> exec,
         }
         vals_l[l_diag_idx] = diag_val;
     }
+}
+GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
+    GKO_DECLARE_FACTORIZATION_INITIALIZE_L_SCALING_KERNEL);
+
+
+template <typename ValueType, typename IndexType>
+void initialize_l(std::shared_ptr<const OmpExecutor> exec,
+                  const matrix::Csr<ValueType, IndexType>* system_matrix,
+                  matrix::Csr<ValueType, IndexType>* csr_l, bool diag_sqrt)
+{
+    initialize_w_scaling_l(exec, system_matrix, csr_l, diag_sqrt,
+                           one<remove_complex<ValueType>>());
 }
 
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
