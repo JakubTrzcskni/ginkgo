@@ -41,6 +41,7 @@ target_sources(ginkgo_reference
     matrix/sellp_kernels.cpp
     matrix/sparsity_csr_kernels.cpp
     multigrid/pgm_kernels.cpp
+    preconditioner/gauss_seidel_kernels.cpp
     preconditioner/isai_kernels.cpp
     preconditioner/jacobi_kernels.cpp
     reorder/rcm_kernels.cpp
