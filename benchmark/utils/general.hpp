@@ -342,7 +342,7 @@ const std::map<std::string, std::function<std::shared_ptr<gko::Executor>(bool)>>
         {"hip",
          [](bool) {
              return gko::HipExecutor::create(FLAGS_device_id,
-                                             gko::OmpExecutor::create(),
+                                             gko::ReferenceExecutor::create(),
                                              create_hip_allocator());
          }},
         {"dpcpp", [](bool use_gpu_timer) {
