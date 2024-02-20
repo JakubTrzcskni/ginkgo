@@ -287,6 +287,7 @@ protected:
           l_spmv_mtx_col_idxs_{array<index_type>(host_exec_)},
           l_spmv_vals_{array<value_type>(host_exec_)}
     {
+        GKO_ASSERT(relaxation_factor_ > 0.0 && relaxation_factor_ < 2.0);
         if (parameters_.use_HBMC == true) {
             GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
                        lvl2_block_size_ > 0 && lvl2_block_size_ < 33);

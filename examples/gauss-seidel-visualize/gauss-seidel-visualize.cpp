@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <math.h>
 #include <memory>
 #include <random>
 #include <sstream>
@@ -341,14 +342,15 @@ int main(int argc, char* argv[])
     } else {
         gs_rand->apply(rhs_rand.get(), x.get());
 
-        // auto label = std::string("mtxRandPermuted-");
-        // label += typeid(ValueType).name() + std::string("-") +
-        //                   typeid(IndexType).name() + std::string("-");
-        // label += std::to_string(base_block_size) + std::string("-") +
-        //          std::to_string(lvl_2_block_size);
-        // visualize(exec,  (gs_rand->get_ltr_matrix().get()), label);
-        // visualize(exec,  (mtx_rand.get()), std::string("mtxRand"));
-        // visualize(exec,  (gs_rand_grid->get_ltr_matrix().get()),
-        // label_grid);
+        auto label = std::string("mtxRandPermuted-");
+        label += typeid(ValueType).name() + std::string("-") +
+                          typeid(IndexType).name() + std::string("-");
+        label += std::to_string(base_block_size) + std::string("-") +
+                 std::to_string(lvl_2_block_size);
+        visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
+        visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
+        // visualize(exec, gko::lend(gs_rand_grid->get_ltr_matrix()),
+        // label_grid)
+        ;
     }
 }

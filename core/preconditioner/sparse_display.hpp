@@ -294,7 +294,7 @@ void spy_ge(int m, int n, ValueType a[], string header)
     cout << "  Created graphics command file '" << command_filename << "'\n";
 
     auto gnuplot_command = "gnuplot " + command_filename;
-    system(gnuplot_command.c_str());
+    //system(gnuplot_command.c_str());
     return;
 }
 //****************************************************************************80

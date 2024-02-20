@@ -541,6 +541,7 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 
+//omega = relaxation factor
 template <typename ValueType, typename IndexType>
 void advanced_apply(
     std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
@@ -613,7 +614,7 @@ void get_coloring(
     const IndexType* row_ptrs = adjacency_matrix->get_const_row_ptrs();
     const IndexType* col_idxs = adjacency_matrix->get_const_col_idxs();
     IndexType highest_color = 0;
-    for (auto i = 0; i < vertex_colors.get_num_elems(); i++) {
+    for (auto i = 0; i < vertex_colors.get_size(); i++) {
         typename std::set<IndexType> neighbour_colors;
         for (auto j = row_ptrs[i]; j < row_ptrs[i + 1]; j++) {
             auto col = col_idxs[j];
