@@ -99,7 +99,8 @@ std::string encode_parameters(const char* precond_name)
         {"gauss-seidel", [] {
              std::ostringstream oss;
              oss << "gauss-seidel-" << FLAGS_gs_base_block_size << '-'
-                 << FLAGS_gs_lvl_2_block_size << '-' << FLAGS_gs_use_padding;
+                 << FLAGS_gs_lvl_2_block_size << '-' << FLAGS_gs_use_padding
+                 << '-' << FLAGS_gs_prepermuted_input;
              return oss.str();
          }}};
     if (encoder.find(precond_name) == encoder.end()) {

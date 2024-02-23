@@ -38,8 +38,10 @@ static apply_param_type allParams{
     std::make_tuple(1000, 10, 16, 4, true),
     std::make_tuple(1000, 10, 4, 4, false),
     std::make_tuple(1000, 10, 4, 4, true),
-    //   std::make_tuple(1003, 15, 32, 4, false),
-    //   std::make_tuple(1003, 15, 32, 4, true),
+    // std::make_tuple(1000, 10, 32, 16, false),//problem
+    // std::make_tuple(1000, 10, 32, 16, true),//segafult hehe
+    // std::make_tuple(1003, 15, 32, 4, false),//problem
+    // std::make_tuple(1003, 15, 32, 4, true),//problem
     std::make_tuple(1000, 10, 4, 8, false),
     std::make_tuple(1000, 10, 4, 8, true)};
 
@@ -400,7 +402,7 @@ TYPED_TEST(GaussSeidel, AdvancedApply)
         ref_gs->apply(rhs.get(), x.get());
 
         device_gs->apply(d_rhs.get(), d_x.get());
-        // std::cout << "tuple: " << i++ << std::endl;
+        std::cout << "tuple: " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
     }
 }
@@ -486,7 +488,7 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
 
         auto ans =
             gko::as<Vec>(d_permuted_x.get()->inverse_row_permute(&perm_idxs));
-        // std::cout << "tuple: " << i++ << std::endl;
+        std::cout << "tuple: " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(ans, x, r<ValueType>::value);
     }
 }

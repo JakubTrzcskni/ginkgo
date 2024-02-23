@@ -68,6 +68,8 @@ DEFINE_int32(gs_apply_kernel_version, 9, "Version of the apply kernel");
 DEFINE_bool(gs_prepermuted_input, false,
             "Determines if GS should expect prepermuted input or not");
 
+DEFINE_bool(gs_symm_precond, false, "determines if GS or SGS should be used");
+
 // parses the Jacobi storage optimization command line argument
 gko::precision_reduction parse_storage_optimization(const std::string& flag)
 {
@@ -319,6 +321,7 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_use_HBMC(true)
                  .with_prepermuted_input(FLAGS_gs_prepermuted_input)
                  .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
                  .on(exec);
          }},
         {"overhead", [](std::shared_ptr<const gko::Executor> exec) {
