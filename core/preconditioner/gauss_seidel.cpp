@@ -183,7 +183,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                     lower_trs_->apply(dense_b, dense_x);
                 }
             } else if (permuted) {
-                const auto exec = this->get_executor()->get_master();
+                const auto exec = host_exec_;
                 auto b_perm =
                     share(as<Dense>(dense_b->row_permute(&permutation_idxs_)));
                 auto x_perm =
@@ -194,8 +194,7 @@ void GaussSeidel<ValueType, IndexType>::apply_impl(const LinOp* b,
                 auto tmp_rhs_block = Dense::create(exec);
 
                 for (auto color_block = 0;
-                     color_block < color_ptrs_.get_size() - 1;
-                     color_block++) {
+                     color_block < color_ptrs_.get_size() - 1; color_block++) {
                     dim_type block_start = block_ptrs[color_block];
                     dim_type block_end = block_ptrs[color_block + 1];
                     dim_type block_size = block_end - block_start;
@@ -300,7 +299,7 @@ GaussSeidel<ValueType, IndexType>::get_adjacency_matrix(
     using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
     using MatData = matrix_data<ValueType, IndexType>;
 
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
 
     auto tmp = SparsityMatrix::create(exec);
 
@@ -319,7 +318,7 @@ IndexType GaussSeidel<ValueType, IndexType>::get_coloring(
     using SparsityMatrix = matrix::SparsityCsr<ValueType, IndexType>;
     using MatData = matrix_data<ValueType, IndexType>;
 
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
 
     auto adjacency_matrix = SparsityMatrix::create(exec);
     adjacency_matrix = get_adjacency_matrix(mat_data, is_symmetric);
@@ -338,7 +337,7 @@ void GaussSeidel<ValueType, IndexType>::initialize_blocks()
 {
     using Diagonal = gko::matrix::Diagonal<ValueType>;
     using dim_type = gko::dim<2>::dimension_type;
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
     const auto block_ptrs = color_ptrs_.get_const_data();
     const auto num_rows = lower_triangular_matrix_->get_size()[0];
     const auto num_of_colors = color_ptrs_.get_size() - 1;
@@ -382,7 +381,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
     std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
 {
     using Csr = matrix::Csr<ValueType, IndexType>;
-    const auto exec = this->get_executor()->get_master();
+    const auto exec = host_exec_;
     GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix);
 
     auto csr_matrix =
@@ -402,7 +401,10 @@ void GaussSeidel<ValueType, IndexType>::generate(
             lower_trs_ = nullptr;
             auto max_color =  // colors start with 0 so there are max_colors
                               // + 1 different colors
-                get_coloring(mat_data);  // matrix data is made symmetric here for the purpose of creating an adjacency mtx / matrix is assumed to be non-symmetric
+                get_coloring(
+                    mat_data);  // matrix data is made symmetric here for the
+                                // purpose of creating an adjacency mtx / matrix
+                                // is assumed to be non-symmetric
             color_ptrs_.resize_and_reset(max_color + 2);
             permutation_idxs_.resize_and_reset(num_nodes);
             exec->run(gauss_seidel::make_get_permutation_from_coloring(
@@ -416,8 +418,7 @@ void GaussSeidel<ValueType, IndexType>::generate(
             utils::make_lower_triangular(mat_data);
             lower_triangular_matrix_->read(mat_data);
             initialize_blocks();
-            GKO_ASSERT_EQ(block_ptrs_.size(),
-                          2 * color_ptrs_.get_size() - 3);
+            GKO_ASSERT_EQ(block_ptrs_.size(), 2 * color_ptrs_.get_size() - 3);
         }
 
     } else {
@@ -447,13 +448,15 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     std::shared_ptr<const LinOp> system_matrix, bool skip_sorting)
 {
     using Csr = matrix::Csr<ValueType, IndexType>;
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
     const auto is_gpu_executor = this->get_executor() != exec;
 
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
 
+    // std::cout << "reserve mem for mat_data:\n";
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
+    // std::cout << "mem reserved\n";
     csr_matrix->write(mat_data);
     auto adjacency_matrix =
         matrix::SparsityCsr<ValueType, IndexType>::create(exec);
@@ -503,8 +506,8 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     color_ptrs_.set_executor(d_exec);
 
     // for testing only
-    // lower_triangular_matrix_->copy_from(
-    //     give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
+    lower_triangular_matrix_->copy_from(
+        give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
 }
 
 template <typename ValueType, typename IndexType>
@@ -515,7 +518,7 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
         base_block_size,  // not needed, access the factory param instead?
     const IndexType num_colors)
 {
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
     const auto num_nodes = adjacency_matrix->get_size()[0];
     const auto nnz_triangle = adjacency_matrix->get_num_nonzeros() / 2 +
                               num_nodes;  // should work if matrix is symmetric
@@ -540,9 +543,13 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     const auto l_spmv_val_col_mem_requirement =
         nnz_triangle - num_nodes;  // more memory than needed
     const auto l_spmv_row_mem_requirement =
-        num_nodes - color_ptrs_.get_const_data()[1] +
-        color_ptrs_.get_size() - 2;  // optimal
+        num_nodes - color_ptrs_.get_const_data()[1] + color_ptrs_.get_size() -
+        2;  // optimal
 
+    // std::cout << color_ptrs_.get_size() << "\n"
+    //           << diag_mem_requirement << "\n"
+    //           << l_spmv_row_mem_requirement << "\n"
+    //           << l_spmv_val_col_mem_requirement << std::endl;
     l_diag_rows_.resize_and_reset(diag_mem_requirement);
     l_diag_mtx_col_idxs_.resize_and_reset(diag_mem_requirement);
     l_diag_vals_.resize_and_reset(diag_mem_requirement);
@@ -584,7 +591,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     const matrix::SparsityCsr<ValueType, IndexType>* adjacency_matrix,
     const IndexType block_size, const IndexType lvl_2_block_size)
 {
-    auto exec = this->get_executor()->get_master();
+    auto exec = host_exec_;
     const IndexType num_nodes = adjacency_matrix->get_size()[0];
     const IndexType num_base_blocks = ceildiv(num_nodes, block_size);
 
@@ -613,21 +620,20 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         num_nodes, vertex_colors_.get_data(), max_color, color_ptrs_.get_data(),
         permutation_idxs_.get_data(), block_ordering.get_const_data()));
 
-    
-        reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
-                                        block_size, max_color + 1);
+    reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
+                                    block_size, max_color + 1);
 
-        // secondary ordering
-        exec->run(gauss_seidel::make_get_secondary_ordering(
-            permutation_idxs_.get_data(), hbmc_storage_scheme_, block_size,
-            lvl_2_block_size, color_ptrs_.get_const_data(), max_color,
-            use_padding_));
+    // secondary ordering
+    exec->run(gauss_seidel::make_get_secondary_ordering(
+        permutation_idxs_.get_data(), hbmc_storage_scheme_, block_size,
+        lvl_2_block_size, color_ptrs_.get_const_data(), max_color,
+        use_padding_));
 
-        inv_permutation_idxs_.resize_and_reset(num_nodes);
-        exec->run(gauss_seidel::make_invert_permutation(
-            permutation_idxs_.get_const_data(), num_nodes,
-            inv_permutation_idxs_.get_data()));
-    
+    inv_permutation_idxs_.resize_and_reset(num_nodes);
+    exec->run(gauss_seidel::make_invert_permutation(
+        permutation_idxs_.get_const_data(), num_nodes,
+        inv_permutation_idxs_.get_data()));
+
 
     return block_ordering;  // won't be needed at all
                             // return storage scheme maybe? or nothing

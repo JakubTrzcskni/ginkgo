@@ -100,7 +100,8 @@ std::string encode_parameters(const char* precond_name)
              std::ostringstream oss;
              oss << "gauss-seidel-" << FLAGS_gs_base_block_size << '-'
                  << FLAGS_gs_lvl_2_block_size << '-' << FLAGS_gs_use_padding
-                 << '-' << FLAGS_gs_prepermuted_input;
+                 << '-' << FLAGS_gs_prepermuted_input << '-'
+                 << FLAGS_gs_symm_precond;
              return oss.str();
          }}};
     if (encoder.find(precond_name) == encoder.end()) {
@@ -167,9 +168,9 @@ struct PreconditionerBenchmark : Benchmark<preconditioner_benchmark_state> {
         state.system_matrix =
             formats::matrix_factory(FLAGS_formats, exec, data);
         state.b = Generator::create_multi_vector_random(
-            exec, gko::dim<2>{data.size[0]});
+            exec, gko::dim<2>{data.size[0], FLAGS_num_rhs});
         state.x = Generator::create_multi_vector(
-            exec, gko::dim<2>{data.size[0]}, gko::zero<etype>());
+            exec, gko::dim<2>{data.size[0], FLAGS_num_rhs}, gko::zero<etype>());
 
         std::clog << "Matrix is of size (" << data.size[0] << ", "
                   << data.size[1] << "), " << data.nonzeros.size() << std::endl;

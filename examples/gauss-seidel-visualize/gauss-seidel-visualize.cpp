@@ -20,10 +20,9 @@
 #include <ginkgo/ginkgo.hpp>
 
 
+#include "benchmark/utils/stencil_matrix.hpp"
 #include "core/preconditioner/sparse_display.hpp"
-// #include "core/test/utils.hpp"
 #include "core/test/utils/matrix_generator.hpp"
-// #include "core/test/utils/assertions.hpp"
 #include "core/utils/matrix_utils.hpp"
 
 template <typename ValueType, typename IndexType>
@@ -44,52 +43,69 @@ generate_2D_regular_grid_matrix(std::shared_ptr<const gko::Executor> exec,
                                 const IndexType size, ValueType deduction_help,
                                 bool nine_point = false)
 {
-    const gko::size_type grid_points = size * size;
-    gko::matrix_data<ValueType, IndexType> data(gko::dim<2>{grid_points});
+    // const gko::size_type grid_points = size * size;
+    // const gko::size_type nnz_p_row = nine_point ? 9 : 5;
 
-    auto matrix = gko::matrix::Csr<ValueType, IndexType>::create(
-        exec, gko::dim<2>{grid_points});
+    // std::vector<gko::detail::input_triple<ValueType, IndexType>> nonzeros;
 
-    for (auto iy = 0; iy < size; iy++) {
-        for (auto ix = 0; ix < size; ix++) {
-            auto current_row = iy * size + ix;
-            for (auto ofs_y : {-1, 0, 1}) {
-                if (iy + ofs_y > -1 && iy + ofs_y < size) {
-                    for (auto ofs_x : {-1, 0, 1}) {
-                        if (ix + ofs_x > -1 && ix + ofs_x < size) {
-                            if (nine_point) {
-                                auto current_col =
-                                    current_row + ofs_y * size + ofs_x;
-                                if (current_col == current_row) {
-                                    data.nonzeros.emplace_back(
-                                        current_row, current_col, 8.0);
-                                } else {
-                                    data.nonzeros.emplace_back(
-                                        current_row, current_col, -1.0);
-                                }
+    // for (auto iy = 0; iy < size; iy++) {
+    //     for (auto ix = 0; ix < size; ix++) {
+    //         auto current_row = iy * size + ix;
+    //         for (auto ofs_y : {-1, 0, 1}) {
+    //             if (iy + ofs_y > -1 && iy + ofs_y < size) {
+    //                 for (auto ofs_x : {-1, 0, 1}) {
+    //                     if (ix + ofs_x > -1 && ix + ofs_x < size) {
+    //                         if (nine_point) {
+    //                             auto current_col =
+    //                                 current_row + ofs_y * size + ofs_x;
+    //                             if (current_col == current_row) {
+    //                                 // data.nonzeros.emplace_back(
+    //                                 //     current_row, current_col, 8.0);
+    //                                 nonzeros.push_back(gko::input_triple{
+    //                                     current_row, current_col, 8.0});
+    //                             } else {
+    //                                 // data.nonzeros.emplace_back(
+    //                                 //     current_row, current_col, -1.0);
+    //                                 nonzeros.push_back(gko::input_triple{
+    //                                     current_row, current_col, -1.0});
+    //                             }
 
-                            } else {
-                                if (std::abs(ofs_x) + std::abs(ofs_y) < 2) {
-                                    auto current_col =
-                                        current_row + ofs_y * size + ofs_x;
-                                    if (current_col == current_row) {
-                                        data.nonzeros.emplace_back(
-                                            current_row, current_col, 4.0);
-                                    } else {
-                                        data.nonzeros.emplace_back(
-                                            current_row, current_col, -1.0);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    data.sort_row_major();
-    matrix->read(data);
-    return std::move(matrix);
+    //                         } else {
+    //                             if (std::abs(ofs_x) + std::abs(ofs_y) < 2) {
+    //                                 auto current_col =
+    //                                     current_row + ofs_y * size + ofs_x;
+    //                                 if (current_col == current_row) {
+    //                                     // data.nonzeros.emplace_back(
+    //                                     //     current_row,
+    //                                     current_col, 4.0);
+    //                                     nonzeros.push_back(gko::input_triple{
+    //                                         current_row, current_col, 4.0});
+    //                                 } else {
+    //                                     // data.nonzeros.emplace_back(
+    //                                     //     current_row, current_col,
+    //                                     -1.0);
+
+    //                                     nonzeros.push_back(gko::input_triple{
+    //                                         current_row, current_col, -1.0});
+    //                                 }
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // gko::matrix_data<ValueType, IndexType> data(gko::dim<2>{grid_points},
+    //                                             nonzeros);
+
+    // auto matrix = gko::matrix::Csr<ValueType, IndexType>::create(
+    //     exec, gko::dim<2>{grid_points});
+
+    // data.sort_row_major();
+    // matrix->read(data);
+    // return std::move(matrix);
 }
 
 template <typename ValueType, typename IndexType>
@@ -170,7 +186,8 @@ int main(int argc, char* argv[])
     gko::size_type base_block_size;
     std::stringstream ss_1(base_block_size_arg);
     if (!(ss_1 >> base_block_size)) GKO_NOT_SUPPORTED(base_block_size_arg);
-    if (base_block_size != 2 && base_block_size != 4 && base_block_size != 8)
+    if (base_block_size != 2 && base_block_size != 4 && base_block_size != 8 &&
+        base_block_size != 16)
         GKO_NOT_SUPPORTED(base_block_size_arg);
     gko::size_type lvl_2_block_size;
     std::stringstream ss_2(lvl_2_block_size_arg);
@@ -222,8 +239,15 @@ int main(int argc, char* argv[])
     // auto mtx_rand = gko::share(generate_rand_matrix(
     //     exec, rand_size*rand_size, rand_nnz_row_lo, rand_nnz_row_hi,
     //     ValueType{0}));
-    auto mtx_rand = gko::share(
-        generate_2D_regular_grid_matrix(exec, rand_size, ValueType{}, true));
+    // auto mtx_rand = gko::share(
+    //     generate_2D_regular_grid_matrix(exec, rand_size, ValueType{}, true));
+    auto stencil_mtx_data =
+        generate_stencil<ValueType, IndexType>("9pt", rand_size * rand_size);
+    stencil_mtx_data.sort_row_major();
+    auto mtx_rand = gko::share(Csr::create(exec->get_master()));
+    mtx_rand->read(stencil_mtx_data);
+    auto d_mtx_rand = gko::share(Csr::create(exec));
+    d_mtx_rand->copy_from(mtx_rand);
 
     // auto os = std::ofstream(std::string("regular_grid_256.mtx"));
     // gko::write(os,  mtx_rand.get());
@@ -235,11 +259,12 @@ int main(int argc, char* argv[])
                                .with_use_padding(use_padding)
                                .with_prepermuted_input(prepermuted_input)
                                .with_kernel_version(kernel_version)
+                               .with_symmetric_preconditioner(true)
                                .on(exec);
 
     exec->synchronize();
     auto g_tic = std::chrono::steady_clock::now();
-    auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(mtx_rand));
+    auto gs_rand = HBMC_gs_factory->generate(gko::as<gko::LinOp>(d_mtx_rand));
     exec->synchronize();
     auto g_tac = std::chrono::steady_clock::now();
     auto generate_time =
@@ -247,7 +272,7 @@ int main(int argc, char* argv[])
     std::cout << "Generate time GS for random matrix(ns):   "
               << generate_time.count() << std::endl;
 
-    const gko::size_type num_rhs = 10;
+    __SIZE_TYPE__ num_rhs = 10;
     const auto num_rows = mtx_rand->get_size()[0];
     auto rhs_rand = gko::test::generate_random_matrix<Vec>(
         num_rows, num_rhs,
@@ -259,98 +284,97 @@ int main(int argc, char* argv[])
     auto x = Vec::create_with_config_of(rhs_rand.get());
     x->fill(ValueType{0});
 
-    if (do_benchmark) {
-        auto perm_idxs =
-            gko::array<IndexType>(exec, gs_rand->get_permutation_idxs());
+    // if (do_benchmark) {
+    //     auto perm_idxs =
+    //         gko::array<IndexType>(exec, gs_rand->get_permutation_idxs());
 
-        auto mtx_perm = gko::as<Csr>(mtx_rand->permute(&perm_idxs));
-        gko::matrix_data<ValueType, IndexType> ref_data;
-        mtx_perm->write(ref_data);
-        gko::utils::make_lower_triangular(ref_data);
-        ref_data.sort_row_major();
-        auto ref_mtx = gko::share(Csr::create(exec));
-        ref_mtx->read(ref_data);
+    //     auto mtx_perm = gko::as<Csr>(mtx_rand->permute(&perm_idxs));
+    //     gko::matrix_data<ValueType, IndexType> ref_data;
+    //     mtx_perm->write(ref_data);
+    //     gko::utils::make_lower_triangular(ref_data);
+    //     ref_data.sort_row_major();
+    //     auto ref_mtx = gko::share(Csr::create(exec));
+    //     ref_mtx->read(ref_data);
 
-        auto ltrs_factory =
-            gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
+    //     auto ltrs_factory =
+    //         gko::solver::LowerTrs<ValueType, IndexType>::build().on(exec);
 
-        exec->synchronize();
-        auto g_ltrs_tic = std::chrono::steady_clock::now();
-        auto ref_ltrs = ltrs_factory->generate(ref_mtx);
-        exec->synchronize();
-        auto g_ltrs_tac = std::chrono::steady_clock::now();
-        auto generate_time_ltrs =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(g_ltrs_tac -
-                                                                 g_ltrs_tic);
-        std::cout << "Generate time ltrs for random matrix(ns): "
-                  << generate_time_ltrs.count() << std::endl;
+    //     exec->synchronize();
+    //     auto g_ltrs_tic = std::chrono::steady_clock::now();
+    //     auto ref_ltrs = ltrs_factory->generate(ref_mtx);
+    //     exec->synchronize();
+    //     auto g_ltrs_tac = std::chrono::steady_clock::now();
+    //     auto generate_time_ltrs =
+    // std::chrono::duration_cast<std::chrono::nanoseconds>(g_ltrs_tac -
+    // g_ltrs_tic);
+    //     std::cout << "Generate time ltrs for random matrix(ns): "
+    //               << generate_time_ltrs.count() << std::endl;
 
-        const auto rhs_rand_perm =
-            gko::as<const Vec>(rhs_rand.get()->row_permute(&perm_idxs));
-        auto ref_x = gko::clone(exec, x);
+    //     const auto rhs_rand_perm =
+    //         gko::as<const Vec>(rhs_rand.get()->row_permute(&perm_idxs));
+    //     auto ref_x = gko::clone(exec, x);
 
-        const auto num_warm_up_runs = 10;
-        const auto num_runs = 40;
+    //     const auto num_warm_up_runs = 10;
+    //     const auto num_runs = 40;
 
-        // warmup run GS
-        {
-            for (auto i = 0; i < num_warm_up_runs; ++i) {
-                auto x_clone = gko::clone(x);
-                gs_rand->apply(rhs_rand.get(), x_clone.get());
-            }
-        }
+    //     // warmup run GS
+    //     {
+    //         for (auto i = 0; i < num_warm_up_runs; ++i) {
+    //             auto x_clone = gko::clone(x);
+    //             gs_rand->apply(rhs_rand.get(), x_clone.get());
+    //         }
+    //     }
 
-        // apply GS
-        std::chrono::nanoseconds apply_time{};
-        for (auto run = 0; run < num_runs; ++run) {
-            exec->synchronize();
-            auto a_tic = std::chrono::steady_clock::now();
-            gs_rand->apply(rhs_rand.get(), x.get());
-            exec->synchronize();
-            auto a_tac = std::chrono::steady_clock::now();
-            apply_time += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                a_tac - a_tic);
-        }
-        std::cout << "Apply time " << num_runs
-                  << " num runs GS for random matrix(ns):   "
-                  << apply_time.count() << std::endl;
+    //     // apply GS
+    //     std::chrono::nanoseconds apply_time{};
+    //     for (auto run = 0; run < num_runs; ++run) {
+    //         exec->synchronize();
+    //         auto a_tic = std::chrono::steady_clock::now();
+    //         gs_rand->apply(rhs_rand.get(), x.get());
+    //         exec->synchronize();
+    //         auto a_tac = std::chrono::steady_clock::now();
+    //         apply_time +=
+    //         std::chrono::duration_cast<std::chrono::nanoseconds>(
+    //             a_tac - a_tic);
+    //     }
+    //     std::cout << "Apply time " << num_runs
+    //               << " num runs GS for random matrix(ns):   "
+    //               << apply_time.count() << std::endl;
 
-        // warmup run LTRS
-        {
-            for (auto i = 0; i < num_warm_up_runs; ++i) {
-                auto x_clone = gko::clone(ref_x);
-                ref_ltrs->apply(rhs_rand_perm.get(), x_clone.get());
-            }
-        }
+    //     // warmup run LTRS
+    //     {
+    //         for (auto i = 0; i < num_warm_up_runs; ++i) {
+    //             auto x_clone = gko::clone(ref_x);
+    //             ref_ltrs->apply(rhs_rand_perm.get(), x_clone.get());
+    //         }
+    //     }
 
-        // apply LTRS
-        std::chrono::nanoseconds apply_time_ltrs{};
-        for (auto run = 0; run < num_runs; ++run) {
-            exec->synchronize();
-            auto a_ltrs_tic = std::chrono::steady_clock::now();
-            ref_ltrs->apply(rhs_rand_perm.get(), ref_x.get());
-            exec->synchronize();
-            auto a_ltrs_tac = std::chrono::steady_clock::now();
-            apply_time_ltrs +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    a_ltrs_tac - a_ltrs_tic);
-        }
+    //     // apply LTRS
+    //     std::chrono::nanoseconds apply_time_ltrs{};
+    //     for (auto run = 0; run < num_runs; ++run) {
+    //         exec->synchronize();
+    //         auto a_ltrs_tic = std::chrono::steady_clock::now();
+    //         ref_ltrs->apply(rhs_rand_perm.get(), ref_x.get());
+    //         exec->synchronize();
+    //         auto a_ltrs_tac = std::chrono::steady_clock::now();
+    //         apply_time_ltrs +=
+    //             std::chrono::duration_cast<std::chrono::nanoseconds>(
+    //                 a_ltrs_tac - a_ltrs_tic);
+    //     }
 
-        std::cout << "Apply time " << num_runs
-                  << " num runs LTRS for random matrix(ns): "
-                  << apply_time_ltrs.count() << std::endl;
-    } else {
-        gs_rand->apply(rhs_rand.get(), x.get());
+    //     std::cout << "Apply time " << num_runs
+    //               << " num runs LTRS for random matrix(ns): "
+    //               << apply_time_ltrs.count() << std::endl;
+    // } else {
+    gs_rand->apply(rhs_rand.get(), x.get());
 
-        auto label = std::string("mtxRandPermuted-");
-        label += typeid(ValueType).name() + std::string("-") +
-                          typeid(IndexType).name() + std::string("-");
-        label += std::to_string(base_block_size) + std::string("-") +
-                 std::to_string(lvl_2_block_size);
-        visualize(exec, gko::lend(gs_rand->get_ltr_matrix()), label);
-        visualize(exec, gko::lend(mtx_rand), std::string("mtxRand"));
-        // visualize(exec, gko::lend(gs_rand_grid->get_ltr_matrix()),
-        // label_grid)
-        ;
-    }
+    auto label = std::string("mtx_Permuted-");
+    // label += typeid(ValueType).name() + std::string("-") +
+    //          typeid(IndexType).name() + std::string("-");
+    label += std::to_string(base_block_size) + std::string("-") +
+             std::to_string(lvl_2_block_size);
+    // visualize(exec, gs_rand->get_ltr_matrix().get(), label);
+    // visualize(exec, mtx_rand.get(), std::string("mtxRand"));
+    visualize(exec, gs_rand->get_ltr_matrix().get(), label);
+    // }
 }

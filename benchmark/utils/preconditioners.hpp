@@ -65,6 +65,8 @@ DEFINE_bool(gs_use_padding, true,
 
 DEFINE_int32(gs_apply_kernel_version, 9, "Version of the apply kernel");
 
+DEFINE_int32(num_rhs, 1, "number of columns in the right hand side");
+
 DEFINE_bool(gs_prepermuted_input, false,
             "Determines if GS should expect prepermuted input or not");
 

@@ -263,8 +263,6 @@ protected:
           host_exec_{factory->get_executor()->get_master()},
           parameters_{factory->get_parameters()},
           lower_triangular_matrix_{Csr::create(host_exec_)},
-
-          lower_trs_factory_{share(LTrs::build().on(factory->get_executor()))},
           vertex_colors_{
               array<index_type>(host_exec_, system_matrix->get_size()[0])},
           color_ptrs_{array<index_type>(host_exec_)},
@@ -278,24 +276,23 @@ protected:
           use_HBMC_{parameters_.use_HBMC},
           use_padding_{parameters_.use_padding},
           prepermuted_input_{parameters_.prepermuted_input},
-          kernel_version_{parameters_.kernel_version},
-          l_diag_rows_{array<index_type>(host_exec_)},
-          l_diag_mtx_col_idxs_{array<index_type>(host_exec_)},
-          l_diag_vals_{array<value_type>(host_exec_)},
-          l_spmv_row_ptrs_{array<index_type>(host_exec_)},
-          l_spmv_col_idxs_{array<index_type>(host_exec_)},
-          l_spmv_mtx_col_idxs_{array<index_type>(host_exec_)},
-          l_spmv_vals_{array<value_type>(host_exec_)}
+          kernel_version_{parameters_.kernel_version}
+
     {
         GKO_ASSERT(relaxation_factor_ > 0.0 && relaxation_factor_ < 2.0);
         if (parameters_.use_HBMC == true) {
             GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
                        lvl2_block_size_ > 0 && lvl2_block_size_ < 33);
             GKO_ASSERT_IS_POWER_OF_TWO(lvl2_block_size_);
+            l_diag_rows_ = array<index_type>(host_exec_);
+            l_diag_mtx_col_idxs_ = array<index_type>(host_exec_);
+            l_diag_vals_ = array<value_type>(host_exec_);
+            l_spmv_row_ptrs_ = array<index_type>(host_exec_);
+            l_spmv_col_idxs_ = array<index_type>(host_exec_);
+            l_spmv_mtx_col_idxs_ = array<index_type>(host_exec_);
+            l_spmv_vals_ = array<value_type>(host_exec_);
             if (parameters_.symmetric_preconditioner) {
                 upper_triangular_matrix_ = share(Csr::create(host_exec_));
-                upper_trs_factory_ =
-                    share(UTrs::build().on(factory->get_executor()));
                 u_diag_rows_ = array<index_type>(host_exec_);
                 u_diag_mtx_col_idxs_ = array<index_type>(host_exec_);
                 u_diag_vals_ = array<value_type>(host_exec_);
@@ -307,6 +304,14 @@ protected:
             this->generate_HBMC(system_matrix, parameters_.skip_sorting);
 
         } else {
+            if (use_reference_) {
+                lower_trs_factory_ =
+                    share(LTrs::build().on(factory->get_executor()));
+                if (symmetric_preconditioner_) {
+                    upper_trs_factory_ =
+                        share(UTrs::build().on(factory->get_executor()));
+                }
+            }
             this->generate(system_matrix, parameters_.skip_sorting);
         }
     }
