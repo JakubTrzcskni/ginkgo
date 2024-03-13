@@ -72,6 +72,9 @@ DEFINE_bool(gs_prepermuted_input, false,
 
 DEFINE_bool(gs_symm_precond, false, "determines if GS or SGS should be used");
 
+DEFINE_double(gs_relaxation_factor, 1.0,
+              "determines the relaxation factor of the (S)SOR method");
+
 // parses the Jacobi storage optimization command line argument
 gko::precision_reduction parse_storage_optimization(const std::string& flag)
 {
@@ -324,6 +327,7 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_prepermuted_input(FLAGS_gs_prepermuted_input)
                  .with_kernel_version(FLAGS_gs_apply_kernel_version)
                  .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
                  .on(exec);
          }},
         {"overhead", [](std::shared_ptr<const gko::Executor> exec) {
