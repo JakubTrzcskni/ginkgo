@@ -221,7 +221,7 @@ public:
         bool GKO_FACTORY_PARAMETER_SCALAR(skip_sorting, true);
 
         // hierarchical algebraic block coloring strategy
-        bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, false);
+        bool GKO_FACTORY_PARAMETER_SCALAR(use_HBMC, true);
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
 
@@ -241,7 +241,7 @@ public:
         bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
 
         // relevant only for SOR/SSOR - has to be between 0.0 and 2.0
-        double GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
+        float GKO_FACTORY_PARAMETER_SCALAR(relaxation_factor, 1.0);
     };
     GKO_ENABLE_LIN_OP_FACTORY(GaussSeidel, parameters, Factory);
     GKO_ENABLE_BUILD_METHOD(Factory);

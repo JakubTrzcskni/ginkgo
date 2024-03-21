@@ -24,6 +24,7 @@ std::string reordering_algorithm_desc =
     "    nd - Nested Dissection reordering algorithm\n"
 #endif
     "    rcm - Reverse Cuthill-McKee reordering algorithm\n"
+    "    hbmc - hierarchical block multi-coloring reordering algorithm\n"
     "This is a preprocessing step whose runtime will not be included\n"
     "in the measurements.";
 
@@ -31,7 +32,10 @@ std::string reordering_algorithm_desc =
 DEFINE_string(input_matrix, "",
               "Filename of a matrix to be used as the single input. Overwrites "
               "the value of the -input flag");
-
+DEFINE_uint32(hbmc_base_block_size, 4u,
+              "Base block size for the HBMC reordering algorithm");
+DEFINE_uint32(hbmc_lvl_2_block_size, 32u,
+              "Level 2 block size for the HBMC reordering algorithm");
 
 #ifndef GKO_BENCHMARK_DISTRIBUTED
 DEFINE_string(reorder, "none", reordering_algorithm_desc.c_str());
@@ -64,6 +68,12 @@ std::unique_ptr<gko::matrix::Permutation<IndexType>> reorder(
 #endif
     } else if (FLAGS_reorder == "rcm") {
         perm = gko::experimental::reorder::Rcm<IndexType>::build()
+                   .on(ref)
+                   ->generate(mtx);
+    } else if (FLAGS_reorder == "hbmc") {
+        perm = gko::experimental::reorder::Hbmc<IndexType>::build()
+                   .with_base_block_size(FLAGS_hbmc_base_block_size)
+                   .with_lvl_2_block_size(FLAGS_hbmc_lvl_2_block_size)
                    .on(ref)
                    ->generate(mtx);
     } else {

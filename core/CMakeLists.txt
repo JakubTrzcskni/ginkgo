@@ -65,6 +65,7 @@ target_sources(ginkgo
     preconditioner/jacobi.cpp
     preconditioner/gauss_seidel.cpp
     reorder/amd.cpp
+    reorder/hbmc.cpp
     reorder/mc64.cpp
     reorder/rcm.cpp
     reorder/scaled_reordered.cpp

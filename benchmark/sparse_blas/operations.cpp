@@ -722,6 +722,32 @@ private:
     std::unique_ptr<permute_type> reorder_;
 };
 
+class ReorderHbmcOperation : public BenchmarkOperation {
+    using reorder_type = gko::experimental::reorder::Hbmc<itype>;
+    using permute_type = gko::matrix::Permutation<itype>;
+
+public:
+    explicit ReorderHbmcOperation(const Mtx* mtx)
+        : mtx_{mtx->clone()},
+          factory_{reorder_type::build().on(mtx->get_executor())}
+    {}
+    // no validation for now
+    std::pair<bool, double> validate() const override { return {true, 0.0}; }
+
+    gko::size_type get_flops() const override { return 0; }
+
+    gko::size_type get_memory() const override { return 0; }
+
+    void prepare() override {}
+
+    void run() override { reorder_ = factory_->generate(mtx_); }
+
+private:
+    std::shared_ptr<Mtx> mtx_;
+    std::unique_ptr<reorder_type> factory_;
+    std::unique_ptr<permute_type> reorder_;
+};
+
 
 #if GKO_HAVE_METIS
 
@@ -834,6 +860,10 @@ const std::map<std::string,
         {"reorder_rcm",
          [](const Mtx* mtx) {
              return std::make_unique<ReorderRcmOperation>(mtx);
+         }},
+        {"reorder_hbmc",
+         [](const Mtx* mtx) {
+             return std::make_unique<ReorderHbmcOperation>(mtx);
          }},
         {"reorder_amd",
          [](const Mtx* mtx) {

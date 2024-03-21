@@ -112,6 +112,7 @@
 #include <ginkgo/core/preconditioner/jacobi.hpp>
 
 #include <ginkgo/core/reorder/amd.hpp>
+#include <ginkgo/core/reorder/hbmc.hpp>
 #include <ginkgo/core/reorder/mc64.hpp>
 #include <ginkgo/core/reorder/nested_dissection.hpp>
 #include <ginkgo/core/reorder/rcm.hpp>

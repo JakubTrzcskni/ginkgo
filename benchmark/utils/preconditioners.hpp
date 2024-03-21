@@ -52,11 +52,11 @@ DEFINE_double(jacobi_accuracy, 1e-1,
 DEFINE_uint32(jacobi_max_block_size, 32,
               "Maximal block size of the block-Jacobi preconditioner");
 
-DEFINE_uint64(gs_base_block_size, 4,
+DEFINE_uint32(gs_base_block_size, 4u,
               "Base block size of the HBMC Gauss Seidel.");
 
-DEFINE_uint64(
-    gs_lvl_2_block_size, 32,
+DEFINE_uint32(
+    gs_lvl_2_block_size, 32u,
     "Lvl 2 block size of the HBMC Gauss Seidel. Preferably warp size");
 
 DEFINE_bool(gs_use_padding, true,
