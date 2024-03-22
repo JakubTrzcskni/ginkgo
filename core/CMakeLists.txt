@@ -18,7 +18,7 @@ target_sources(ginkgo
     base/perturbation.cpp
     base/timer.cpp
     base/version.cpp
-               distributed/localized_partition.cpp
+    distributed/localized_partition.cpp
     distributed/partition.cpp
     factorization/cholesky.cpp
     factorization/elimination_forest.cpp
@@ -64,7 +64,9 @@ target_sources(ginkgo
     multigrid/fixed_coarsening.cpp
     preconditioner/isai.cpp
     preconditioner/jacobi.cpp
+    preconditioner/gauss_seidel.cpp
     reorder/amd.cpp
+    reorder/hbmc.cpp
     reorder/mc64.cpp
     reorder/rcm.cpp
     reorder/scaled_reordered.cpp

@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.21)
 include(${PROJECT_SOURCE_DIR}/cmake/template_instantiation.cmake)
 add_instantiation_files(. matrix/csr_kernels.instantiate.hip.cpp CSR_INSTANTIATE)
 add_instantiation_files(. matrix/fbcsr_kernels.instantiate.hip.cpp FBCSR_INSTANTIATE)
@@ -48,6 +47,7 @@ set(GINKGO_HIP_SOURCES
     matrix/sellp_kernels.hip.cpp
     matrix/sparsity_csr_kernels.hip.cpp
     multigrid/pgm_kernels.hip.cpp
+    preconditioner/gauss_seidel_kernels.hip.cpp
     preconditioner/isai_kernels.hip.cpp
     preconditioner/jacobi_advanced_apply_kernel.hip.cpp
     preconditioner/jacobi_generate_kernel.hip.cpp

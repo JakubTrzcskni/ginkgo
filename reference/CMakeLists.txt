@@ -9,7 +9,7 @@ target_sources(ginkgo_reference
     components/absolute_array_kernels.cpp
     components/fill_array_kernels.cpp
     components/format_conversion_kernels.cpp
-               components/max_array_kernels.cpp
+    components/max_array_kernels.cpp
     components/reduce_array_kernels.cpp
     components/precision_conversion_kernels.cpp
     components/prefix_sum_kernels.cpp
@@ -42,6 +42,7 @@ target_sources(ginkgo_reference
     matrix/sellp_kernels.cpp
     matrix/sparsity_csr_kernels.cpp
     multigrid/pgm_kernels.cpp
+    preconditioner/gauss_seidel_kernels.cpp
     preconditioner/isai_kernels.cpp
     preconditioner/jacobi_kernels.cpp
     reorder/rcm_kernels.cpp
