@@ -103,6 +103,8 @@ public:
         size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(padding, false);
     };
     /**
      * Returns the parameters used to construct the factory.

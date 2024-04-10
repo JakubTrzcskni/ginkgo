@@ -541,7 +541,7 @@ void simple_apply(std::shared_ptr<const ReferenceExecutor> exec,
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SIMPLE_APPLY_KERNEL);
 
-//omega = relaxation factor
+// omega = relaxation factor
 template <typename ValueType, typename IndexType>
 void advanced_apply(
     std::shared_ptr<const ReferenceExecutor> exec, const IndexType* l_diag_rows,
@@ -842,7 +842,8 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                   ValueType* l_spmv_vals, IndexType* u_diag_rows,
                   IndexType* u_diag_mtx_col_idxs, ValueType* u_diag_vals,
                   IndexType* u_spmv_row_ptrs, IndexType* u_spmv_col_idxs,
-                  IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals)
+                  IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals,
+                  const bool preperm_mtx)
 {
     const auto mtx_row_ptrs = system_matrix->get_const_row_ptrs();
     const auto mtx_col_idxs = system_matrix->get_const_col_idxs();
@@ -905,7 +906,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
                         u_spmv_row_ptrs[curr_id_u_spmv_row];
                 }
 
-                const auto mtx_row = permutation_idxs[row];
+                const auto mtx_row = preperm_mtx ? row : permutation_idxs[row];
                 const auto mtx_start_id = mtx_row_ptrs[mtx_row];
                 const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
                 const auto nnz_in_row =
@@ -922,15 +923,19 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
 
                 for (auto j = 0; j < nnz_in_row; j++) {
                     tmp_perm.get_data()[j] =
-                        inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
+                        preperm_mtx
+                            ? mtx_col_idxs[mtx_start_id + j]
+                            : inv_permutation_idxs[mtx_col_idxs[mtx_start_id +
+                                                                j]];
                 }
-
+                // if (!preperm_mtx) {
                 std::sort(tmp_mtx_col_idxs.get_data(),
                           tmp_mtx_col_idxs.get_data() + nnz_in_row,
                           [&](IndexType const a, IndexType const b) {
                               return tmp_perm.get_data()[a] <
                                      tmp_perm.get_data()[b];
                           });
+                //}
                 {
                     gko::array<IndexType> tmp_perm_clone;
                     tmp_perm_clone = tmp_perm;
@@ -1066,7 +1071,7 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
         GKO_ASSERT(first_p_block);
         for (auto row = first_p_block->start_row_global_;
              row < first_p_block->end_row_global_; row++) {
-            const auto mtx_row = permutation_idxs[row];
+            const auto mtx_row = preperm_mtx ? row : permutation_idxs[row];
             const auto mtx_start_id = mtx_row_ptrs[mtx_row];
             const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
             const auto nnz_in_row =
@@ -1083,15 +1088,18 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
 
             for (auto j = 0; j < nnz_in_row; j++) {
                 tmp_perm.get_data()[j] =
-                    inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
+                    preperm_mtx
+                        ? mtx_col_idxs[mtx_start_id + j]
+                        : inv_permutation_idxs[mtx_col_idxs[mtx_start_id + j]];
             }
-
+            // if (!preperm_mtx) {
             std::sort(tmp_mtx_col_idxs.get_data(),
                       tmp_mtx_col_idxs.get_data() + nnz_in_row,
                       [&](IndexType const a, IndexType const b) {
                           return tmp_perm.get_data()[a] <
                                  tmp_perm.get_data()[b];
                       });
+            //}
             {
                 gko::array<IndexType> tmp_perm_clone;
                 tmp_perm_clone = tmp_perm;
@@ -1159,7 +1167,8 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
 
                 for (auto row = parallel_block->start_row_global_;
                      row < parallel_block->end_row_global_; row++) {
-                    const auto mtx_row = permutation_idxs[row];
+                    const auto mtx_row =
+                        preperm_mtx ? row : permutation_idxs[row];
                     const auto mtx_start_id = mtx_row_ptrs[mtx_row];
                     const auto mtx_end_id = mtx_row_ptrs[mtx_row + 1];
                     const auto nnz_in_row =
@@ -1176,15 +1185,18 @@ void setup_blocks(std::shared_ptr<const ReferenceExecutor> exec,
 
                     for (auto j = 0; j < nnz_in_row; j++) {
                         tmp_perm.get_data()[j] =
-                            inv_permutation_idxs[mtx_col_idxs[mtx_start_id +
-                                                              j]];
+                            preperm_mtx ? mtx_col_idxs[mtx_start_id + j]
+                                        : inv_permutation_idxs
+                                              [mtx_col_idxs[mtx_start_id + j]];
                     }
+                    //  if (preperm_mtx) {
                     std::sort(tmp_mtx_col_idxs.get_data(),
                               tmp_mtx_col_idxs.get_data() + nnz_in_row,
                               [&](IndexType const a, IndexType const b) {
                                   return tmp_perm.get_data()[a] <
                                          tmp_perm.get_data()[b];
                               });
+                    //}
                     {
                         gko::array<IndexType> tmp_perm_clone;
                         tmp_perm_clone = tmp_perm;
@@ -1287,7 +1299,8 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
-                            const IndexType max_color, const bool use_padding)
+                            const IndexType max_color, const bool use_padding,
+                            const bool preperm_mtx)
 {
     using namespace preconditioner;
 
@@ -1305,7 +1318,10 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
         const auto nodes_in_curr_color = next_color_offset - curr_color_offset;
         auto full_lvl_1_blocks_in_curr_color =
             nodes_in_curr_color / lvl_1_block_size;
-        auto base_block_residual = (nodes_in_curr_color % lvl_1_block_size) > 0;
+        auto base_block_residual =
+            (nodes_in_curr_color % lvl_1_block_size) >
+            0;  // TODO maybe here the cause for incorrect apply with mtx sizes
+                // not whole multiples of the block size
 
         if (use_padding) {
             full_lvl_1_blocks_in_curr_color =
@@ -1324,7 +1340,8 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
 
         auto curr_l_p_block = parallel_block(
             l_p_block_storage_offset, curr_color_offset, next_color_offset,
-            full_lvl_1_blocks_in_curr_color + base_block_residual,
+            full_lvl_1_blocks_in_curr_color +
+                base_block_residual,  // is the + bool value working correct?
             base_block_size, lvl_2_block_size,
             static_cast<bool>(base_block_residual));
         // parallel_block curr_u_p_block{};
@@ -1416,11 +1433,13 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
                     }
                 }
             }
-            auto dest = &(
-                permutation_idxs[curr_color_offset + curr_lvl_1_block_offset]);
-            const auto source = new_lvl_1_block_ordering.get_const_data();
-            auto count = sizeof(IndexType) * curr_lvl_1_block_size;
-            std::memcpy(dest, source, count);
+            if (!preperm_mtx) {
+                auto dest = &(permutation_idxs[curr_color_offset +
+                                               curr_lvl_1_block_offset]);
+                const auto source = new_lvl_1_block_ordering.get_const_data();
+                auto count = sizeof(IndexType) * curr_lvl_1_block_size;
+                std::memcpy(dest, source, count);
+            }
         }
         if (base_block_residual) {
             const auto residual_start_row_global =
@@ -1471,7 +1490,6 @@ void get_secondary_ordering(std::shared_ptr<const ReferenceExecutor> exec,
 }
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
-
 
 }  // namespace gauss_seidel
 }  // namespace reference

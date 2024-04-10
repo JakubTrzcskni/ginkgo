@@ -79,10 +79,13 @@ std::unique_ptr<LinOp> Hbmc<IndexType>::generate_impl(
     using Mtx = matrix::Csr<ValueType, IndexType>;
     auto base_block_size = parameters_.base_block_size;
     auto lvl_2_block_size = parameters_.lvl_2_block_size;
+    auto padding = parameters_.padding;
 
     auto hbmc_gs = preconditioner::GaussSeidel<ValueType, IndexType>::build()
+                       .with_use_HBMC(true)
                        .with_base_block_size(base_block_size)
                        .with_lvl_2_block_size(lvl_2_block_size)
+                       .with_use_padding(padding)
                        .on(this->get_executor()->get_master())
                        ->generate(system_matrix);
     auto permutation_array = hbmc_gs->get_permutation_idxs();

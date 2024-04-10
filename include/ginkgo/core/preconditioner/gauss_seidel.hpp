@@ -6,8 +6,8 @@
 #define GKO_PUBLIC_CORE_PRECONDITIONER_GAUSS_SEIDEL_HPP_
 
 
+#include <numeric>
 #include <vector>
-
 
 #include <ginkgo/core/base/abstract_factory.hpp>
 #include <ginkgo/core/base/array.hpp>
@@ -196,7 +196,7 @@ public:
     GaussSeidel(GaussSeidel&& other);
 
     array<index_type> get_vertex_colors() { return vertex_colors_; }
-
+    // const wäre besser
     array<index_type> get_permutation_idxs() { return permutation_idxs_; }
 
     array<index_type> get_color_ptrs() { return color_ptrs_; }
@@ -207,11 +207,16 @@ public:
 
     std::vector<index_type> get_level_ptrs() { return level_ptrs_; }
 
-    array<index_type> get_l_diag_rows() { return l_diag_rows_; }
-    array<value_type> get_l_diag_vals() { return l_diag_vals_; }
-    array<index_type> get_l_spmv_row_ptrs() { return l_spmv_row_ptrs_; }
-    array<index_type> get_l_spmv_col_idxs() { return l_spmv_col_idxs_; }
-    array<value_type> get_l_spmv_vals() { return l_spmv_vals_; }
+    const array<index_type> get_l_diag_rows() { return l_diag_rows_; }
+    const array<index_type> get_u_diag_rows() { return u_diag_rows_; }
+    const array<value_type> get_l_diag_vals() { return l_diag_vals_; }
+    const array<value_type> get_u_diag_vals() { return u_diag_vals_; }
+    const array<index_type> get_l_spmv_row_ptrs() { return l_spmv_row_ptrs_; }
+    const array<index_type> get_u_spmv_row_ptrs() { return u_spmv_row_ptrs_; }
+    const array<index_type> get_l_spmv_col_idxs() { return l_spmv_col_idxs_; }
+    const array<index_type> get_u_spmv_col_idxs() { return u_spmv_col_idxs_; }
+    const array<value_type> get_l_spmv_vals() { return l_spmv_vals_; }
+    const array<value_type> get_u_spmv_vals() { return u_spmv_vals_; }
     storage_scheme get_storage_scheme() { return hbmc_storage_scheme_; }
 
     void update_system(value_type* values);
@@ -230,6 +235,8 @@ public:
         bool GKO_FACTORY_PARAMETER_SCALAR(use_padding, false);
 
         bool GKO_FACTORY_PARAMETER_SCALAR(prepermuted_input, false);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(preperm_mtx, false);
 
         int GKO_FACTORY_PARAMETER_SCALAR(kernel_version, 1);
 
@@ -276,10 +283,14 @@ protected:
           use_HBMC_{parameters_.use_HBMC},
           use_padding_{parameters_.use_padding},
           prepermuted_input_{parameters_.prepermuted_input},
+          preperm_mtx_{parameters_.preperm_mtx},
           kernel_version_{parameters_.kernel_version}
 
     {
         GKO_ASSERT(relaxation_factor_ > 0.0 && relaxation_factor_ < 2.0);
+        // GKO_ASSERT(use_reference_ != use_HBMC_ || (!use_reference_ &&
+        // !use_HBMC_));
+
         if (parameters_.use_HBMC == true) {
             GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
                        lvl2_block_size_ > 0 && lvl2_block_size_ < 33);
@@ -371,6 +382,7 @@ private:
     bool use_HBMC_;
     bool use_padding_;
     bool prepermuted_input_;
+    bool preperm_mtx_;
     int kernel_version_;
     storage_scheme hbmc_storage_scheme_{};
     array<index_type> l_diag_rows_;

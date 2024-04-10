@@ -453,6 +453,8 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
 
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
+    if (!preperm_mtx_) {
+    }
 
     // std::cout << "reserve mem for mat_data:\n";
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
@@ -478,7 +480,7 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         u_diag_rows_.get_data(), u_diag_mtx_col_idxs_.get_data(),
         u_diag_vals_.get_data(), u_spmv_row_ptrs_.get_data(),
         u_spmv_col_idxs_.get_data(), u_spmv_mtx_col_idxs_.get_data(),
-        u_spmv_vals_.get_data()));
+        u_spmv_vals_.get_data(), preperm_mtx_));
 
     GKO_ASSERT(hbmc_storage_scheme_.num_blocks_ ==
                hbmc_storage_scheme_.forward_solve_.size());
@@ -506,8 +508,8 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     color_ptrs_.set_executor(d_exec);
 
     // for testing only
-    lower_triangular_matrix_->copy_from(
-        give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
+    // lower_triangular_matrix_->copy_from(
+    //     give(as<Csr>(csr_matrix->permute(&permutation_idxs_))));
 }
 
 template <typename ValueType, typename IndexType>
@@ -551,15 +553,19 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     //           << l_spmv_row_mem_requirement << "\n"
     //           << l_spmv_val_col_mem_requirement << std::endl;
     l_diag_rows_.resize_and_reset(diag_mem_requirement);
+    l_diag_rows_.fill(IndexType{-1});
     l_diag_mtx_col_idxs_.resize_and_reset(diag_mem_requirement);
+    l_diag_mtx_col_idxs_.fill(IndexType{-1});
     l_diag_vals_.resize_and_reset(diag_mem_requirement);
     l_diag_vals_.fill(ValueType{0});
-    l_diag_mtx_col_idxs_.fill(IndexType{-1});
-    l_diag_rows_.fill(IndexType{-1});
     l_spmv_row_ptrs_.resize_and_reset(l_spmv_row_mem_requirement);
+    l_spmv_row_ptrs_.fill(IndexType{0});
     l_spmv_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
+    l_spmv_col_idxs_.fill(IndexType{0});
     l_spmv_mtx_col_idxs_.resize_and_reset(l_spmv_val_col_mem_requirement);
+    l_spmv_mtx_col_idxs_.fill(IndexType{0});
     l_spmv_vals_.resize_and_reset(l_spmv_val_col_mem_requirement);
+    l_spmv_vals_.fill(ValueType{0});
 
     const auto num_blocks = num_colors * 2 - 1;
 
@@ -571,15 +577,19 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
             color_ptrs_.get_size() - 2;
 
         u_diag_rows_.resize_and_reset(diag_mem_requirement);
+        u_diag_rows_.fill(IndexType{-1});
         u_diag_mtx_col_idxs_.resize_and_reset(diag_mem_requirement);
+        u_diag_mtx_col_idxs_.fill(IndexType{-1});
         u_diag_vals_.resize_and_reset(diag_mem_requirement);
         u_diag_vals_.fill(ValueType{0});
-        u_diag_mtx_col_idxs_.fill(IndexType{-1});
-        u_diag_rows_.fill(IndexType{-1});
         u_spmv_row_ptrs_.resize_and_reset(u_spmv_row_mem_requirement);
+        u_spmv_row_ptrs_.fill(IndexType{0});
         u_spmv_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);
+        u_spmv_col_idxs_.fill(IndexType{0});
         u_spmv_mtx_col_idxs_.resize_and_reset(u_spmv_val_col_mem_requirement);
+        u_spmv_mtx_col_idxs_.fill(IndexType{0});
         u_spmv_vals_.resize_and_reset(u_spmv_val_col_mem_requirement);
+        u_spmv_vals_.fill(ValueType{0});
     }
 
     hbmc_storage_scheme_ =
@@ -596,17 +606,21 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     const IndexType num_base_blocks = ceildiv(num_nodes, block_size);
 
     array<IndexType> block_ordering(exec, num_nodes);
-    array<IndexType> degrees(exec, num_nodes);
-    array<int8> visited(exec, num_nodes);
+    if (!preperm_mtx_) {
+        array<IndexType> degrees(exec, num_nodes);
+        array<int8> visited(exec, num_nodes);
+        exec->run(gauss_seidel::make_get_degree_of_nodes(
+            num_nodes, adjacency_matrix->get_const_row_ptrs(),
+            degrees.get_data()));
 
-    exec->run(gauss_seidel::make_get_degree_of_nodes(
-        num_nodes, adjacency_matrix->get_const_row_ptrs(), degrees.get_data()));
-
-    std::fill_n(visited.get_data(), num_nodes, int8{0});
-    exec->run(gauss_seidel::make_assign_to_blocks(
-        adjacency_matrix, block_ordering.get_data(), degrees.get_const_data(),
-        visited.get_data(), block_size));
-
+        std::fill_n(visited.get_data(), num_nodes, int8{0});
+        exec->run(gauss_seidel::make_assign_to_blocks(
+            adjacency_matrix, block_ordering.get_data(),
+            degrees.get_const_data(), visited.get_data(), block_size));
+    } else {
+        std::iota(block_ordering.get_data(),
+                  block_ordering.get_data() + num_nodes, 0);
+    }
     // TODO move to generate_HBMC / to gs kernels
     IndexType max_color = 0;
     vertex_colors_.fill(IndexType{-1});
@@ -616,23 +630,39 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
 
     color_ptrs_.resize_and_reset(max_color + 2);
     permutation_idxs_.resize_and_reset(num_nodes);
+    inv_permutation_idxs_.resize_and_reset(num_nodes);
+
     exec->run(gauss_seidel::make_get_permutation_from_coloring(
         num_nodes, vertex_colors_.get_data(), max_color, color_ptrs_.get_data(),
         permutation_idxs_.get_data(), block_ordering.get_const_data()));
 
+
     reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
                                     block_size, max_color + 1);
+
+    if (preperm_mtx_) {
+        permutation_idxs_.resize_and_reset(num_nodes);
+        std::iota(permutation_idxs_.get_data(),
+                  permutation_idxs_.get_data() + num_nodes, 0);
+    }
 
     // secondary ordering
     exec->run(gauss_seidel::make_get_secondary_ordering(
         permutation_idxs_.get_data(), hbmc_storage_scheme_, block_size,
-        lvl_2_block_size, color_ptrs_.get_const_data(), max_color,
-        use_padding_));
+        lvl_2_block_size, color_ptrs_.get_const_data(), max_color, use_padding_,
+        preperm_mtx_));
 
-    inv_permutation_idxs_.resize_and_reset(num_nodes);
-    exec->run(gauss_seidel::make_invert_permutation(
-        permutation_idxs_.get_const_data(), num_nodes,
-        inv_permutation_idxs_.get_data()));
+    if (preperm_mtx_) {
+        permutation_idxs_.resize_and_reset(num_nodes);
+        std::iota(permutation_idxs_.get_data(),
+                  permutation_idxs_.get_data() + num_nodes, 0);
+        exec->copy(num_nodes, permutation_idxs_.get_data(),
+                   inv_permutation_idxs_.get_data());
+    } else {
+        exec->run(gauss_seidel::make_invert_permutation(
+            permutation_idxs_.get_const_data(), num_nodes,
+            inv_permutation_idxs_.get_data()));
+    }
 
 
     return block_ordering;  // won't be needed at all

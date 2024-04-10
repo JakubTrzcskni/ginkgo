@@ -68,7 +68,10 @@ DEFINE_int32(gs_apply_kernel_version, 9, "Version of the apply kernel");
 DEFINE_int32(num_rhs, 1, "number of columns in the right hand side");
 
 DEFINE_bool(gs_prepermuted_input, false,
-            "Determines if GS should expect prepermuted input or not");
+            "Determines if GS should expect prepermuted rhs input or not");
+DEFINE_bool(gs_preperm_mtx, false,
+            "determines if gs should expext the system matrix to already be "
+            "reordered with the hbmc algorithm");
 
 DEFINE_bool(gs_symm_precond, false, "determines if GS or SGS should be used");
 
@@ -325,6 +328,7 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_base_block_size(FLAGS_gs_base_block_size)
                  .with_use_HBMC(true)
                  .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
                  .with_kernel_version(FLAGS_gs_apply_kernel_version)
                  .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
                  .with_relaxation_factor(FLAGS_gs_relaxation_factor)
