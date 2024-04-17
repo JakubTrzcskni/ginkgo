@@ -67,6 +67,10 @@ public:
         size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
 
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(padding, false);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
     };
     GKO_ENABLE_REORDERING_BASE_FACTORY(Hbmc, parameters, Factory);
     GKO_ENABLE_BUILD_METHOD(Factory);
@@ -98,6 +102,12 @@ public:
     using index_type = IndexType;
     using permutation_type = matrix::Permutation<index_type>;
 
+    gko::preconditioner::storage_scheme& get_hbmc_storage_scheme()
+    {
+        return hbmc_storage_scheme_;
+    }
+
+
     struct parameters_type
         : public enable_parameters_type<parameters_type, Hbmc<IndexType>> {
         size_t GKO_FACTORY_PARAMETER_SCALAR(base_block_size, 4u);
@@ -105,6 +115,8 @@ public:
         size_t GKO_FACTORY_PARAMETER_SCALAR(lvl_2_block_size, 32u);
 
         bool GKO_FACTORY_PARAMETER_SCALAR(padding, false);
+
+        bool GKO_FACTORY_PARAMETER_SCALAR(symmetric_preconditioner, false);
     };
     /**
      * Returns the parameters used to construct the factory.
@@ -123,6 +135,9 @@ public:
     std::unique_ptr<permutation_type> generate(
         std::shared_ptr<const LinOp> system_matrix) const;
 
+    std::unique_ptr<permutation_type> generate(
+        std::shared_ptr<const LinOp> system_matrix, bool storage_scheme);
+
     /** Creates a new parameter_type to set up the factory. */
     static parameters_type build() { return {}; }
 
@@ -133,7 +148,10 @@ protected:
     std::unique_ptr<LinOp> generate_impl(
         std::shared_ptr<const LinOp> system_matrix) const override;
 
+    void save_hbmc_storage_scheme(std::shared_ptr<const LinOp> system_matrix);
+
     parameters_type parameters_;
+    gko::preconditioner::storage_scheme hbmc_storage_scheme_{};
 };
 
 

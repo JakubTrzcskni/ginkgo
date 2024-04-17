@@ -453,8 +453,6 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
 
     auto csr_matrix =
         convert_to_with_sorting<Csr>(exec, system_matrix, skip_sorting);
-    if (!preperm_mtx_) {
-    }
 
     // std::cout << "reserve mem for mat_data:\n";
     matrix_data<ValueType, IndexType> mat_data{csr_matrix->get_size()};
@@ -465,11 +463,27 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
     adjacency_matrix = get_adjacency_matrix(
         mat_data);  // this assumes that the matrix is not symmetric
 
-    auto block_ordering = generate_block_structure(
-        adjacency_matrix.get(), base_block_size_,
-        lvl2_block_size_);  // TODO a lot of functionality in this
-                            // function, split up needed ?
+    if (!storage_scheme_ready_) {
+        auto block_ordering = generate_block_structure(
+            adjacency_matrix.get(), base_block_size_,
+            lvl2_block_size_);  // TODO a lot of functionality in this
+                                // function, split up needed ?
+    } else {
+        auto num_nodes = csr_matrix->get_size()[0];
+        auto max_color = (hbmc_storage_scheme_.num_blocks_ - 1) / 2;
+        reserve_mem_for_block_structure(adjacency_matrix.get(),
+                                        ceildiv(num_nodes, base_block_size_),
+                                        base_block_size_, max_color + 1);
 
+        if (preperm_mtx_) {
+            permutation_idxs_.resize_and_reset(num_nodes);
+            std::iota(permutation_idxs_.get_data(),
+                      permutation_idxs_.get_data() + num_nodes, 0);
+            inv_permutation_idxs_.resize_and_reset(num_nodes);
+            exec->copy(num_nodes, permutation_idxs_.get_data(),
+                       inv_permutation_idxs_.get_data());
+        }
+    }
     exec->run(gauss_seidel::make_setup_blocks(
         csr_matrix.get(), permutation_idxs_.get_const_data(),
         inv_permutation_idxs_.get_const_data(), hbmc_storage_scheme_,
@@ -503,9 +517,9 @@ void GaussSeidel<ValueType, IndexType>::generate_HBMC(
         u_spmv_vals_.set_executor(d_exec);
     }
     permutation_idxs_.set_executor(d_exec);
-    inv_permutation_idxs_.set_executor(d_exec);
-    vertex_colors_.set_executor(d_exec);
-    color_ptrs_.set_executor(d_exec);
+    // inv_permutation_idxs_.set_executor(d_exec);
+    // vertex_colors_.set_executor(d_exec);
+    // color_ptrs_.set_executor(d_exec);
 
     // for testing only
     // lower_triangular_matrix_->copy_from(
@@ -533,10 +547,22 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
         const auto nz_per_lvl_1_block =
             lvl2_block_size_ * kernels::precomputed_nz_p_b(base_block_size);
         const auto lvl_1_size = lvl2_block_size_ * base_block_size_;
-        for (auto i = 0; i < num_colors; ++i) {
-            auto nodes_in_color = color_ptrs_.get_const_data()[i + 1] -
-                                  color_ptrs_.get_const_data()[i];
-            tmp += nz_per_lvl_1_block * ceildiv(nodes_in_color, lvl_1_size);
+        if (storage_scheme_ready_) {
+            for (auto i = 0; i < hbmc_storage_scheme_.num_blocks_; i += 2) {
+                auto nodes_in_block = hbmc_storage_scheme_.forward_solve_[i]
+                                          .get()
+                                          ->end_row_global_ -
+                                      hbmc_storage_scheme_.forward_solve_[i]
+                                          .get()
+                                          ->start_row_global_;
+                tmp += nz_per_lvl_1_block * ceildiv(nodes_in_block, lvl_1_size);
+            }
+        } else {
+            for (auto i = 0; i < num_colors; ++i) {
+                auto nodes_in_color = color_ptrs_.get_const_data()[i + 1] -
+                                      color_ptrs_.get_const_data()[i];
+                tmp += nz_per_lvl_1_block * ceildiv(nodes_in_color, lvl_1_size);
+            }
         }
         diag_mem_requirement = tmp;
     }
@@ -544,9 +570,12 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     // worst case all diag blocks are only a diagonal
     const auto l_spmv_val_col_mem_requirement =
         nnz_triangle - num_nodes;  // more memory than needed
+    auto nodes_in_first_color =
+        storage_scheme_ready_
+            ? hbmc_storage_scheme_.forward_solve_[0].get()->end_row_global_
+            : color_ptrs_.get_const_data()[1];
     const auto l_spmv_row_mem_requirement =
-        num_nodes - color_ptrs_.get_const_data()[1] + color_ptrs_.get_size() -
-        2;  // optimal
+        num_nodes - nodes_in_first_color + num_colors - 1;  // optimal
 
     // std::cout << color_ptrs_.get_size() << "\n"
     //           << diag_mem_requirement << "\n"
@@ -572,9 +601,14 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
     if (symmetric_preconditioner_) {
         const auto u_spmv_val_col_mem_requirement =
             l_spmv_val_col_mem_requirement;
+        auto nodes_in_all_but_last_color =
+            storage_scheme_ready_
+                ? hbmc_storage_scheme_.backward_solve_[0]
+                      .get()
+                      ->start_row_global_
+                : color_ptrs_.get_const_data()[color_ptrs_.get_size() - 2];
         const auto u_spmv_row_mem_requirement =
-            color_ptrs_.get_const_data()[color_ptrs_.get_size() - 2] +
-            color_ptrs_.get_size() - 2;
+            +nodes_in_all_but_last_color + num_colors - 1;
 
         u_diag_rows_.resize_and_reset(diag_mem_requirement);
         u_diag_rows_.fill(IndexType{-1});
@@ -592,8 +626,20 @@ void GaussSeidel<ValueType, IndexType>::reserve_mem_for_block_structure(
         u_spmv_vals_.fill(ValueType{0});
     }
 
-    hbmc_storage_scheme_ =
-        storage_scheme(num_blocks, symmetric_preconditioner_);
+    if (!storage_scheme_ready_)
+        hbmc_storage_scheme_ =
+            storage_scheme(num_blocks, symmetric_preconditioner_);
+}
+
+template <typename ValueType, typename IndexType>
+void GaussSeidel<ValueType, IndexType>::recreate_block_ordering(
+    const matrix::Csr<ValueType, IndexType>* system_matrix)
+{
+    if (use_padding_) {
+    } else {
+        if (system_matrix->get_size()[0] < base_block_size_ * lvl2_block_size_)
+            return;
+    }
 }
 
 template <typename ValueType, typename IndexType>

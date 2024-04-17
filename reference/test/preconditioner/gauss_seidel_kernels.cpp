@@ -53,8 +53,9 @@ using apply_param_type = std::vector<std::tuple<int, int, int, int, bool>>;
 static apply_param_type allParams{
     std::make_tuple(16, 2, 16, 8, false), std::make_tuple(20, 5, 32, 4, false),
     std::make_tuple(20, 5, 32, 4, true), std::make_tuple(1000, 5, 32, 4, false),
-    // std::make_tuple(1000, 5, 32, 4, true),
-    // std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 4, true),
+    std::make_tuple(1000, 5, 32, 8, false)
+    // ,
     // std::make_tuple(1000, 5, 32, 8, true),
     // std::make_tuple(1000, 5, 32, 2, false),
     // std::make_tuple(1000, 5, 32, 2, true),
@@ -66,11 +67,13 @@ static apply_param_type allParams{
     // std::make_tuple(1000, 10, 4, 4, true),
     // std::make_tuple(1000, 10, 4, 8, false),
     // std::make_tuple(1000, 10, 4, 8, true),
-    // //   std::make_tuple(1003, 15, 32, 4, false),
-    // //   std::make_tuple(1003, 15, 32, 4, true),
+    //   std::make_tuple(1003, 15, 32, 4, false), // mtx size not multiple of
+    // 4 does not work
+    // std::make_tuple(1003, 15, 32, 4, true), //same here, segfault
     // std::make_tuple(10000, 20, 32, 4, false),
     // std::make_tuple(10000, 20, 32, 4, true),
-    std::make_tuple(10000, 20, 16, 8, false)};
+    // std::make_tuple(10000, 20, 16, 8, false)
+    };
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing ::Test {
@@ -1764,6 +1767,7 @@ TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
         auto x = Vec::create_with_config_of((rhs));
         x->fill(ValueType{0});
         auto ref_x = x->clone();
+        auto mtx_clone = mtx->clone();
 
         auto gs_HBMC_factory =
             GS::build()
@@ -1780,7 +1784,7 @@ TYPED_TEST(GaussSeidel, AdvancedApplyHBMC_RandMtx)
             gko::array<IndexType>(exec, gs_HBMC->get_permutation_idxs());
 
         auto mtx_perm = Vec::create(exec);
-        gko::as<Csr>(mtx->permute(&perm_idxs))->convert_to((mtx_perm));
+        gko::as<Csr>(mtx_clone->permute(&perm_idxs))->convert_to((mtx_perm));
         auto adv_apply_tuple = this->gen_ref_adv_apply(
             mtx_perm.get(), omega_val, static_cast<IndexType>(num_rows));
 
@@ -1858,7 +1862,7 @@ TYPED_TEST(GaussSeidel, SystemSolveSGS_CG)
 }
 
 
-TYPED_TEST(GaussSeidel, WorksWithPrepermMtxInput)
+TYPED_TEST(GaussSeidel, WorksWithPrepermMtxAndstorageSchemeInput)
 {
     using Csr = typename TestFixture::Csr;
     using Vec = typename TestFixture::Vec;
@@ -1868,170 +1872,191 @@ TYPED_TEST(GaussSeidel, WorksWithPrepermMtxInput)
     using HBMC = gko::experimental::reorder::Hbmc<IndexType>;
 
     auto exec = this->exec;
-    auto base_block_size = 4u;
-    auto lvl_2_block_size = 32u;
-    auto omega_val = gko::remove_complex<ValueType>{1.5};
-    bool symm_precond = true;
-    bool padding = false;
-    IndexType num_rows = 1000;
-    IndexType row_limit = 10;
+    int tuple = 0;
+    for (auto const& [num_rows, row_limit, lvl_2_block_size, base_block_size,
+                      padding] : this->apply_params_) {
+        std::cout << "tuple: " << tuple << " mtx size: " << num_rows
+                  << std::endl;
 
-    auto mtx = share(this->generate_rand_matrix(num_rows, IndexType{1},
-                                                row_limit, ValueType{0}));
+        auto omega_val = gko::remove_complex<ValueType>{1.5};
+        bool symm_precond = true;  // TODO make a loop over possible values
 
-    auto mtx_dense = Vec::create(exec);
-    mtx->convert_to((mtx_dense));
-    auto adv_apply_tuple = this->gen_ref_adv_apply(
-        mtx_dense.get(), omega_val, static_cast<IndexType>(num_rows));
+        auto mtx = gko::share(
+            this->generate_rand_matrix(IndexType{num_rows}, IndexType{1},
+                                       IndexType{row_limit}, ValueType{0}));
+        auto rhs = gko::share(
+            this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
+        auto x = Vec::create_with_config_of((rhs));
+        x->fill(0.0);
+        auto x_clone = clone(exec, x);
+        auto rhs_clone = clone(exec, rhs);
+        std::cout << "test 1" << std::endl;
 
-    auto rhs =
-        share(this->generate_rand_dense(ValueType{0}, mtx->get_size()[0]));
-    auto x = Vec::create_with_config_of((rhs));
-    auto ref_ans = Vec::create_with_config_of((rhs));
-    x->fill(0.0);
-    auto x_clone = clone(exec, x);
-    auto rhs_clone = clone(exec, rhs);
-    std::cout << "test 1" << std::endl;
+        auto hbmc_reorder_factory =
+            HBMC::build()
+                .with_base_block_size(
+                    static_cast<gko::size_type>(base_block_size))
+                .with_lvl_2_block_size(
+                    static_cast<gko::size_type>(lvl_2_block_size))
+                .with_padding(padding)
+                .with_symmetric_preconditioner(symm_precond)
+                .on(exec);
+        auto hbmc_reorder = gko::share(
+            hbmc_reorder_factory->generate(gko::as<gko::LinOp>(mtx), true));
+        auto ref_hbmc = GS::build()
+                            .with_use_HBMC(true)
+                            .with_base_block_size(base_block_size)
+                            .with_lvl_2_block_size(lvl_2_block_size)
+                            .with_symmetric_preconditioner(symm_precond)
+                            .with_relaxation_factor(omega_val)
+                            .with_use_padding(padding)
+                            .with_prepermuted_input(false)
+                            .with_preperm_mtx(false)
+                            .on(exec)
+                            ->generate(gko::as<gko::LinOp>(mtx));
+        auto ref_vertex_colors = ref_hbmc->get_vertex_colors();
 
-    auto hbmc_reorder = share(HBMC::build()
-                                  .with_base_block_size(base_block_size)
-                                  .with_lvl_2_block_size(lvl_2_block_size)
-                                  .with_padding(padding)
-                                  .on(exec)
-                                  ->generate(gko::as<gko::LinOp>(mtx)));
-    auto ref_hbmc = GS::build()
+        std::cout << "test 2" << std::endl;
+
+        auto storage_from_reorder =
+            hbmc_reorder_factory->get_hbmc_storage_scheme();
+        auto ref_storage = ref_hbmc->get_storage_scheme();
+        GKO_ASSERT(storage_from_reorder.symm_ == symm_precond);
+
+        std::cout << "test 2 1/2 storage num_blocks: "
+                  << storage_from_reorder.num_blocks_ << std::endl;
+
+
+        gko::array<IndexType> ref_vertex_colors_perm(exec, num_rows);
+
+        auto tmp = gko::make_array_view(exec, num_rows,
+                                        hbmc_reorder->get_permutation());
+        GKO_ASSERT_ARRAY_EQ(tmp, ref_hbmc->get_permutation_idxs());
+
+        for (int i = 0; i < num_rows; i++) {
+            ref_vertex_colors_perm.get_data()[i] =
+                ref_vertex_colors.get_data()[tmp.get_data()[i]];
+        }
+
+        std::cout << "test 3" << std::endl;
+
+        auto preperm_mtx = gko::share(gko::as<Csr>(mtx->permute(hbmc_reorder)));
+        auto perm_rhs = rhs->clone();
+        rhs->permute(hbmc_reorder, perm_rhs, gko::matrix::permute_mode::rows);
+
+        auto hbmc = GS::build()
                         .with_use_HBMC(true)
                         .with_base_block_size(base_block_size)
                         .with_lvl_2_block_size(lvl_2_block_size)
+                        .with_use_padding(padding)
+                        .with_preperm_mtx(true)
+                        .with_prepermuted_input(
+                            false)  // special case for reference kernels
                         .with_symmetric_preconditioner(symm_precond)
                         .with_relaxation_factor(omega_val)
-                        .with_use_padding(padding)
+                        .with_storage_scheme(storage_from_reorder)
+                        .with_storage_scheme_ready(true)
                         .on(exec)
-                        ->generate(gko::as<gko::LinOp>(mtx));
-    auto ref_vertex_colors = ref_hbmc->get_vertex_colors();
+                        ->generate(gko::as<gko::LinOp>(preperm_mtx));
 
-    std::cout << "test 2" << std::endl;
+        std::cout << "test 4" << std::endl;
 
-    gko::array<IndexType> ref_vertex_colors_perm(exec, num_rows);
+        auto perm = gko::array<IndexType>(exec, num_rows);
+        std::iota(perm.get_data(), perm.get_data() + perm.get_size(), 0);
+        auto inv_perm = gko::array<IndexType>(exec, num_rows);
+        gko::kernels::reference::permutation::invert(
+            exec, perm.get_const_data(), perm.get_size(), inv_perm.get_data());
+        GKO_ASSERT_ARRAY_EQ(perm, inv_perm);
+        auto perm_idxs_hbmc_w_preperm_mtx = hbmc->get_permutation_idxs();
+        GKO_ASSERT_ARRAY_EQ(perm_idxs_hbmc_w_preperm_mtx, perm);
 
-    auto tmp =
-        gko::make_array_view(exec, num_rows, hbmc_reorder->get_permutation());
-    GKO_ASSERT_ARRAY_EQ(tmp, ref_hbmc->get_permutation_idxs());
+        std::cout << "test 5" << std::endl;
 
-    auto perm = gko::array<IndexType>(exec, num_rows);
-    std::iota(perm.get_data(), perm.get_data() + perm.get_size(), 0);
-    auto inv_perm = gko::array<IndexType>(exec, num_rows);
-    gko::kernels::reference::permutation::invert(
-        exec, perm.get_const_data(), perm.get_size(), inv_perm.get_data());
-    GKO_ASSERT_ARRAY_EQ(perm, inv_perm);
+        // auto ref_color_ptrs = ref_hbmc->get_color_ptrs();
+        // auto color_ptrs = hbmc->get_color_ptrs();
+        // GKO_ASSERT_ARRAY_EQ(ref_color_ptrs, color_ptrs);
 
-    for (int i = 0; i < num_rows; i++) {
-        ref_vertex_colors_perm.get_data()[i] =
-            ref_vertex_colors.get_data()[tmp.get_data()[i]];
-    }
+        // auto vertex_colors = hbmc->get_vertex_colors();
+        // GKO_ASSERT_ARRAY_EQ(vertex_colors, ref_vertex_colors_perm);
 
-    std::cout << "test 3" << std::endl;
+        // std::cout << "test 5 1/2" << std::endl;
 
-    auto preperm_mtx = share(gko::as<Csr>(mtx->permute(hbmc_reorder)));
-    rhs->permute(hbmc_reorder, rhs, gko::matrix::permute_mode::rows);
-    x->permute(hbmc_reorder, x, gko::matrix::permute_mode::rows);
-    auto gs_HBMC_factory = GS::build()
-                               .with_use_HBMC(true)
-                               .with_base_block_size(base_block_size)
-                               .with_lvl_2_block_size(lvl_2_block_size)
-                               .with_use_padding(padding)
-                               .with_preperm_mtx(true)
-                               .with_prepermuted_input(
-                                   false)  // special case for reference kernels
-                               .with_symmetric_preconditioner(symm_precond)
-                               .with_relaxation_factor(omega_val)
-                               .on(exec);
-
-    std::cout << "test 4" << std::endl;
-
-    auto hbmc = gs_HBMC_factory->generate(gko::as<gko::LinOp>(preperm_mtx));
-
-    std::cout << "test 5" << std::endl;
-
-    auto vertex_colors = hbmc->get_vertex_colors();
-    GKO_ASSERT_ARRAY_EQ(vertex_colors, ref_vertex_colors_perm);
-    auto ref_color_ptrs = ref_hbmc->get_color_ptrs();
-    auto color_ptrs = hbmc->get_color_ptrs();
-    GKO_ASSERT_ARRAY_EQ(ref_color_ptrs, color_ptrs);
-
-    std::cout << "test 5 1/2" << std::endl;
-
-    GKO_ASSERT_ARRAY_EQ(hbmc->get_l_diag_rows(), ref_hbmc->get_l_diag_rows());
-    GKO_ASSERT_ARRAY_EQ(hbmc->get_l_spmv_row_ptrs(),
-                        ref_hbmc->get_l_spmv_row_ptrs());
-    GKO_ASSERT_EQ(hbmc->get_l_spmv_col_idxs().get_num_elems(),
-                  ref_hbmc->get_l_spmv_col_idxs().get_num_elems());
-    GKO_ASSERT_ARRAY_EQ(hbmc->get_l_spmv_col_idxs(),
-                        ref_hbmc->get_l_spmv_col_idxs());
+        GKO_ASSERT_ARRAY_EQ(hbmc->get_l_diag_rows(),
+                            ref_hbmc->get_l_diag_rows());
+        GKO_ASSERT_ARRAY_EQ(hbmc->get_l_spmv_row_ptrs(),
+                            ref_hbmc->get_l_spmv_row_ptrs());
+        GKO_ASSERT_ARRAY_EQ(hbmc->get_l_spmv_col_idxs(),
+                            ref_hbmc->get_l_spmv_col_idxs());
 
 
-    auto ref_l_diag_vals = ref_hbmc->get_l_diag_vals();
-    auto l_diag_vals = hbmc->get_l_diag_vals();
-    GKO_ASSERT_EQ(ref_l_diag_vals.get_size(), l_diag_vals.get_size());
-    auto ref_l_diag_vals_vec =
-        Vec::create(exec, gko::dim<2>{ref_l_diag_vals.get_size(), 1},
-                    gko::make_array_view(exec, ref_l_diag_vals.get_size(),
-                                         ref_l_diag_vals.get_data()),
-                    1);
-    auto l_diag_vals_vec =
-        Vec::create(exec, gko::dim<2>{l_diag_vals.get_size(), 1},
-                    gko::make_array_view(exec, l_diag_vals.get_size(),
-                                         l_diag_vals.get_data()),
-                    1);
-    GKO_ASSERT_MTX_NEAR(ref_l_diag_vals_vec, l_diag_vals_vec,
-                        r<ValueType>::value);
-    if (symm_precond) {
-        auto ref_u_diag_vals = ref_hbmc->get_u_diag_vals();
-        auto u_diag_vals = hbmc->get_u_diag_vals();
-        GKO_ASSERT_EQ(ref_u_diag_vals.get_size(), u_diag_vals.get_size());
-        auto ref_u_diag_vals_vec =
-            Vec::create(exec, gko::dim<2>{ref_u_diag_vals.get_size(), 1},
-                        gko::make_array_view(exec, ref_u_diag_vals.get_size(),
-                                             ref_u_diag_vals.get_data()),
+        auto ref_l_diag_vals = ref_hbmc->get_l_diag_vals();
+        auto l_diag_vals = hbmc->get_l_diag_vals();
+        GKO_ASSERT_EQ(ref_l_diag_vals.get_size(), l_diag_vals.get_size());
+        auto ref_l_diag_vals_vec =
+            Vec::create(exec, gko::dim<2>{ref_l_diag_vals.get_size(), 1},
+                        gko::make_array_view(exec, ref_l_diag_vals.get_size(),
+                                             ref_l_diag_vals.get_data()),
                         1);
-        auto u_diag_vals_vec =
-            Vec::create(exec, gko::dim<2>{u_diag_vals.get_size(), 1},
-                        gko::make_array_view(exec, u_diag_vals.get_size(),
-                                             u_diag_vals.get_data()),
+        auto l_diag_vals_vec =
+            Vec::create(exec, gko::dim<2>{l_diag_vals.get_size(), 1},
+                        gko::make_array_view(exec, l_diag_vals.get_size(),
+                                             l_diag_vals.get_data()),
                         1);
-        GKO_ASSERT_MTX_NEAR(ref_u_diag_vals_vec, u_diag_vals_vec,
+        GKO_ASSERT_MTX_NEAR(ref_l_diag_vals_vec, l_diag_vals_vec,
                             r<ValueType>::value);
+        if (symm_precond) {
+            std::cout << "test 5 3/4" << std::endl;
+            auto ref_u_diag_vals = ref_hbmc->get_u_diag_vals();
+            auto u_diag_vals = hbmc->get_u_diag_vals();
+            GKO_ASSERT_EQ(ref_u_diag_vals.get_size(), u_diag_vals.get_size());
+            auto ref_u_diag_vals_vec = Vec::create(
+                exec, gko::dim<2>{ref_u_diag_vals.get_size(), 1},
+                gko::make_array_view(exec, ref_u_diag_vals.get_size(),
+                                     ref_u_diag_vals.get_data()),
+                1);
+            auto u_diag_vals_vec =
+                Vec::create(exec, gko::dim<2>{u_diag_vals.get_size(), 1},
+                            gko::make_array_view(exec, u_diag_vals.get_size(),
+                                                 u_diag_vals.get_data()),
+                            1);
+            GKO_ASSERT_MTX_NEAR(ref_u_diag_vals_vec, u_diag_vals_vec,
+                                r<ValueType>::value);
+        }
+
+        auto ref_l_spmv_vals = ref_hbmc->get_l_spmv_vals();
+        auto l_spmv_vals = hbmc->get_l_spmv_vals();
+        GKO_ASSERT_EQ(ref_l_spmv_vals.get_size(), l_spmv_vals.get_size());
+        auto ref_l_spmv_vals_vec =
+            Vec::create(exec, gko::dim<2>{ref_l_spmv_vals.get_size(), 1},
+                        gko::make_array_view(exec, ref_l_spmv_vals.get_size(),
+                                             ref_l_spmv_vals.get_data()),
+                        1);
+
+        auto l_spmv_vals_vec =
+            Vec::create(exec, gko::dim<2>{l_spmv_vals.get_size(), 1},
+                        gko::make_array_view(exec, l_spmv_vals.get_size(),
+                                             l_spmv_vals.get_data()),
+                        1);
+        GKO_ASSERT_MTX_NEAR(ref_l_spmv_vals_vec, l_spmv_vals_vec,
+                            r<ValueType>::value);
+
+
+        std::cout << "test 6" << std::endl;
+
+        hbmc->apply((perm_rhs), (x));
+        auto inv_perm_x = Vec::create_with_config_of((x));
+        x->permute(hbmc_reorder, inv_perm_x,
+                   gko::matrix::permute_mode::inverse_rows);
+
+        std::cout << "test 7" << std::endl;
+
+        auto storage = hbmc->get_storage_scheme();
+
+        std::cout << "test 8" << std::endl;
+        ref_hbmc->apply((rhs_clone), (x_clone));
+        GKO_ASSERT_MTX_NEAR(x_clone, inv_perm_x, r<ValueType>::value);
+        tuple++;
     }
-
-    auto ref_l_spmv_vals = ref_hbmc->get_l_spmv_vals();
-    auto l_spmv_vals = hbmc->get_l_spmv_vals();
-    GKO_ASSERT_EQ(ref_l_spmv_vals.get_size(), l_spmv_vals.get_size());
-    auto ref_l_spmv_vals_vec =
-        Vec::create(exec, gko::dim<2>{ref_l_spmv_vals.get_size(), 1},
-                    gko::make_array_view(exec, ref_l_spmv_vals.get_size(),
-                                         ref_l_spmv_vals.get_data()),
-                    1);
-
-    auto l_spmv_vals_vec =
-        Vec::create(exec, gko::dim<2>{l_spmv_vals.get_size(), 1},
-                    gko::make_array_view(exec, l_spmv_vals.get_size(),
-                                         l_spmv_vals.get_data()),
-                    1);
-    GKO_ASSERT_MTX_NEAR(ref_l_spmv_vals_vec, l_spmv_vals_vec,
-                        r<ValueType>::value);
-
-
-    std::cout << "test 6" << std::endl;
-
-    hbmc->apply((rhs), (x));
-    x->permute(hbmc_reorder, x, gko::matrix::permute_mode::inverse_rows);
-
-    this->ref_adv_apply(adv_apply_tuple, rhs_clone.get(), x_clone.get());
-    ref_ans->move_from(x_clone);
-
-    std::cout << "test 7" << std::endl;
-
-    GKO_ASSERT_MTX_NEAR(x, ref_ans, r<ValueType>::value);
 }
 
 }  // namespace

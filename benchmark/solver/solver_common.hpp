@@ -354,6 +354,7 @@ struct solver_benchmark_state {
     std::shared_ptr<gko::LinOp> system_matrix;
     std::unique_ptr<Vec> b;
     std::unique_ptr<Vec> x;
+    gko::preconditioner::storage_scheme hbmc_storage_scheme;
 };
 
 
@@ -415,7 +416,11 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
             state.x = generator.initialize({0.0}, exec);
         } else {
             auto data = generator.generate_matrix_data(test_case);
-            auto permutation = reorder(data, test_case);
+
+            auto permutation =
+                FLAGS_gs_preperm_mtx
+                    ? reorder(data, test_case)
+                    : reorder(data, test_case, state.hbmc_storage_scheme);
 
             state.system_matrix = generator.generate_matrix_with_format(
                 exec, test_case["optimal"]["spmv"].get<std::string>(), data);
@@ -490,10 +495,32 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
                     exec->get_master()->add_logger(gen_logger);
                 }
 
-                auto precond = precond_factory.at(precond_name)(exec);
-                solver = generate_solver(exec, give(precond), solver_name,
-                                         FLAGS_max_iters)
-                             ->generate(state.system_matrix);
+                if (precond_name == std::string("gauss-seidel") &&
+                    FLAGS_gs_preperm_mtx) {
+                    auto precond =
+                        gko::preconditioner::GaussSeidel<etype, itype>::build()
+                            .with_use_padding(FLAGS_gs_use_padding)
+                            .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                            .with_base_block_size(FLAGS_gs_base_block_size)
+                            .with_use_HBMC(true)
+                            .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                            .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                            .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                            .with_symmetric_preconditioner(
+                                FLAGS_gs_symm_precond)
+                            .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                            .with_storage_scheme(state.hbmc_storage_scheme)
+                            .with_storage_scheme_ready(true)
+                            .on(exec);
+                    solver = generate_solver(exec, give(precond), solver_name,
+                                             FLAGS_max_iters)
+                                 ->generate(state.system_matrix);
+                } else {
+                    auto precond = precond_factory.at(precond_name)(exec);
+                    solver = generate_solver(exec, give(precond), solver_name,
+                                             FLAGS_max_iters)
+                                 ->generate(state.system_matrix);
+                }
 
                 exec->remove_logger(gen_logger);
                 if (exec != exec->get_master()) {
@@ -555,10 +582,31 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
 
             exec->synchronize();
             generate_timer->tic();
-            auto precond = precond_factory.at(precond_name)(exec);
-            solver = generate_solver(exec, give(precond), solver_name,
-                                     FLAGS_max_iters)
-                         ->generate(state.system_matrix);
+            if (precond_name == std::string("gauss-seidel") &&
+                FLAGS_gs_preperm_mtx) {
+                auto precond =
+                    gko::preconditioner::GaussSeidel<etype, itype>::build()
+                        .with_use_padding(FLAGS_gs_use_padding)
+                        .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                        .with_base_block_size(FLAGS_gs_base_block_size)
+                        .with_use_HBMC(true)
+                        .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                        .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                        .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                        .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                        .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                        .with_storage_scheme(state.hbmc_storage_scheme)
+                        .with_storage_scheme_ready(true)
+                        .on(exec);
+                solver = generate_solver(exec, give(precond), solver_name,
+                                         FLAGS_max_iters)
+                             ->generate(state.system_matrix);
+            } else {
+                auto precond = precond_factory.at(precond_name)(exec);
+                solver = generate_solver(exec, give(precond), solver_name,
+                                         FLAGS_max_iters)
+                             ->generate(state.system_matrix);
+            }
             generate_timer->toc();
 
             exec->synchronize();
