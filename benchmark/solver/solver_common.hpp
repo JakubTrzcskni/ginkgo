@@ -419,8 +419,8 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
 
             auto permutation =
                 FLAGS_gs_preperm_mtx
-                    ? reorder(data, test_case)
-                    : reorder(data, test_case, state.hbmc_storage_scheme);
+                    ? reorder(data, test_case, state.hbmc_storage_scheme)
+                    : reorder(data, test_case);
 
             state.system_matrix = generator.generate_matrix_with_format(
                 exec, test_case["optimal"]["spmv"].get<std::string>(), data);

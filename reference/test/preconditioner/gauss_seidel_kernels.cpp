@@ -54,26 +54,24 @@ static apply_param_type allParams{
     std::make_tuple(16, 2, 16, 8, false), std::make_tuple(20, 5, 32, 4, false),
     std::make_tuple(20, 5, 32, 4, true), std::make_tuple(1000, 5, 32, 4, false),
     std::make_tuple(1000, 5, 32, 4, true),
-    std::make_tuple(1000, 5, 32, 8, false)
-    // ,
-    // std::make_tuple(1000, 5, 32, 8, true),
-    // std::make_tuple(1000, 5, 32, 2, false),
-    // std::make_tuple(1000, 5, 32, 2, true),
-    // std::make_tuple(1000, 15, 32, 4, false),
-    // std::make_tuple(1000, 15, 32, 4, true),
-    // std::make_tuple(1000, 10, 16, 4, false),
-    // std::make_tuple(1000, 10, 16, 4, true),
-    // std::make_tuple(1000, 10, 4, 4, false),
-    // std::make_tuple(1000, 10, 4, 4, true),
-    // std::make_tuple(1000, 10, 4, 8, false),
-    // std::make_tuple(1000, 10, 4, 8, true),
-    //   std::make_tuple(1003, 15, 32, 4, false), // mtx size not multiple of
-    // 4 does not work
-    // std::make_tuple(1003, 15, 32, 4, true), //same here, segfault
-    // std::make_tuple(10000, 20, 32, 4, false),
-    // std::make_tuple(10000, 20, 32, 4, true),
-    // std::make_tuple(10000, 20, 16, 8, false)
-    };
+    std::make_tuple(1000, 5, 32, 8, false),
+    std::make_tuple(1000, 5, 32, 8, true),
+    std::make_tuple(1000, 5, 32, 2, false),
+    std::make_tuple(1000, 5, 32, 2, true),
+    std::make_tuple(1000, 15, 32, 4, false),
+    std::make_tuple(1000, 15, 32, 4, true),
+    std::make_tuple(1000, 10, 16, 4, false),
+    std::make_tuple(1000, 10, 16, 4, true),
+    std::make_tuple(1000, 10, 4, 4, false),
+    std::make_tuple(1000, 10, 4, 4, true),
+    std::make_tuple(1000, 10, 4, 8, false),
+    std::make_tuple(1000, 10, 4, 8, true),
+    // std::make_tuple(1003, 15, 32, 4, false),  // mtx size not multiple of
+    // 4 does not work std::make_tuple(1003, 15, 32, 4,
+    // true),  // same here, segfault
+    std::make_tuple(10000, 20, 32, 4, false),
+    std::make_tuple(10000, 20, 32, 4, true),
+    std::make_tuple(10000, 20, 16, 8, false)};
 
 template <typename ValueIndexType>
 class GaussSeidel : public ::testing ::Test {
