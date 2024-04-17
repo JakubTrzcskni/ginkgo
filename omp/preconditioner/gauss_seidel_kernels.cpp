@@ -290,8 +290,8 @@ void get_secondary_ordering(std::shared_ptr<const OmpExecutor> exec,
                             const IndexType base_block_size,
                             const IndexType lvl_2_block_size,
                             const IndexType* color_block_ptrs,
-                            const IndexType max_color,
-                            const bool use_padding) GKO_NOT_IMPLEMENTED;
+                            const IndexType max_color, const bool use_padding,
+                            const bool preperm_mtx) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_GET_SECONDARY_ORDERING_KERNEL);
 
@@ -308,8 +308,8 @@ void setup_blocks(std::shared_ptr<const OmpExecutor> exec,
                   ValueType* l_spmv_vals, IndexType* u_diag_rows,
                   IndexType* u_diag_mtx_col_idxs, ValueType* u_diag_vals,
                   IndexType* u_spmv_row_ptrs, IndexType* u_spmv_col_idxs,
-                  IndexType* u_spmv_mtx_col_idxs,
-                  ValueType* u_spmv_vals) GKO_NOT_IMPLEMENTED;
+                  IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals,
+                  const bool preperm_mtx) GKO_NOT_IMPLEMENTED;
 GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL);
 

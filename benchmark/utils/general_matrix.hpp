@@ -24,6 +24,7 @@ std::string reordering_algorithm_desc =
     "    nd - Nested Dissection reordering algorithm\n"
 #endif
     "    rcm - Reverse Cuthill-McKee reordering algorithm\n"
+    "    hbmc - hierarchical block multi-coloring reordering algorithm\n"
     "This is a preprocessing step whose runtime will not be included\n"
     "in the measurements.";
 
@@ -31,12 +32,47 @@ std::string reordering_algorithm_desc =
 DEFINE_string(input_matrix, "",
               "Filename of a matrix to be used as the single input. Overwrites "
               "the value of the -input flag");
-
+DEFINE_uint32(hbmc_base_block_size, 4u,
+              "Base block size for the HBMC reordering algorithm");
+DEFINE_uint32(hbmc_lvl_2_block_size, 32u,
+              "Level 2 block size for the HBMC reordering algorithm");
+DEFINE_bool(hbmc_symm_precond, true, "hbmc storage scheme for GS/SGS");
+DEFINE_bool(hbmc_padding, false, "hbmc padding for the storage scheme");
 
 #ifndef GKO_BENCHMARK_DISTRIBUTED
 DEFINE_string(reorder, "none", reordering_algorithm_desc.c_str());
 #endif
 
+template <typename ValueType, typename IndexType>
+std::unique_ptr<gko::matrix::Permutation<IndexType>> reorder(
+    gko::matrix_data<ValueType, IndexType>& data, json& test_case,
+    gko::preconditioner::storage_scheme& hbmc_storage_scheme)
+{
+    using Csr = gko::matrix::Csr<ValueType, IndexType>;
+    auto ref = gko::ReferenceExecutor::create();
+    auto mtx = gko::share(Csr::create(ref));
+    mtx->read(data);
+    std::unique_ptr<gko::matrix::Permutation<IndexType>> perm;
+    if (FLAGS_reorder == "hbmc") {
+        auto perm_factory =
+            gko::experimental::reorder::Hbmc<IndexType>::build()
+                .with_base_block_size(FLAGS_hbmc_base_block_size)
+                .with_lvl_2_block_size(FLAGS_hbmc_lvl_2_block_size)
+                .with_symmetric_preconditioner(FLAGS_hbmc_symm_precond)
+                .with_padding(FLAGS_hbmc_padding)
+                .on(ref);
+        perm = perm_factory->generate(mtx, true);
+        hbmc_storage_scheme = perm_factory->get_hbmc_storage_scheme();
+    } else {
+        throw std::runtime_error{"Unknown reordering algorithm " +
+                                 FLAGS_reorder};
+    }
+    auto perm_arr =
+        gko::array<IndexType>::view(ref, data.size[0], perm->get_permutation());
+    gko::as<Csr>(mtx->permute(&perm_arr))->write(data);
+    test_case["reordered"] = FLAGS_reorder;
+    return perm;
+}
 
 template <typename ValueType, typename IndexType>
 std::unique_ptr<gko::matrix::Permutation<IndexType>> reorder(
@@ -64,6 +100,14 @@ std::unique_ptr<gko::matrix::Permutation<IndexType>> reorder(
 #endif
     } else if (FLAGS_reorder == "rcm") {
         perm = gko::experimental::reorder::Rcm<IndexType>::build()
+                   .on(ref)
+                   ->generate(mtx);
+    } else if (FLAGS_reorder == "hbmc") {
+        perm = gko::experimental::reorder::Hbmc<IndexType>::build()
+                   .with_base_block_size(FLAGS_hbmc_base_block_size)
+                   .with_lvl_2_block_size(FLAGS_hbmc_lvl_2_block_size)
+                   .with_symmetric_preconditioner(FLAGS_hbmc_symm_precond)
+                   .with_padding(FLAGS_hbmc_padding)
                    .on(ref)
                    ->generate(mtx);
     } else {

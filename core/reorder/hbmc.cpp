@@ -28,14 +28,14 @@ Hbmc<ValueType, IndexType>::Hbmc(const Factory* factory,
           factory->get_executor()),
       parameters_{factory->get_parameters()}
 {
-    auto base_block_size = parameters_.base_block_size;
-    auto lvl_2_block_size = parameters_.lvl_2_block_size;
-
-    auto hbmc_gs = preconditioner::GaussSeidel<ValueType, IndexType>::build()
-                       .with_base_block_size(base_block_size)
-                       .with_lvl_2_block_size(lvl_2_block_size)
-                       .on(this->get_executor()->get_master())
-                       ->generate(args.system_matrix);
+    auto hbmc_gs =
+        preconditioner::GaussSeidel<ValueType, IndexType>::build()
+            .with_base_block_size(parameters_.base_block_size)
+            .with_lvl_2_block_size(parameters_.lvl_2_block_size)
+            .with_use_padding(parameters_.padding)
+            .with_symmetric_preconditioner(parameters_.symmetric_preconditioner)
+            .on(this->get_executor()->get_master())
+            ->generate(args.system_matrix);
     auto permutation_array = hbmc_gs->get_permutation_idxs();
     permutation_ =
         PermutationMatrix::create(this->get_executor(), permutation_array);
@@ -59,6 +59,21 @@ Hbmc<IndexType>::Hbmc(std::shared_ptr<const Executor> exec,
       parameters_{params}
 {}
 
+template <typename IndexType>
+void Hbmc<IndexType>::save_hbmc_storage_scheme(
+    std::shared_ptr<const LinOp> system_matrix)
+{
+    auto tmp =
+        preconditioner::GaussSeidel<float, IndexType>::build()
+            .with_use_HBMC(true)
+            .with_base_block_size(parameters_.base_block_size)
+            .with_lvl_2_block_size(parameters_.lvl_2_block_size)
+            .with_use_padding(parameters_.padding)
+            .with_symmetric_preconditioner(parameters_.symmetric_preconditioner)
+            .on(this->get_executor()->get_master())
+            ->generate(system_matrix);
+    hbmc_storage_scheme_ = tmp->get_storage_scheme();
+}
 
 template <typename IndexType>
 std::unique_ptr<matrix::Permutation<IndexType>> Hbmc<IndexType>::generate(
@@ -68,6 +83,13 @@ std::unique_ptr<matrix::Permutation<IndexType>> Hbmc<IndexType>::generate(
         std::unique_ptr<permutation_type>(static_cast<permutation_type*>(
             this->LinOpFactory::generate(std::move(system_matrix)).release()));
     return product;
+}
+template <typename IndexType>
+std::unique_ptr<matrix::Permutation<IndexType>> Hbmc<IndexType>::generate(
+    std::shared_ptr<const LinOp> system_matrix, bool storage_scheme)
+{
+    if (storage_scheme) save_hbmc_storage_scheme(system_matrix);
+    return generate(system_matrix);
 }
 
 
@@ -79,10 +101,13 @@ std::unique_ptr<LinOp> Hbmc<IndexType>::generate_impl(
     using Mtx = matrix::Csr<ValueType, IndexType>;
     auto base_block_size = parameters_.base_block_size;
     auto lvl_2_block_size = parameters_.lvl_2_block_size;
+    auto padding = parameters_.padding;
 
     auto hbmc_gs = preconditioner::GaussSeidel<ValueType, IndexType>::build()
+                       .with_use_HBMC(true)
                        .with_base_block_size(base_block_size)
                        .with_lvl_2_block_size(lvl_2_block_size)
+                       .with_use_padding(padding)
                        .on(this->get_executor()->get_master())
                        ->generate(system_matrix);
     auto permutation_array = hbmc_gs->get_permutation_idxs();

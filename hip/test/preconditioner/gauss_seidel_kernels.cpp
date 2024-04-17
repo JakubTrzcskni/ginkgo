@@ -11,9 +11,10 @@
 #include <gtest/gtest.h>
 
 
-#include <ginkgo/core/matrix/csr.hpp>
-#include <ginkgo/core/matrix/dense.hpp>
-
+// #include <ginkgo/core/matrix/csr.hpp>
+// #include <ginkgo/core/matrix/dense.hpp>
+// #include <ginkgo/core/reorder/hbmc.hpp>
+#include <ginkgo/ginkgo.hpp>
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/test/utils.hpp"
@@ -402,7 +403,7 @@ TYPED_TEST(GaussSeidel, AdvancedApply)
         ref_gs->apply(rhs.get(), x.get());
 
         device_gs->apply(d_rhs.get(), d_x.get());
-        std::cout << "tuple: " << i++ << std::endl;
+        // std::cout << "tuple: " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
     }
 }
@@ -466,7 +467,6 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
                 .with_symmetric_preconditioner(true)
                 .with_relaxation_factor(omega_val)
                 .with_prepermuted_input(true)
-                .with_kernel_version(9)
                 .on(hip_exec);
         auto preperm_gs = preperm_gs_factory->generate(mtx);
 
@@ -491,6 +491,104 @@ TYPED_TEST(GaussSeidel, PrepermutedAdvancedApply)
         std::cout << "tuple: " << i++ << std::endl;
         GKO_ASSERT_MTX_NEAR(ans, x, r<ValueType>::value);
     }
+}
+
+
+TYPED_TEST(GaussSeidel, WorksWithPrepermMtxInput)
+{
+    using ValueType = typename TestFixture::value_type;
+    using IndexType = typename TestFixture::index_type;
+    using GS = typename TestFixture::GS;
+    using Csr = gko::matrix::Csr<ValueType, IndexType>;
+    using Vec = gko::matrix::Dense<ValueType>;
+    using HBMC = gko::experimental::reorder::Hbmc<IndexType>;
+   
+    auto ref_exec = this->ref;
+    auto hip_exec = this->hip;
+
+    auto num_rows = 1000;
+    const auto omega_val = gko::remove_complex<ValueType>{1.5};
+    gko::size_type num_rhs = 1;
+    auto padding = false;
+    bool symm_precond = false;
+    auto b_s = 4u;
+    auto w = 32u;
+    auto nz_dist = std::uniform_int_distribution<IndexType>(
+        1, static_cast<gko::size_type>(15));
+    auto val_dist =
+        std::uniform_real_distribution<gko::remove_complex<ValueType>>(-1., 1.);
+    auto mat_data =
+        gko::test::generate_random_matrix_data<ValueType, IndexType>(
+            static_cast<gko::size_type>(num_rows),
+            static_cast<gko::size_type>(num_rows), nz_dist, val_dist,
+            this->rand_engine);
+    gko::utils::make_hpd(mat_data, 2.0);
+    mat_data.sort_row_major();
+    auto rhs = gko::test::generate_random_matrix<Vec>(
+        static_cast<gko::size_type>(num_rows), num_rhs,
+        std::uniform_int_distribution<IndexType>(
+            static_cast<gko::size_type>(num_rows) * num_rhs,
+            static_cast<gko::size_type>(num_rows) * num_rhs),
+        val_dist, this->rand_engine, ref_exec,
+        gko::dim<2>{static_cast<gko::size_type>(num_rows), num_rhs});
+
+    auto mtx = gko::share(Csr::create(
+        ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
+    mtx->read(mat_data);
+    auto hbmc_reorder_factory = HBMC::build()
+                                    .with_base_block_size(b_s)
+                                    .with_lvl_2_block_size(w)
+                                    .with_padding(padding)
+                                    .with_symmetric_preconditioner(symm_precond)
+                                    .on(ref_exec);
+    auto hbmc_reorder =
+        hbmc_reorder_factory->generate(gko::as<gko::LinOp>(mtx), true);
+    auto storage_from_reorder = hbmc_reorder_factory->get_hbmc_storage_scheme();
+    auto preperm_mtx = gko::share(mtx->permute(hbmc_reorder));
+    auto preperm_rhs =
+        gko::share(rhs->permute(hbmc_reorder, gko::matrix::permute_mode::rows));
+
+    auto gs_factory =
+        GS::build()
+            .with_use_HBMC(true)
+            .with_base_block_size(static_cast<gko::size_type>(b_s))
+            .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+            .with_use_padding(padding)
+            .with_symmetric_preconditioner(symm_precond)
+            .with_relaxation_factor(omega_val)
+            .with_prepermuted_input(false)
+            .with_preperm_mtx(true)
+            .with_storage_scheme(storage_from_reorder)
+            .with_storage_scheme_ready(true)
+            .on(ref_exec);
+    auto ref_gs = gko::share(gs_factory->generate(preperm_mtx));
+
+    auto d_gs_factory =
+        GS::build()
+            .with_use_HBMC(true)
+            .with_base_block_size(static_cast<gko::size_type>(b_s))
+            .with_lvl_2_block_size(static_cast<gko::size_type>(w))
+            .with_use_padding(padding)
+            .with_symmetric_preconditioner(symm_precond)
+            .with_relaxation_factor(omega_val)
+            .with_prepermuted_input(false)
+            .with_storage_scheme(storage_from_reorder)
+            .with_storage_scheme_ready(true)
+            .with_preperm_mtx(true)
+            .with_kernel_version(9)
+            .on(hip_exec);
+    auto d_gs = gko::share(d_gs_factory->generate(preperm_mtx));
+
+    auto d_rhs = gko::clone(hip_exec, preperm_rhs);
+    auto x = Vec::create_with_config_of(preperm_rhs.get());
+    x->fill(ValueType{0});
+    auto d_x = gko::clone(hip_exec, x);
+
+    ref_gs->apply(preperm_rhs.get(), x.get());
+
+    d_gs->apply(d_rhs.get(), d_x.get());
+
+    GKO_ASSERT_MTX_NEAR(x, d_x, r<ValueType>::value);
 }
 
 }  // namespace

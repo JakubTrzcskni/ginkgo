@@ -158,7 +158,7 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
         preconditioner::storage_scheme& storage_scheme,                    \
         const IndexType base_block_size, const IndexType lvl_2_block_size, \
         const IndexType* color_block_ptrs, const IndexType max_color,      \
-        const bool use_padding)
+        const bool use_padding, const bool preperm_mtx)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_ASSIGN_TO_BLOCKS_KERNEL(ValueType, IndexType) \
     void assign_to_blocks(                                                     \
@@ -181,21 +181,21 @@ gko::int32 precomputed_nz_p_b(gko::int32 n) { return diag_lut[n] + 1; }
                              const IndexType* const row_ptrs,             \
                              IndexType* const degrees)
 
-#define GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType)    \
-    void setup_blocks(std::shared_ptr<const DefaultExecutor> exec,            \
-                      const matrix::Csr<ValueType, IndexType>* system_matrix, \
-                      const IndexType* permutation_idxs,                      \
-                      const IndexType* inv_permutation_idxs,                  \
-                      preconditioner::storage_scheme& storage_scheme,         \
-                      const gko::remove_complex<ValueType> omega,             \
-                      IndexType* l_diag_rows, IndexType* l_diag_mtx_col_idxs, \
-                      ValueType* l_diag_vals, IndexType* l_spmv_row_ptrs,     \
-                      IndexType* l_spmv_col_idxs,                             \
-                      IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals, \
-                      IndexType* u_diag_rows, IndexType* u_diag_mtx_col_idxs, \
-                      ValueType* u_diag_vals, IndexType* u_spmv_row_ptrs,     \
-                      IndexType* u_spmv_col_idxs,                             \
-                      IndexType* u_spmv_mtx_col_idxs, ValueType* u_spmv_vals)
+#define GKO_DECLARE_GAUSS_SEIDEL_SETUP_BLOCKS_KERNEL(ValueType, IndexType)  \
+    void setup_blocks(                                                      \
+        std::shared_ptr<const DefaultExecutor> exec,                        \
+        const matrix::Csr<ValueType, IndexType>* system_matrix,             \
+        const IndexType* permutation_idxs,                                  \
+        const IndexType* inv_permutation_idxs,                              \
+        preconditioner::storage_scheme& storage_scheme,                     \
+        const gko::remove_complex<ValueType> omega, IndexType* l_diag_rows, \
+        IndexType* l_diag_mtx_col_idxs, ValueType* l_diag_vals,             \
+        IndexType* l_spmv_row_ptrs, IndexType* l_spmv_col_idxs,             \
+        IndexType* l_spmv_mtx_col_idxs, ValueType* l_spmv_vals,             \
+        IndexType* u_diag_rows, IndexType* u_diag_mtx_col_idxs,             \
+        ValueType* u_diag_vals, IndexType* u_spmv_row_ptrs,                 \
+        IndexType* u_spmv_col_idxs, IndexType* u_spmv_mtx_col_idxs,         \
+        ValueType* u_spmv_vals, const bool preperm_mtx)
 
 #define GKO_DECLARE_GAUSS_SEIDEL_FILL_WITH_VALS_KERNEL(ValueType, IndexType) \
     void fill_with_vals(                                                     \
