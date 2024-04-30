@@ -652,7 +652,9 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     const IndexType num_base_blocks = ceildiv(num_nodes, block_size);
 
     array<IndexType> block_ordering(exec, num_nodes);
-    if (!preperm_mtx_) {
+    block_ordering.fill(IndexType{-1});
+    if (!preperm_mtx_) {  // TODO IF not necessary, storage_scheme_ready is
+                          // relevant
         array<IndexType> degrees(exec, num_nodes);
         array<int8> visited(exec, num_nodes);
         exec->run(gauss_seidel::make_get_degree_of_nodes(
@@ -663,6 +665,12 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         exec->run(gauss_seidel::make_assign_to_blocks(
             adjacency_matrix, block_ordering.get_data(),
             degrees.get_const_data(), visited.get_data(), block_size));
+
+        for(auto i = 0; i < num_nodes; i++) {
+            if (block_ordering.get_const_data()[i] == -1) {
+                 GKO_ASSERT(false);
+            }
+        }
     } else {
         std::iota(block_ordering.get_data(),
                   block_ordering.get_data() + num_nodes, 0);
@@ -686,7 +694,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
     reserve_mem_for_block_structure(adjacency_matrix, num_base_blocks,
                                     block_size, max_color + 1);
 
-    if (preperm_mtx_) {
+    if (preperm_mtx_) {  // not necessary
         permutation_idxs_.resize_and_reset(num_nodes);
         std::iota(permutation_idxs_.get_data(),
                   permutation_idxs_.get_data() + num_nodes, 0);
@@ -698,7 +706,7 @@ array<IndexType> GaussSeidel<ValueType, IndexType>::generate_block_structure(
         lvl_2_block_size, color_ptrs_.get_const_data(), max_color, use_padding_,
         preperm_mtx_));
 
-    if (preperm_mtx_) {
+    if (preperm_mtx_) {  // not necessary
         permutation_idxs_.resize_and_reset(num_nodes);
         std::iota(permutation_idxs_.get_data(),
                   permutation_idxs_.get_data() + num_nodes, 0);

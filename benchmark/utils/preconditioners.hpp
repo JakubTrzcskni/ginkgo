@@ -59,6 +59,13 @@ DEFINE_uint32(
     gs_lvl_2_block_size, 32u,
     "Lvl 2 block size of the HBMC Gauss Seidel. Preferably warp size");
 
+DEFINE_bool(gs_use_reference,false,
+            "Determines if the Gauss Seidel preconditioner should use the "
+            "reference triangular solver");
+
+DEFINE_bool(gs_use_HBMC, true,
+            "Determines if the HBMC Gauss Seidel should be used");
+
 DEFINE_bool(gs_use_padding, true,
             "Defines if the blocks of the HBMC Gauss Seidel should be "
             "padded to the lvl 2 size");
@@ -326,6 +333,77 @@ const std::map<std::string, std::function<std::unique_ptr<gko::LinOpFactory>(
                  .with_use_padding(FLAGS_gs_use_padding)
                  .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
                  .with_base_block_size(FLAGS_gs_base_block_size)
+                 .with_use_HBMC(FLAGS_gs_use_HBMC)
+                 .with_use_reference(FLAGS_gs_use_reference)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                 .on(exec);
+         }},
+        {"gauss-seidel-1",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(1)
+                 .with_use_HBMC(true)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                 .on(exec);
+         }},
+        {"gauss-seidel-2",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(2)
+                 .with_use_HBMC(true)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                 .on(exec);
+         }},
+        {"gauss-seidel-4",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(4)
+                 .with_use_HBMC(true)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                 .on(exec);
+         }},
+        {"gauss-seidel-8",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(8)
+                 .with_use_HBMC(true)
+                 .with_prepermuted_input(FLAGS_gs_prepermuted_input)
+                 .with_preperm_mtx(FLAGS_gs_preperm_mtx)
+                 .with_kernel_version(FLAGS_gs_apply_kernel_version)
+                 .with_symmetric_preconditioner(FLAGS_gs_symm_precond)
+                 .with_relaxation_factor(FLAGS_gs_relaxation_factor)
+                 .on(exec);
+         }},
+        {"gauss-seidel-16",
+         [](std::shared_ptr<const gko::Executor> exec) {
+             return gko::preconditioner::GaussSeidel<etype, itype>::build()
+                 .with_use_padding(FLAGS_gs_use_padding)
+                 .with_lvl_2_block_size(FLAGS_gs_lvl_2_block_size)
+                 .with_base_block_size(16)
                  .with_use_HBMC(true)
                  .with_prepermuted_input(FLAGS_gs_prepermuted_input)
                  .with_preperm_mtx(FLAGS_gs_preperm_mtx)

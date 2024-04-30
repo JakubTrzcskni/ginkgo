@@ -87,6 +87,8 @@ using hbmc_block_sizes =
 
 using hbmc_kernel_version = syn::value_list<int, 1, 2, 3, 4, 5, 6, 7, 8, 9>;
 
+// using first_block = syn::value_list<int, 1, 0>;
+
 constexpr int default_kernel_version = 1;
 
 template <typename IndexType>

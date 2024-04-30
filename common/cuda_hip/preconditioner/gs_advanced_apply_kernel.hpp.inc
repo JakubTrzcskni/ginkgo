@@ -14,8 +14,8 @@ __device__ void adv_apply_tr(const IndexType* __restrict__ rows,
     const auto curr_b_s = (num_rows_in_block - tid * b_s) < b_s
                               ? (num_rows_in_block - tid * b_s)
                               : b_s;
-
-    auto row = 0;
+    // printf("tid = %d, col_id = %d, curr_b_s = %d\n", tid, col_id, curr_b_s);
+    auto row = 0; //row in the virtual local block of a thread
     auto idx_write = 0;
     while (row < curr_b_s) {
         auto tmp = zero<ValueType>();  // ValueType tmp{0};

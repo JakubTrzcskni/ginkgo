@@ -1,11 +1,11 @@
 template <bool prepermuted, int subwarp_size, typename ValueType,
-          typename IndexType, typename Closure>
+          typename IndexType>
 __device__ void apply_ltr_v6(
     const IndexType* __restrict__ rows, const ValueType* __restrict__ vals,
     const size_type end_row, const size_type num_rows_in_block,
     const size_type b_s, const size_type w_storage, const size_type num_rhs,
     const ValueType* __restrict__ b, ValueType* __restrict__ x,
-    const IndexType* __restrict__ perm_idxs, Closure scale)
+    const IndexType* __restrict__ perm_idxs, const bool first)
 {
     const auto tid = thread::get_thread_id_flat<int>();
     const auto col_id = blockIdx.y;
@@ -41,11 +41,11 @@ __device__ void apply_ltr_v6(
             const auto inv_diag_val = one<ValueType>() / val;
             const auto x_row_global =
                 prepermuted ? row_global : perm_idxs[row_global];
-            tmp += prepermuted ? b[row_global * num_rhs + col_id] +
-                                     x[x_row_global * num_rhs + col_id]
-                               : b[row_global * num_rhs + col_id];
-            x[x_row_global * num_rhs + col_id] =
-                scale(inv_diag_val * tmp, x[x_row_global * num_rhs + col_id]);
+            tmp += (prepermuted && !first)
+                       ? b[row_global * num_rhs + col_id] +
+                             x[x_row_global * num_rhs + col_id]
+                       : b[row_global * num_rhs + col_id];
+            x[x_row_global * num_rhs + col_id] = inv_diag_val * tmp;
         }
         ++row;
         idx_write += (row + 1);
@@ -60,7 +60,7 @@ __global__ void apply_l_p_block_kernel_v9(
     const size_type b_s, const int nz_p_b, const size_type num_p_blocks,
     const bool res_blocks, const size_type num_rhs,
     const ValueType* __restrict__ b_perm, ValueType* __restrict__ x,
-    const IndexType* __restrict__ perm_idxs)
+    const IndexType* __restrict__ perm_idxs, const bool first)
 {
     const auto tid = thread::get_thread_id_flat<int>();
     auto subwarp =
@@ -79,14 +79,12 @@ __global__ void apply_l_p_block_kernel_v9(
         apply_ltr_v6<prepermuted, subwarp_size>(
             &(rows[base_block_offs]), &(vals[base_block_offs]), end_row,
             num_rows_in_block, b_s, one<size_type>(), num_rhs, b_perm, x,
-            perm_idxs,
-            [](const ValueType& x, const ValueType& y) { return x; });
+            perm_idxs, first);
     } else {
         // apply lvl 1
         apply_ltr_v6<prepermuted, subwarp_size>(
             &(rows[base_offs + local_tid]), &(vals[base_offs + local_tid]),
             end_row, num_rows_in_block, b_s, subwarp_size, num_rhs, b_perm, x,
-            perm_idxs,
-            [](const ValueType& x, const ValueType& y) { return x; });
+            perm_idxs, first);
     }
 }

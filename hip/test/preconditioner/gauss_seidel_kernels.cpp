@@ -11,10 +11,10 @@
 #include <gtest/gtest.h>
 
 
-// #include <ginkgo/core/matrix/csr.hpp>
-// #include <ginkgo/core/matrix/dense.hpp>
-// #include <ginkgo/core/reorder/hbmc.hpp>
-#include <ginkgo/ginkgo.hpp>
+#include <ginkgo/core/matrix/csr.hpp>
+#include <ginkgo/core/matrix/dense.hpp>
+#include <ginkgo/core/reorder/hbmc.hpp>
+// #include <ginkgo/ginkgo.hpp>
 
 #include "core/preconditioner/gauss_seidel_kernels.hpp"
 #include "core/test/utils.hpp"
@@ -290,6 +290,7 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
         auto mtx = gko::share(Csr::create(
             ref_exec, gko::dim<2>(static_cast<gko::size_type>(num_rows))));
         mtx->read(mat_data);
+        auto mtx_cpy = gko::share(gko::clone(hip_exec, mtx));
 
         auto perm_gs_factory =
             GS::build()
@@ -300,6 +301,7 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
                 .with_prepermuted_input(false)
                 .on(hip_exec);
         auto perm_gs = perm_gs_factory->generate(mtx);
+
         for (int kernel_version = 2; kernel_version <= 9; ++kernel_version) {
             auto preperm_gs_factory =
                 GS::build()
@@ -310,7 +312,7 @@ TYPED_TEST(GaussSeidel, PrepermutedSimpleApply)
                     .with_prepermuted_input(true)
                     .with_kernel_version(kernel_version)
                     .on(hip_exec);
-            auto preperm_gs = preperm_gs_factory->generate(mtx);
+            auto preperm_gs = preperm_gs_factory->generate(mtx_cpy);
 
             auto perm_idxs = gko::array<IndexType>(
                 hip_exec, preperm_gs->get_permutation_idxs());
@@ -502,7 +504,7 @@ TYPED_TEST(GaussSeidel, WorksWithPrepermMtxInput)
     using Csr = gko::matrix::Csr<ValueType, IndexType>;
     using Vec = gko::matrix::Dense<ValueType>;
     using HBMC = gko::experimental::reorder::Hbmc<IndexType>;
-   
+
     auto ref_exec = this->ref;
     auto hip_exec = this->hip;
 

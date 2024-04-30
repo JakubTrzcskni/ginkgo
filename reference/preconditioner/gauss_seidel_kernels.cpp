@@ -285,6 +285,7 @@ GKO_INSTANTIATE_FOR_EACH_VALUE_AND_INDEX_TYPE(
     GKO_DECLARE_GAUSS_SEIDEL_PREPERMUTED_SIMPLE_APPLY_KERNEL);
 
 namespace {
+    //TODO Closure is not being used. apply with scaling happens one lvl up in core/gauss_seidel.cpp
 template <bool advanced, bool forward, typename ValueType, typename IndexType,
           typename Closure>
 void apply_lvl_1(preconditioner::lvl_1_block* lvl_1_block,
@@ -461,7 +462,9 @@ void apply_p_block(preconditioner::parallel_block* p_block,
 {
     auto blocks = p_block->parallel_blocks_;
     for (auto i = 0; i < p_block->degree_of_parallelism_; i++) {
-        if (i == p_block->degree_of_parallelism_ - 1 && p_block->residual_) {
+        if (i == p_block->degree_of_parallelism_ - 1 &&
+            p_block->residual_) {  // TODO redesign of base_block_agg &
+                                   // lvl_1_block differentiation
             apply_agg<advanced, forward>(
                 static_cast<preconditioner::base_block_aggregation*>(
                     blocks[i].get()),

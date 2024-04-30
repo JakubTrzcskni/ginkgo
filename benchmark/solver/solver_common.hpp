@@ -417,6 +417,10 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
         } else {
             auto data = generator.generate_matrix_data(test_case);
 
+            std::ofstream first_stream{std::to_string(data.size[0]) +
+                                       "_bench_matrix.mtx"};
+            gko::write_raw(first_stream, data, gko::layout_type::coordinate);
+
             auto permutation =
                 FLAGS_gs_preperm_mtx
                     ? reorder(data, test_case, state.hbmc_storage_scheme)
@@ -426,6 +430,11 @@ struct SolverBenchmark : Benchmark<solver_benchmark_state<Generator>> {
                 exec, test_case["optimal"]["spmv"].get<std::string>(), data);
             state.b = generator.generate_rhs(exec, state.system_matrix.get(),
                                              test_case);
+            std::ofstream second_stream{std::to_string(data.size[0]) +
+                                        "_bench_matrix_reordered.mtx"};
+            gko::write_raw(second_stream, data, gko::layout_type::coordinate);
+
+
             if (permutation) {
                 permute(state.b, permutation.get());
             }

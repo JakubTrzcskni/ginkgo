@@ -97,23 +97,60 @@ template <typename IndexType>
 std::unique_ptr<LinOp> Hbmc<IndexType>::generate_impl(
     std::shared_ptr<const LinOp> system_matrix) const
 {
-    using ValueType = float;
-    using Mtx = matrix::Csr<ValueType, IndexType>;
+    GKO_ASSERT_IS_SQUARE_MATRIX(system_matrix);
+    const auto exec = this->get_executor();
+    const auto work_exec = this->get_executor()->get_master();
     auto base_block_size = parameters_.base_block_size;
     auto lvl_2_block_size = parameters_.lvl_2_block_size;
     auto padding = parameters_.padding;
 
-    auto hbmc_gs = preconditioner::GaussSeidel<ValueType, IndexType>::build()
-                       .with_use_HBMC(true)
-                       .with_base_block_size(base_block_size)
-                       .with_lvl_2_block_size(lvl_2_block_size)
-                       .with_use_padding(padding)
-                       .on(this->get_executor()->get_master())
-                       ->generate(system_matrix);
-    auto permutation_array = hbmc_gs->get_permutation_idxs();
+    // copied from rcm.cpp
+    std::unique_ptr<LinOp> converted;
+    auto convert = [&](auto op, auto value_type) {
+        using ValueType = std::decay_t<decltype(value_type)>;
+        using Mtx = matrix::Csr<ValueType, IndexType>;
+        using Identity = matrix::Identity<ValueType>;
+        using Scalar = matrix::Dense<ValueType>;
+        auto conv_csr = Mtx::create(work_exec);
+        as<ConvertibleTo<Mtx>>(op)->convert_to(conv_csr);
+        if (exec != work_exec) {
+            conv_csr = gko::clone(work_exec, std::move(conv_csr));
+        }
+        converted = std::move(conv_csr);
+    };
+    if (auto convertible =
+            dynamic_cast<const ConvertibleTo<matrix::Csr<float, IndexType>>*>(
+                system_matrix.get())) {
+        convert(system_matrix, float{});
+        auto hbmc_gs = preconditioner::GaussSeidel<float, IndexType>::build()
+                           .with_use_HBMC(true)
+                           .with_base_block_size(base_block_size)
+                           .with_lvl_2_block_size(lvl_2_block_size)
+                           .with_use_padding(padding)
+                           .on(this->get_executor()->get_master())
+                           ->generate(system_matrix);
 
-    return permutation_type::create(this->get_executor(),
-                                    std::move(permutation_array));
+        auto permutation_array = hbmc_gs->get_permutation_idxs();
+        return permutation_type::create(this->get_executor(),
+                                        std::move(permutation_array));
+    } else {
+        convert(system_matrix, std::complex<float>{});
+        auto hbmc_gs =
+            preconditioner::GaussSeidel<std::complex<float>, IndexType>::build()
+                .with_use_HBMC(true)
+                .with_base_block_size(base_block_size)
+                .with_lvl_2_block_size(lvl_2_block_size)
+                .with_use_padding(padding)
+                .on(this->get_executor()->get_master())
+                ->generate(system_matrix);
+
+        auto permutation_array = hbmc_gs->get_permutation_idxs();
+        return permutation_type::create(this->get_executor(),
+                                        std::move(permutation_array));
+    }
+
+
+    // auto permutation_array = hbmc_gs->get_permutation_idxs();
 }
 
 

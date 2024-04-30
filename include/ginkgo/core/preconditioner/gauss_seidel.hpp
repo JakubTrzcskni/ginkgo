@@ -42,14 +42,14 @@ struct general_block {
 
 struct storage_scheme {
     storage_scheme() = default;
-    storage_scheme(const storage_scheme& other):
-        num_blocks_{other.num_blocks_},
-        combined_nnz_spmv_blocks_{other.combined_nnz_spmv_blocks_},
-        symm_{other.symm_},
-        forward_solve_{other.forward_solve_},
-        backward_solve_{other.backward_solve_}
+    storage_scheme(const storage_scheme& other)
+        : num_blocks_{other.num_blocks_},
+          combined_nnz_spmv_blocks_{other.combined_nnz_spmv_blocks_},
+          symm_{other.symm_},
+          forward_solve_{other.forward_solve_},
+          backward_solve_{other.backward_solve_}
     {}
-    storage_scheme(size_type num_blocks, bool symm = false )
+    storage_scheme(size_type num_blocks, bool symm = false)
         : num_blocks_{num_blocks}, symm_{symm}, combined_nnz_spmv_blocks_{0}
     {
         forward_solve_.reserve(num_blocks);
@@ -306,13 +306,13 @@ protected:
           prepermuted_input_{parameters_.prepermuted_input},
           preperm_mtx_{parameters_.preperm_mtx},
           kernel_version_{parameters_.kernel_version},
-          hbmc_storage_scheme_{parameters_.storage_scheme},
           storage_scheme_ready_{parameters_.storage_scheme_ready}
 
     {
         GKO_ASSERT(relaxation_factor_ > 0.0 && relaxation_factor_ < 2.0);
         if (preperm_mtx_) GKO_ASSERT(storage_scheme_ready_);
-
+        if (storage_scheme_ready_)
+            hbmc_storage_scheme_ = parameters_.storage_scheme;
         if (parameters_.use_HBMC == true) {
             GKO_ASSERT(base_block_size_ > 0 && base_block_size_ < 33 &&
                        lvl2_block_size_ > 0 && lvl2_block_size_ < 33);

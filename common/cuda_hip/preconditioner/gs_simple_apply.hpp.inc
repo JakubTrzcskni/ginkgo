@@ -156,6 +156,7 @@ void apply_hbmc(syn::value_list<int, subwarp_size>,
                 subblock_LUT);
     } else if (version == 9) {
         const auto grid_size_v9 = dim3(grid_size, num_rhs, 1);
+        const bool first = id_offs == 0;
         kernel::apply_l_p_block_kernel_v9<prepermuted, subwarp_size>
             <<<grid_size_v9, block_size>>>(
                 &(l_diag_rows[id_offs]),
@@ -164,7 +165,7 @@ void apply_hbmc(syn::value_list<int, subwarp_size>,
                 p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
                 p_block->residual_, num_rhs,
                 as_device_type(b_perm->get_const_values()),
-                as_device_type(x->get_values()), permutation_idxs);
+                as_device_type(x->get_values()), permutation_idxs, first);
     } else {
         GKO_KERNEL_NOT_FOUND;
     }

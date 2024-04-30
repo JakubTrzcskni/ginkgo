@@ -1,3 +1,32 @@
+// template <bool prepermuted, int version, int subwarp_size, int first_block,
+//           typename ValueType, typename IndexType>
+// void first_block_apply_hbmc(
+//     syn::value_list<int, first_block>, std::shared_ptr<const Executor> exec,
+//     const IndexType* local_l_diag_rows, const ValueType* local_l_diag_vals,
+//     const preconditioner::parallel_block* p_block,
+//     const matrix::Dense<ValueType>* b_perm, matrix::Dense<ValueType>* x,
+//     const int* diag_LUT, const int* subblock_LUT, const IndexType grid_size,
+//     const IndexType block_size, const IndexType num_rows_p_block,
+//     const IndexType b_s, const IndexType* permutation_idxs = nullptr)
+// {
+//     const auto num_rhs = b_perm->get_size()[1];
+//     if (version == 9) {
+//         const auto grid_size_v9 = dim3(grid_size, num_rhs, 1);
+//         kernel::apply_l_p_block_kernel_v9<prepermuted, subwarp_size,
+//                                           static_cast<bool>(first_block)>
+//             <<<grid_size_v9, block_size>>>(
+//                 &(local_l_diag_rows), as_device_type(&(local_l_diag_vals)),
+//                 p_block->end_row_global_, num_rows_p_block, b_s,
+//                 p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
+//                 p_block->residual_, num_rhs,
+//                 as_device_type(b_perm->get_const_values()),
+//                 as_device_type(x->get_values()), permutation_idxs,
+//                 first_block);
+//     }
+// }
+// GKO_ENABLE_IMPLEMENTATION_SELECTION(select_first_block_apply_hbmc,
+//                                     first_block_apply_hbmc);
+
 template <bool prepermuted, int version, int subwarp_size, typename ValueType,
           typename IndexType>
 void const_apply_hbmc(syn::value_list<int, subwarp_size>,
@@ -80,6 +109,16 @@ void const_apply_hbmc(syn::value_list<int, subwarp_size>,
                 subblock_LUT);
     } else if (version == 9) {
         const auto grid_size_v9 = dim3(grid_size, num_rhs, 1);
+        // select_first_block_apply_hbmc(
+        //     kernel::first_block(),
+        //     [&](int compiled_first) {
+        //         return compiled_first == (id_offs == 0);
+        //     },
+        //     syn::value_list<int, prepermuted, version, subwarp_size>(),
+        //     syn::type_list<>(), exec, &(l_diag_rows[id_offs]),
+        //     &(l_diag_vals[id_offs]), p_block, b_perm, x, diag_LUT,
+        //     subblock_LUT, grid_size, block_size, num_rows_p_block, b_s,
+        //     permutation_idxs);
         kernel::apply_l_p_block_kernel_v9<prepermuted, subwarp_size>
             <<<grid_size_v9, block_size>>>(
                 &(l_diag_rows[id_offs]),
@@ -88,7 +127,8 @@ void const_apply_hbmc(syn::value_list<int, subwarp_size>,
                 p_block->nz_p_b_block_, p_block->degree_of_parallelism_,
                 p_block->residual_, num_rhs,
                 as_device_type(b_perm->get_const_values()),
-                as_device_type(x->get_values()), permutation_idxs);
+                as_device_type(x->get_values()), permutation_idxs,
+                (id_offs == 0));
     } else {
         GKO_KERNEL_NOT_FOUND;
     }
